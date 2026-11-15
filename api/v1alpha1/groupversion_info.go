@@ -21,6 +21,10 @@ var (
 			&HarborConnection{}, &HarborConnectionList{},
 			&HarborProject{}, &HarborProjectList{},
 			&HarborProjectRobot{}, &HarborProjectRobotList{},
+			&HarborRegistry{}, &HarborRegistryList{},
+			&HarborRetentionPolicy{}, &HarborRetentionPolicyList{},
+			&HarborImmutabilityPolicy{}, &HarborImmutabilityPolicyList{},
+			&HarborSystemRobot{}, &HarborSystemRobotList{},
 		)
 
 		return nil

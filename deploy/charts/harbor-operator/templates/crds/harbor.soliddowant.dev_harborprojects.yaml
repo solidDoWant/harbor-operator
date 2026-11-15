@@ -141,6 +141,36 @@ spec:
                 maxLength: 255
                 pattern: ^[a-z0-9]+(?:[._-][a-z0-9]+)*$
                 type: string
+              proxyCache:
+                description: ProxyCache makes the project a proxy cache. Set it at
+                  creation or never.
+                properties:
+                  registryRef:
+                    description: RegistryRef names the HarborRegistry. Its allowedNamespaces
+                      must admit this project's namespace.
+                    properties:
+                      name:
+                        description: Name of the object.
+                        minLength: 1
+                        type: string
+                      namespace:
+                        description: Namespace of the object. Empty means the namespace
+                          of the referring resource.
+                        type: string
+                    required:
+                    - name
+                    type: object
+                  speedLimitKbps:
+                    description: SpeedLimitKbps limits the pull speed from the upstream.
+                      -1 means unlimited. Unset is not touched.
+                    format: int32
+                    type: integer
+                    x-kubernetes-validations:
+                    - message: speedLimitKbps must be -1 or greater than 0
+                      rule: self == -1 || self > 0
+                required:
+                - registryRef
+                type: object
               public:
                 type: boolean
               resyncInterval:
@@ -304,6 +334,11 @@ spec:
             ? oldSelf.spec.name : oldSelf.metadata.name)'
         - message: spec.connectionRef is immutable
           rule: self.spec.connectionRef == oldSelf.spec.connectionRef
+        - message: spec.proxyCache cannot be added or removed after creation
+          rule: has(self.spec.proxyCache) == has(oldSelf.spec.proxyCache)
+        - message: spec.proxyCache.registryRef is immutable
+          rule: '!has(self.spec.proxyCache) || !has(oldSelf.spec.proxyCache) || self.spec.proxyCache.registryRef
+            == oldSelf.spec.proxyCache.registryRef'
     served: true
     storage: true
     subresources:
