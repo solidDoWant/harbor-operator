@@ -437,3 +437,57 @@ func TestRobotDeletion(t *testing.T) {
 		})
 	}
 }
+
+// A robot in Conflict can still hold the owner's robot ID in status: here the second resource adopted the robot while
+// the owner's namespace was not admitted. Deleting it with policy Delete must leave the owner's Harbor robot alone.
+func TestRobotInConflictDeletionLeavesTheOwnersHarborRobot(t *testing.T) {
+	setup := readyRobotProject(t, func(connection *harborv1alpha1.HarborConnection) { connection.Spec.AllowAdoption = true },
+		func(project *harborv1alpha1.HarborProject) {
+			project.Spec.AllowedNamespaces.Names = []string{"team-a", "team-b"}
+		})
+	cl := setup.cl
+
+	for _, namespace := range []string{"team-a", "team-b"} {
+		require.NoError(t, client.IgnoreAlreadyExists(cl.Create(t.Context(), &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}})))
+	}
+
+	setAllowed := func(names ...string) {
+		updateProject(t, cl, client.ObjectKeyFromObject(setup.project), func(project *harborv1alpha1.HarborProject) {
+			project.Spec.AllowedNamespaces.Names = names
+		})
+	}
+
+	first := ciRobot("team-a", setup.project)
+	require.NoError(t, cl.Create(t.Context(), first))
+	t.Cleanup(func() { _ = cl.Delete(context.Background(), first) })
+
+	owner := awaitRobot(t, cl, client.ObjectKeyFromObject(first), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
+
+	setAllowed("team-b")
+	awaitRobot(t, cl, client.ObjectKeyFromObject(first), metav1.ConditionFalse, harborv1alpha1.ReasonNotAllowed)
+
+	second := ciRobot("team-b", setup.project)
+	second.Spec.Adopt = true
+	second.Spec.DeletionPolicy = harborv1alpha1.DeletionPolicyDelete
+	require.NoError(t, cl.Create(t.Context(), second))
+	t.Cleanup(func() { _ = cl.Delete(context.Background(), second) })
+
+	adopted := awaitRobot(t, cl, client.ObjectKeyFromObject(second), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
+	require.Equal(t, owner.Status.RobotID, adopted.Status.RobotID)
+
+	setAllowed("team-a", "team-b")
+	awaitRobot(t, cl, client.ObjectKeyFromObject(first), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
+	loser := awaitRobot(t, cl, client.ObjectKeyFromObject(second), metav1.ConditionFalse, harborv1alpha1.ReasonConflict)
+	require.Equal(t, owner.Status.RobotID, loser.Status.RobotID, "the resource in Conflict still records the robot's ID")
+
+	require.NoError(t, cl.Delete(t.Context(), loser))
+	require.Eventually(t, func() bool {
+		return apierrors.IsNotFound(cl.Get(t.Context(), client.ObjectKeyFromObject(loser), &harborv1alpha1.HarborProjectRobot{}))
+	}, projectWait, 200*time.Millisecond, "waiting for the resource in Conflict to go")
+
+	_, err := setup.admin.GetRobot(t.Context(), owner.Status.RobotID)
+	require.NoError(t, err, "the owner's Harbor robot stays")
+
+	kept := awaitRobot(t, cl, client.ObjectKeyFromObject(first), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
+	assert.Equal(t, owner.Status.RobotID, kept.Status.RobotID, "the owner keeps the same Harbor robot")
+}
