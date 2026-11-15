@@ -200,5 +200,5 @@ scripts/                      dev and agent scripts
 
 ## 15. Open questions
 
-1. ~~Can a Harbor 2.15 system robot create and update project and system robot accounts?~~ Answered on Harbor 2.15.4: partly. A system robot with the `robot` `create` permission can create both project and system robots, but only with permissions it holds itself (Harbor answers `403` otherwise). Harbor has no `robot` `update` permission for system robots. The admin docs say to use a local admin user ([`docs/admin/credentials.md`](docs/admin/credentials.md)), and nothing else changes: the connection takes any basic-auth credential.
+1. ~~Can a Harbor system robot manage robot accounts?~~ Answered on Harbor 2.15.4: it can create project and system robots that hold only permissions it holds itself (`403` otherwise), and delete them, but it can't update robots or refresh their secrets. The system robot stays the default credential: the operator replaces a robot (delete and create) when Harbor refuses an update or refresh (`docs/design/phase-1.md`). A local admin user also works and updates robots in place ([`docs/admin/credentials.md`](docs/admin/credentials.md)).
 2. Does `goharbor/go-client` cover every endpoint the phases need (quotas, retentions, immutable rules, robot secret refresh, registries)? Missing endpoints are raised as questions, not hand-written.

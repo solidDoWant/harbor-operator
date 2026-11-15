@@ -1,17 +1,22 @@
 # Which Harbor credential to use
 
-The operator signs in to Harbor with a basic-auth credential. This page says which type to use.
+The operator signs in to Harbor with a username and password (basic auth), stored in a Secret next to the `HarborConnection`. Two kinds of credential work.
 
-## Use a local admin user
+## Use a system robot account (default)
 
-Use a Harbor local user that is a system administrator. This type works for every resource the operator manages, with no extra setup.
+Create a Harbor **system robot account** in Harbor's UI (Administration, Robot Accounts) and put its name and secret in the connection's Secret. This is the recommended credential. It also works when Harbor signs people in through OIDC, where local users other than `admin` don't exist.
 
-A Harbor system robot account can also sign in. It has a limit when the operator creates robot accounts:
+Give the robot:
 
-- A robot can create project robots and system robots only if it has the `robot` `create` permission.
-- A robot can only give permissions that it holds itself. If a new robot asks for a permission that the creator does not have, Harbor refuses the request with `403`.
-- Harbor has no `robot` `update` permission for system robots.
+- `project`: create, read, update, delete, list
+- `quota`: read, update
+- `robot`: create, read, list, delete
+- on all projects, every permission that any robot resource in your cluster may ask for (for CI robots usually `repository` push and pull). Harbor only lets a robot create robots with permissions it holds itself, and answers `403` otherwise.
 
-For this reason, a system robot would need every permission that any robot resource in the cluster can ask for. Use an admin user unless you accept this limit.
+Harbor doesn't let a robot change another robot or refresh its secret. When a robot resource changes, or its secret must be renewed, the operator deletes the Harbor robot and creates it again, then rewrites the robot's Secret. Pods that read the Secret get the new password; anything that copied the old one needs the new one.
 
-A system robot with the `project` `create`, `quota` and `robot` permissions, and with the permissions it hands out, can create both types of robot. The integration tests in `test/harborfixture` check this on Harbor 2.15.
+## Or use a local admin user
+
+A Harbor local user with the system administrator role can do everything, and the operator changes robots in place instead of replacing them. Use it if replacing robots is a problem for you.
+
+The integration tests in `test/harborfixture` check the robot limits on Harbor 2.15.
