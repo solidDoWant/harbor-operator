@@ -1,0 +1,5 @@
+apiVersion: v2
+name: ci
+description: A namespace, a Harbor project, a push robot and a retention policy for one CI pipeline
+type: application
+version: 0.1.0

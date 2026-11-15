@@ -36,6 +36,7 @@ docs/README.md             This page.
 docs/user/
   README.md                The pages for chart authors.
   example.md               A project with a CI robot, the robot Secret and the status reasons.
+  ci-chart-example.md      A Helm chart for one CI pipeline: namespace, project, push robot and retention policy.
   retention.md             A tag retention policy for a project and its status reasons.
   crd-reference.md         Every resource field (generated).
   robot-permissions.md     The resource and action pairs a project robot may be granted.
