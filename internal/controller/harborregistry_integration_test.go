@@ -29,15 +29,16 @@ import (
 	"github.com/solidDoWant/harbor-operator/test/leakscan"
 )
 
-// registrySetup is a running operator with a ready connection in the default namespace that admits every namespace,
+// registrySetup is a running operator with a ready connection in its own namespace that admits every namespace,
 // for projects and for Harbor-wide kinds.
 type registrySetup struct {
 	instance *harborfixture.Harbor
 	admin    *harbor.Client
 	cl       client.Client
 	// upstreamURL is where Harbor reaches the plain registry in its cluster.
-	upstreamURL string
-	connection  *harborv1alpha1.HarborConnection
+	upstreamURL  string
+	connection   *harborv1alpha1.HarborConnection
+	ownNamespace string
 	// registries and projects are the Harbor names deleted after the operator stops, so it cannot create them again.
 	registries, projects []string
 }
@@ -70,13 +71,15 @@ func readyRegistrySetup(t *testing.T, logger *leakscan.Log, changeConnection fun
 		}
 	})
 
-	options := operatorOptions{withProjects: true}
+	var cl client.Client
 	if logger != nil {
-		options.logger = logger.Logger()
+		cl = startIsolatedOperator(t, operatorOptions{logger: logger.Logger()})
+	} else {
+		cl = startOperator(t)
 	}
 
-	cl := startOperatorWith(t, options)
-	connection := readyConnection(t, cl, instance, "default", func(connection *harborv1alpha1.HarborConnection) {
+	namespace := newNamespace(t, cl, "registry")
+	connection := readyConnection(t, cl, instance, namespace, func(connection *harborv1alpha1.HarborConnection) {
 		everything := harborv1alpha1.AllowedNamespaces{Selector: &metav1.LabelSelector{}}
 		connection.Spec.AllowedNamespaces = everything
 		connection.Spec.SystemAllowedNamespaces = everything
@@ -86,7 +89,7 @@ func readyRegistrySetup(t *testing.T, logger *leakscan.Log, changeConnection fun
 		}
 	})
 
-	setup.cl, setup.connection = cl, connection
+	setup.cl, setup.connection, setup.ownNamespace = cl, connection, namespace
 
 	return setup
 }
@@ -121,11 +124,6 @@ func (s *registrySetup) newProxyProject(namespace, harborName string, registry c
 	project.Spec.ProxyCache = &harborv1alpha1.ProxyCacheSpec{RegistryRef: harborv1alpha1.ObjectReference{Namespace: registry.Namespace, Name: registry.Name}}
 
 	return project
-}
-
-func (s *registrySetup) namespace(t *testing.T, name string) {
-	t.Helper()
-	require.NoError(t, s.cl.Create(t.Context(), &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: name}}))
 }
 
 func awaitRegistry(t *testing.T, cl client.Client, key client.ObjectKey, status metav1.ConditionStatus, reason string) *harborv1alpha1.HarborRegistry {
@@ -185,11 +183,13 @@ func updateRegistry(t *testing.T, cl client.Client, key client.ObjectKey, change
 }
 
 func TestRegistryIsCreatedReportsItsHealthAndBecomesReady(t *testing.T) {
+	t.Parallel()
+
 	setup := readyRegistrySetup(t, nil, nil)
 
 	t.Run("docker-registry upstream in the cluster", func(t *testing.T) {
 		harborName := setup.harborRegistryName(t, "")
-		registry := setup.newRegistry("default", "upstream", harborName)
+		registry := setup.newRegistry(setup.ownNamespace, "upstream", harborName)
 		registry.Spec.Description = "in-cluster upstream"
 		require.NoError(t, setup.cl.Create(t.Context(), registry))
 
@@ -209,7 +209,7 @@ func TestRegistryIsCreatedReportsItsHealthAndBecomesReady(t *testing.T) {
 
 	t.Run("github-ghcr", func(t *testing.T) {
 		harborName := setup.harborRegistryName(t, "")
-		registry := setup.newRegistry("default", "ghcr", harborName)
+		registry := setup.newRegistry(setup.ownNamespace, "ghcr", harborName)
 		registry.Spec.Type = "github-ghcr"
 		registry.Spec.URL = "https://ghcr.io"
 		require.NoError(t, setup.cl.Create(t.Context(), registry))
@@ -225,13 +225,15 @@ func TestRegistryIsCreatedReportsItsHealthAndBecomesReady(t *testing.T) {
 }
 
 func TestRegistryCredentialsAreStoredAndFollowTheSecret(t *testing.T) {
+	t.Parallel()
+
 	log := &leakscan.Log{}
 	setup := readyRegistrySetup(t, log, nil)
 	harborName := setup.harborRegistryName(t, "")
 
-	require.NoError(t, setup.cl.Create(t.Context(), registryCredentials("default", "upstream-creds", "first-user", "first-access-secret-value")))
+	require.NoError(t, setup.cl.Create(t.Context(), registryCredentials(setup.ownNamespace, "upstream-creds", "first-user", "first-access-secret-value")))
 
-	registry := setup.newRegistry("default", "upstream", harborName)
+	registry := setup.newRegistry(setup.ownNamespace, "upstream", harborName)
 	registry.Spec.CredentialsSecretRef = &harborv1alpha1.LocalSecretReference{Name: "upstream-creds"}
 	require.NoError(t, setup.cl.Create(t.Context(), registry))
 	key := client.ObjectKeyFromObject(registry)
@@ -251,7 +253,7 @@ func TestRegistryCredentialsAreStoredAndFollowTheSecret(t *testing.T) {
 	// A changed Secret updates Harbor.
 	require.Eventually(t, func() bool {
 		secret := &corev1.Secret{}
-		if err := setup.cl.Get(t.Context(), client.ObjectKey{Namespace: "default", Name: "upstream-creds"}, secret); err != nil {
+		if err := setup.cl.Get(t.Context(), client.ObjectKey{Namespace: setup.ownNamespace, Name: "upstream-creds"}, secret); err != nil {
 			return false
 		}
 
@@ -272,6 +274,8 @@ func TestRegistryCredentialsAreStoredAndFollowTheSecret(t *testing.T) {
 }
 
 func TestRegistryWithMissingOrIncompleteCredentialsWritesNothing(t *testing.T) {
+	t.Parallel()
+
 	setup := readyRegistrySetup(t, nil, nil)
 
 	tests := []struct {
@@ -280,7 +284,7 @@ func TestRegistryWithMissingOrIncompleteCredentialsWritesNothing(t *testing.T) {
 	}{
 		{name: "Secret missing"},
 		{name: "accessSecret missing", secret: &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "incomplete"},
+			ObjectMeta: metav1.ObjectMeta{Namespace: setup.ownNamespace, Name: "incomplete"},
 			Data:       map[string][]byte{"accessKey": []byte("user")},
 		}},
 	}
@@ -295,7 +299,7 @@ func TestRegistryWithMissingOrIncompleteCredentialsWritesNothing(t *testing.T) {
 				secretName = test.secret.Name
 			}
 
-			registry := setup.newRegistry("default", fmt.Sprintf("registry-%d", index), harborName)
+			registry := setup.newRegistry(setup.ownNamespace, fmt.Sprintf("registry-%d", index), harborName)
 			registry.Spec.CredentialsSecretRef = &harborv1alpha1.LocalSecretReference{Name: secretName}
 			require.NoError(t, setup.cl.Create(t.Context(), registry))
 
@@ -306,10 +310,12 @@ func TestRegistryWithMissingOrIncompleteCredentialsWritesNothing(t *testing.T) {
 }
 
 func TestRegistryDriftInHarborIsPutBack(t *testing.T) {
+	t.Parallel()
+
 	setup := readyRegistrySetup(t, nil, nil)
 	harborName := setup.harborRegistryName(t, "")
 
-	registry := setup.newRegistry("default", "upstream", harborName)
+	registry := setup.newRegistry(setup.ownNamespace, "upstream", harborName)
 	registry.Spec.Description = "managed"
 	require.NoError(t, setup.cl.Create(t.Context(), registry))
 	ready := awaitRegistry(t, setup.cl, client.ObjectKeyFromObject(registry), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
@@ -325,13 +331,15 @@ func TestRegistryDriftInHarborIsPutBack(t *testing.T) {
 }
 
 func TestRegistryInANamespaceTheConnectionAdmitsOnlyForProjects(t *testing.T) {
+	t.Parallel()
+
 	setup := readyRegistrySetup(t, nil, func(connection *harborv1alpha1.HarborConnection) {
 		connection.Spec.SystemAllowedNamespaces = harborv1alpha1.AllowedNamespaces{}
 	})
-	setup.namespace(t, "team")
+	team := newNamespace(t, setup.cl, "team")
 	harborName := setup.harborRegistryName(t, "")
 
-	registry := setup.newRegistry("team", "upstream", harborName)
+	registry := setup.newRegistry(team, "upstream", harborName)
 	require.NoError(t, setup.cl.Create(t.Context(), registry))
 
 	awaitRegistry(t, setup.cl, client.ObjectKeyFromObject(registry), metav1.ConditionFalse, harborv1alpha1.ReasonNotAllowed)
@@ -339,11 +347,13 @@ func TestRegistryInANamespaceTheConnectionAdmitsOnlyForProjects(t *testing.T) {
 }
 
 func TestRegistryDeletion(t *testing.T) {
+	t.Parallel()
+
 	setup := readyRegistrySetup(t, nil, nil)
 
 	t.Run("policy Delete deletes the Harbor registry", func(t *testing.T) {
 		harborName := setup.harborRegistryName(t, "")
-		registry := setup.newRegistry("default", "delete", harborName)
+		registry := setup.newRegistry(setup.ownNamespace, "delete", harborName)
 		require.NoError(t, setup.cl.Create(t.Context(), registry))
 		awaitRegistry(t, setup.cl, client.ObjectKeyFromObject(registry), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
 
@@ -354,7 +364,7 @@ func TestRegistryDeletion(t *testing.T) {
 
 	t.Run("policy Orphan keeps the Harbor registry", func(t *testing.T) {
 		harborName := setup.harborRegistryName(t, "")
-		registry := setup.newRegistry("default", "orphan", harborName)
+		registry := setup.newRegistry(setup.ownNamespace, "orphan", harborName)
 		registry.Spec.DeletionPolicy = harborv1alpha1.DeletionPolicyOrphan
 		require.NoError(t, setup.cl.Create(t.Context(), registry))
 		awaitRegistry(t, setup.cl, client.ObjectKeyFromObject(registry), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
@@ -370,13 +380,13 @@ func TestRegistryDeletion(t *testing.T) {
 		t.Run("waits for an admitted proxy-cache project under "+string(policy), func(t *testing.T) {
 			projectName := harborfixture.UniqueName(t, "proxy")
 			harborName := setup.harborRegistryName(t, "", projectName)
-			registry := setup.newRegistry("default", "used-"+strings.ToLower(string(policy)), harborName)
+			registry := setup.newRegistry(setup.ownNamespace, "used-"+strings.ToLower(string(policy)), harborName)
 			registry.Spec.DeletionPolicy = policy
 			require.NoError(t, setup.cl.Create(t.Context(), registry))
 			registryKey := client.ObjectKeyFromObject(registry)
 			awaitRegistry(t, setup.cl, registryKey, metav1.ConditionTrue, harborv1alpha1.ReasonReady)
 
-			project := setup.newProxyProject("default", projectName, registryKey)
+			project := setup.newProxyProject(setup.ownNamespace, projectName, registryKey)
 			project.Name = registry.Name
 			project.Spec.DeletionPolicy = harborv1alpha1.DeletionPolicyDelete
 			project.Spec.Public = ptr(false)
@@ -385,7 +395,7 @@ func TestRegistryDeletion(t *testing.T) {
 
 			require.NoError(t, setup.cl.Delete(t.Context(), registry))
 			held := awaitRegistry(t, setup.cl, registryKey, metav1.ConditionFalse, harborv1alpha1.ReasonDependentsExist)
-			assert.Contains(t, meta.FindStatusCondition(held.Status.Conditions, harborv1alpha1.ConditionReady).Message, "default/"+project.Name)
+			assert.Contains(t, meta.FindStatusCondition(held.Status.Conditions, harborv1alpha1.ConditionReady).Message, setup.ownNamespace+"/"+project.Name)
 			assert.Contains(t, held.Finalizers, controller.RegistryFinalizer)
 
 			// The project keeps reconciling while its registry is being deleted.
@@ -410,7 +420,7 @@ func TestRegistryDeletion(t *testing.T) {
 	t.Run("Harbor refusing the delete is DeleteBlocked", func(t *testing.T) {
 		projectName := harborfixture.UniqueName(t, "byhand")
 		harborName := setup.harborRegistryName(t, "", projectName)
-		registry := setup.newRegistry("default", "blocked", harborName)
+		registry := setup.newRegistry(setup.ownNamespace, "blocked", harborName)
 		require.NoError(t, setup.cl.Create(t.Context(), registry))
 		ready := awaitRegistry(t, setup.cl, client.ObjectKeyFromObject(registry), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
 
@@ -437,30 +447,33 @@ func awaitRegistryGone(t *testing.T, cl client.Client, key client.ObjectKey) {
 }
 
 func TestConnectionDeletionWaitsForAdmittedRegistries(t *testing.T) {
-	setup := readyRegistrySetup(t, nil, func(connection *harborv1alpha1.HarborConnection) {
-		connection.Spec.SystemAllowedNamespaces = harborv1alpha1.AllowedNamespaces{Names: []string{"admitted"}}
-	})
+	t.Parallel()
 
-	for _, namespace := range []string{"admitted", "outsider"} {
-		setup.namespace(t, namespace)
-	}
+	setup := readyRegistrySetup(t, nil, nil)
+	namespaces := map[string]string{"admitted": newNamespace(t, setup.cl, "admitted"), "outsider": newNamespace(t, setup.cl, "outsider")}
+
+	// The namespace names are random, so the connection narrows its Harbor-wide admission once they exist.
+	require.NoError(t, setup.cl.Get(t.Context(), client.ObjectKeyFromObject(setup.connection), setup.connection))
+	setup.connection.Spec.SystemAllowedNamespaces = harborv1alpha1.AllowedNamespaces{Names: []string{namespaces["admitted"]}}
+	require.NoError(t, setup.cl.Update(t.Context(), setup.connection))
+	awaitObservedGeneration(t, setup.cl, setup.connection)
 
 	held := func(namespace string) *harborv1alpha1.HarborRegistry {
-		registry := setup.newRegistry(namespace, "upstream", setup.harborRegistryName(t, "-"+namespace))
+		registry := setup.newRegistry(namespace, "upstream", setup.harborRegistryName(t, "-"+namespace[:strings.LastIndex(namespace, "-")]))
 		registry.Finalizers = []string{"test/hold"}
 		require.NoError(t, setup.cl.Create(t.Context(), registry))
 
 		return registry
 	}
 
-	admitted, outsider := held("admitted"), held("outsider")
+	admitted, outsider := held(namespaces["admitted"]), held(namespaces["outsider"])
 
 	require.NoError(t, setup.cl.Delete(t.Context(), setup.connection))
 
 	connection := awaitReady(t, setup.cl, client.ObjectKeyFromObject(setup.connection), metav1.ConditionFalse, harborv1alpha1.ReasonDependentsExist)
 	message := meta.FindStatusCondition(connection.Status.Conditions, harborv1alpha1.ConditionReady).Message
-	assert.Contains(t, message, "HarborRegistry admitted/upstream")
-	assert.NotContains(t, message, "outsider/upstream", "registries in namespaces the connection does not admit for Harbor-wide kinds are ignored")
+	assert.Contains(t, message, "HarborRegistry "+namespaces["admitted"]+"/upstream")
+	assert.NotContains(t, message, namespaces["outsider"]+"/upstream", "registries in namespaces the connection does not admit for Harbor-wide kinds are ignored")
 
 	for _, registry := range []*harborv1alpha1.HarborRegistry{admitted, outsider} {
 		require.NoError(t, setup.cl.Get(t.Context(), client.ObjectKeyFromObject(registry), registry))
@@ -498,15 +511,17 @@ func pushUpstream(t *testing.T, repository, tag string) string {
 }
 
 func TestProxyCacheProjectPullsTheUpstreamImage(t *testing.T) {
+	t.Parallel()
+
 	setup := readyRegistrySetup(t, nil, nil)
 	projectName := harborfixture.UniqueName(t, "proxy")
 	harborName := setup.harborRegistryName(t, "", projectName)
 
-	registry := setup.newRegistry("default", "upstream", harborName)
+	registry := setup.newRegistry(setup.ownNamespace, "upstream", harborName)
 	require.NoError(t, setup.cl.Create(t.Context(), registry))
 	ready := awaitRegistry(t, setup.cl, client.ObjectKeyFromObject(registry), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
 
-	project := setup.newProxyProject("default", projectName, client.ObjectKeyFromObject(registry))
+	project := setup.newProxyProject(setup.ownNamespace, projectName, client.ObjectKeyFromObject(registry))
 	project.Spec.ProxyCache.SpeedLimitKbps = ptr(int32(2048))
 	require.NoError(t, setup.cl.Create(t.Context(), project))
 	awaitProject(t, setup.cl, client.ObjectKeyFromObject(project), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
@@ -532,16 +547,18 @@ func TestProxyCacheProjectPullsTheUpstreamImage(t *testing.T) {
 }
 
 func TestProxyCacheProjectDriftInHarborIsPutBack(t *testing.T) {
+	t.Parallel()
+
 	setup := readyRegistrySetup(t, nil, nil)
 	projectName := harborfixture.UniqueName(t, "proxy")
 	harborName := setup.harborRegistryName(t, "", projectName)
 	otherName := setup.harborRegistryName(t, "other")
 
-	registry := setup.newRegistry("default", "upstream", harborName)
+	registry := setup.newRegistry(setup.ownNamespace, "upstream", harborName)
 	require.NoError(t, setup.cl.Create(t.Context(), registry))
 	ready := awaitRegistry(t, setup.cl, client.ObjectKeyFromObject(registry), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
 
-	project := setup.newProxyProject("default", projectName, client.ObjectKeyFromObject(registry))
+	project := setup.newProxyProject(setup.ownNamespace, projectName, client.ObjectKeyFromObject(registry))
 	project.Spec.ProxyCache.SpeedLimitKbps = ptr(int32(-1))
 	require.NoError(t, setup.cl.Create(t.Context(), project))
 	awaitProject(t, setup.cl, client.ObjectKeyFromObject(project), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
@@ -571,7 +588,7 @@ func TestProxyCacheProjectDriftInHarborIsPutBack(t *testing.T) {
 		}, projectWait, 200*time.Millisecond)
 		awaitRegistryGone(t, setup.cl, client.ObjectKeyFromObject(registry))
 
-		recreated := setup.newRegistry("default", "upstream", otherName)
+		recreated := setup.newRegistry(setup.ownNamespace, "upstream", otherName)
 		require.NoError(t, setup.cl.Create(t.Context(), recreated))
 		newer := awaitRegistry(t, setup.cl, client.ObjectKeyFromObject(recreated), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
 		require.NotEqual(t, ready.Status.RegistryID, newer.Status.RegistryID)
@@ -624,11 +641,13 @@ func TestProxyCacheProjectDriftInHarborIsPutBack(t *testing.T) {
 }
 
 func TestProxyCacheProjectWaitsForItsRegistry(t *testing.T) {
+	t.Parallel()
+
 	setup := readyRegistrySetup(t, nil, nil)
 	projectName := harborfixture.UniqueName(t, "proxy")
 	harborName := setup.harborRegistryName(t, "", projectName)
 
-	project := setup.newProxyProject("default", projectName, client.ObjectKey{Namespace: "default", Name: "later"})
+	project := setup.newProxyProject(setup.ownNamespace, projectName, client.ObjectKey{Namespace: setup.ownNamespace, Name: "later"})
 	require.NoError(t, setup.cl.Create(t.Context(), project))
 
 	waiting := awaitProject(t, setup.cl, client.ObjectKeyFromObject(project), metav1.ConditionFalse, harborv1alpha1.ReasonRegistryNotReady)
@@ -639,7 +658,7 @@ func TestProxyCacheProjectWaitsForItsRegistry(t *testing.T) {
 	_, err := setup.admin.GetProjectByName(t.Context(), projectName)
 	assert.True(t, harbor.IsNotFound(err), "nothing is created while the registry is missing, got %v", err)
 
-	registry := setup.newRegistry("default", "later", harborName)
+	registry := setup.newRegistry(setup.ownNamespace, "later", harborName)
 	require.NoError(t, setup.cl.Create(t.Context(), registry))
 	ready := awaitRegistry(t, setup.cl, client.ObjectKeyFromObject(registry), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
 
@@ -651,16 +670,18 @@ func TestProxyCacheProjectWaitsForItsRegistry(t *testing.T) {
 }
 
 func TestProxyCacheProjectInANamespaceTheRegistryDoesNotAdmit(t *testing.T) {
+	t.Parallel()
+
 	setup := readyRegistrySetup(t, nil, nil)
-	setup.namespace(t, "team")
+	team := newNamespace(t, setup.cl, "team")
 	projectName := harborfixture.UniqueName(t, "proxy")
 	harborName := setup.harborRegistryName(t, "", projectName)
 
-	registry := setup.newRegistry("default", "upstream", harborName)
+	registry := setup.newRegistry(setup.ownNamespace, "upstream", harborName)
 	require.NoError(t, setup.cl.Create(t.Context(), registry))
 	awaitRegistry(t, setup.cl, client.ObjectKeyFromObject(registry), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
 
-	project := setup.newProxyProject("team", projectName, client.ObjectKeyFromObject(registry))
+	project := setup.newProxyProject(team, projectName, client.ObjectKeyFromObject(registry))
 	require.NoError(t, setup.cl.Create(t.Context(), project))
 
 	awaitProject(t, setup.cl, client.ObjectKeyFromObject(project), metav1.ConditionFalse, harborv1alpha1.ReasonNotAllowed)
@@ -674,11 +695,13 @@ func TestProxyCacheProjectInANamespaceTheRegistryDoesNotAdmit(t *testing.T) {
 }
 
 func TestProxyCacheProjectWithItsRegistryInAnotherHarbor(t *testing.T) {
+	t.Parallel()
+
 	setup := readyRegistrySetup(t, nil, nil)
 	projectName := harborfixture.UniqueName(t, "proxy")
 
 	// The registry's connection does not exist, so the operator leaves the claim written here alone.
-	registry := setup.newRegistry("default", "elsewhere", "elsewhere")
+	registry := setup.newRegistry(setup.ownNamespace, "elsewhere", "elsewhere")
 	registry.Spec.ConnectionRef = harborv1alpha1.ObjectReference{Name: "other-harbor"}
 	require.NoError(t, setup.cl.Create(t.Context(), registry))
 	awaitRegistry(t, setup.cl, client.ObjectKeyFromObject(registry), metav1.ConditionFalse, harborv1alpha1.ReasonNotFound)
@@ -695,7 +718,7 @@ func TestProxyCacheProjectWithItsRegistryInAnotherHarbor(t *testing.T) {
 		return setup.cl.Status().Update(t.Context(), current) == nil
 	}, 10*time.Second, 100*time.Millisecond)
 
-	project := setup.newProxyProject("default", projectName, client.ObjectKeyFromObject(registry))
+	project := setup.newProxyProject(setup.ownNamespace, projectName, client.ObjectKeyFromObject(registry))
 	require.NoError(t, setup.cl.Create(t.Context(), project))
 	setup.projects = append(setup.projects, projectName)
 
@@ -706,6 +729,8 @@ func TestProxyCacheProjectWithItsRegistryInAnotherHarbor(t *testing.T) {
 }
 
 func TestProxyCacheProjectAdoptionOfAProjectInTheOtherModeIsRefused(t *testing.T) {
+	t.Parallel()
+
 	setup := readyRegistrySetup(t, nil, func(connection *harborv1alpha1.HarborConnection) { connection.Spec.AllowAdoption = true })
 
 	tests := []struct {
@@ -721,7 +746,7 @@ func TestProxyCacheProjectAdoptionOfAProjectInTheOtherModeIsRefused(t *testing.T
 			projectName := harborfixture.UniqueName(t, "adopt")
 			harborName := setup.harborRegistryName(t, "", projectName)
 
-			registry := setup.newRegistry("default", fmt.Sprintf("upstream-%d", index), harborName)
+			registry := setup.newRegistry(setup.ownNamespace, fmt.Sprintf("upstream-%d", index), harborName)
 			require.NoError(t, setup.cl.Create(t.Context(), registry))
 			ready := awaitRegistry(t, setup.cl, client.ObjectKeyFromObject(registry), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
 
@@ -733,7 +758,7 @@ func TestProxyCacheProjectAdoptionOfAProjectInTheOtherModeIsRefused(t *testing.T
 			_, err := setup.admin.CreateProxyCacheProject(t.Context(), projectName, harbor.ProjectSettings{Public: ptr(false)}, nil, registryID)
 			require.NoError(t, err)
 
-			project := newProject("default", projectName, setup.connection)
+			project := newProject(setup.ownNamespace, projectName, setup.connection)
 			project.Name = fmt.Sprintf("adopt-%d", index)
 			project.Spec.Adopt = true
 			project.Spec.Public = ptr(true)
@@ -753,4 +778,15 @@ func TestProxyCacheProjectAdoptionOfAProjectInTheOtherModeIsRefused(t *testing.T
 			assert.False(t, *found.Settings.Public, "nothing is written to the Harbor project")
 		})
 	}
+}
+
+// awaitObservedGeneration waits until the connection controller has seen the connection's current spec.
+func awaitObservedGeneration(t *testing.T, cl client.Client, connection *harborv1alpha1.HarborConnection) {
+	t.Helper()
+
+	require.Eventually(t, func() bool {
+		var current harborv1alpha1.HarborConnection
+
+		return cl.Get(t.Context(), client.ObjectKeyFromObject(connection), &current) == nil && current.Status.ObservedGeneration == current.Generation
+	}, projectWait, 200*time.Millisecond, "the connection controller should see the new spec")
 }

@@ -67,16 +67,19 @@ func setRobotCreatePending(t *testing.T, cl client.Client, key client.ObjectKey,
 }
 
 func TestProjectWithAUserSetCreatePendingAnnotationCannotTakeOverAnExistingProject(t *testing.T) {
+	t.Parallel()
+
 	instance, admin, name := projectHarbor(t)
 	cl := startOperator(t, true)
+	ns := newNamespace(t, cl, "pending")
 
 	existing, err := admin.CreateProject(t.Context(), name, harbor.ProjectSettings{Public: ptr(false)}, nil)
 	require.NoError(t, err)
 
 	t.Run("without adopt reports AlreadyExists, changes nothing and leaves the project on deletion", func(t *testing.T) {
-		connection := readyConnection(t, cl, instance, "default", nil)
+		connection := readyConnection(t, cl, instance, ns, nil)
 
-		project := newProject("default", name, connection)
+		project := newProject(ns, name, connection)
 		project.Annotations = forgedCreatePending()
 		project.Spec.Public = ptr(true)
 		project.Spec.DeletionPolicy = harborv1alpha1.DeletionPolicyDelete
@@ -99,10 +102,10 @@ func TestProjectWithAUserSetCreatePendingAnnotationCannotTakeOverAnExistingProje
 	})
 
 	t.Run("adopt without allowAdoption reports AdoptionNotAllowed", func(t *testing.T) {
-		require.NoError(t, cl.Create(t.Context(), &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "forged-no-adoption"}}))
-		connection := readyConnection(t, cl, instance, "forged-no-adoption", nil)
+		noAdoption := newNamespace(t, cl, "forged-no-adoption")
+		connection := readyConnection(t, cl, instance, noAdoption, nil)
 
-		project := newProject("forged-no-adoption", name, connection)
+		project := newProject(noAdoption, name, connection)
 		project.Annotations = forgedCreatePending()
 		project.Spec.Adopt = true
 		project.Spec.Public = ptr(true)
@@ -119,15 +122,18 @@ func TestProjectWithAUserSetCreatePendingAnnotationCannotTakeOverAnExistingProje
 }
 
 func TestProjectCreateMarkerInStatusClaimsOnlyAProjectCreatedAfterIt(t *testing.T) {
+	t.Parallel()
+
 	instance, admin, name := projectHarbor(t)
 	cl := startOperator(t, true)
-	connection := readyConnection(t, cl, instance, "default", nil)
+	ns := newNamespace(t, cl, "pending")
+	connection := readyConnection(t, cl, instance, ns, nil)
 
 	beforeCreate := time.Now().UTC().Truncate(time.Second)
 	existing, err := admin.CreateProject(t.Context(), name, harbor.ProjectSettings{Public: ptr(false)}, nil)
 	require.NoError(t, err)
 
-	project := newProject("default", name, connection)
+	project := newProject(ns, name, connection)
 	project.Spec.Public = ptr(true)
 	require.NoError(t, cl.Create(t.Context(), project))
 	key := client.ObjectKeyFromObject(project)
@@ -152,6 +158,8 @@ func TestProjectCreateMarkerInStatusClaimsOnlyAProjectCreatedAfterIt(t *testing.
 }
 
 func TestRobotWithAUserSetCreatePendingAnnotationCannotTakeOverAnExistingRobot(t *testing.T) {
+	t.Parallel()
+
 	setup := readyRobotProject(t, nil, nil)
 
 	// The robot can push, so a push with its secret shows that the secret was not refreshed.
@@ -170,7 +178,7 @@ func TestRobotWithAUserSetCreatePendingAnnotationCannotTakeOverAnExistingRobot(t
 		{name: "adopt without allowAdoption reports AdoptionNotAllowed", adopt: true, reason: harborv1alpha1.ReasonAdoptionNotAllowed},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			robot := ciRobot("default", setup.project)
+			robot := ciRobot(setup.project.Namespace, setup.project)
 			robot.Annotations = forgedCreatePending()
 			robot.Spec.Adopt = test.adopt
 			robot.Spec.DeletionPolicy = harborv1alpha1.DeletionPolicyDelete
@@ -182,7 +190,7 @@ func TestRobotWithAUserSetCreatePendingAnnotationCannotTakeOverAnExistingRobot(t
 			assert.NotContains(t, reported.Annotations, harborv1alpha1.AnnotationCreatePending, "the user-set annotation is removed")
 
 			secret := &corev1.Secret{}
-			require.True(t, apierrors.IsNotFound(setup.cl.Get(t.Context(), client.ObjectKey{Namespace: "default", Name: "ci-dockerconfig"}, secret)),
+			require.True(t, apierrors.IsNotFound(setup.cl.Get(t.Context(), client.ObjectKey{Namespace: setup.project.Namespace, Name: "ci-dockerconfig"}, secret)),
 				"no Secret is written for a robot the resource does not own")
 
 			found, err := setup.admin.GetRobot(t.Context(), existing.ID)
@@ -200,6 +208,8 @@ func TestRobotWithAUserSetCreatePendingAnnotationCannotTakeOverAnExistingRobot(t
 }
 
 func TestRobotCreateMarkerInStatusClaimsOnlyARobotCreatedAfterIt(t *testing.T) {
+	t.Parallel()
+
 	setup := readyRobotProject(t, nil, nil)
 
 	beforeCreate := time.Now().UTC().Truncate(time.Second)
@@ -208,7 +218,7 @@ func TestRobotCreateMarkerInStatusClaimsOnlyARobotCreatedAfterIt(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	robot := ciRobot("default", setup.project)
+	robot := ciRobot(setup.project.Namespace, setup.project)
 	require.NoError(t, setup.cl.Create(t.Context(), robot))
 	key := client.ObjectKeyFromObject(robot)
 	awaitRobot(t, setup.cl, key, metav1.ConditionFalse, harborv1alpha1.ReasonAlreadyExists)
@@ -225,7 +235,7 @@ func TestRobotCreateMarkerInStatusClaimsOnlyARobotCreatedAfterIt(t *testing.T) {
 	assert.Equal(t, existing.ID, ready.Status.RobotID)
 	assert.Nil(t, ready.Status.CreatePending, "the marker is cleared once the Secrets are written")
 
-	username, password := dockerCredentials(t, setup.cl, "default", "ci-dockerconfig", setup.instance.Registry(t))
+	username, password := dockerCredentials(t, setup.cl, setup.project.Namespace, "ci-dockerconfig", setup.instance.Registry(t))
 	assert.Equal(t, existing.Name, username)
 	assert.NotEqual(t, existing.Secret, password, "the lost secret is refreshed")
 	require.NoError(t, push(t, setup.instance, username, password, setup.project.Spec.Name, "app"), "the refreshed secret works")
@@ -242,8 +252,10 @@ func restrictProjectCreation(t *testing.T, instance *harborfixture.Harbor, value
 }
 
 func TestProjectWhoseCreateHarborRefusedDoesNotTakeOverAProjectMadeLater(t *testing.T) {
+	// Serial: it restricts project creation Harbor-wide, which would fail other tests that create projects as a non-admin.
 	instance, admin, name := projectHarbor(t)
 	cl := startOperator(t, true)
+	ns := newNamespace(t, cl, "pending")
 
 	access := func(resource string, actions ...string) []*models.Access {
 		result := make([]*models.Access, 0, len(actions))
@@ -259,14 +271,14 @@ func TestProjectWhoseCreateHarborRefusedDoesNotTakeOverAProjectMadeLater(t *test
 		{Kind: "system", Namespace: "/", Access: append(access("project", "list"), access("quota", "read", "update")...)},
 		{Kind: "project", Namespace: "*", Access: access("project", "read", "update", "delete")},
 	})
-	connection := readyConnection(t, cl, &connectionInstance, "default", nil)
+	connection := readyConnection(t, cl, &connectionInstance, ns, nil)
 
 	// Only admins may create projects, so Harbor refuses the connection's create. The restriction stays until the
 	// admin has created the project, so the operator's retries cannot create it first.
 	restrictProjectCreation(t, instance, "adminonly")
 	t.Cleanup(func() { restrictProjectCreation(t, instance, "everyone") })
 
-	project := newProject("default", name, connection)
+	project := newProject(ns, name, connection)
 	project.Spec.Public = ptr(true)
 	project.Spec.DeletionPolicy = harborv1alpha1.DeletionPolicyDelete
 	require.NoError(t, cl.Create(t.Context(), project))
@@ -298,10 +310,12 @@ func TestProjectWhoseCreateHarborRefusedDoesNotTakeOverAProjectMadeLater(t *test
 }
 
 func TestRobotWhoseCreateHarborRefusedDoesNotTakeOverARobotMadeLater(t *testing.T) {
+	t.Parallel()
+
 	setup := readyRobotProjectWithSystemRobot(t, true, nil, nil)
 
 	// The connection's system robot does not hold artifact:delete, so Harbor refuses to create a robot with it.
-	robot := ciRobot("default", setup.project)
+	robot := ciRobot(setup.project.Namespace, setup.project)
 	robot.Spec.Permissions = []harborv1alpha1.RobotAccess{{Resource: "artifact", Action: "delete"}}
 	robot.Spec.DeletionPolicy = harborv1alpha1.DeletionPolicyDelete
 	require.NoError(t, setup.cl.Create(t.Context(), robot))

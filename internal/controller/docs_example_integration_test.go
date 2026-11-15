@@ -24,6 +24,7 @@ import (
 var exampleBlock = regexp.MustCompile("(?s)<!-- example:project-and-robot -->\n```yaml\n(.*?)\n```")
 
 func TestUserDocExampleBecomesReady(t *testing.T) {
+	// Serial: the example names a fixed Harbor project that other docs tests also use.
 	page, err := os.ReadFile(filepath.Join("..", "..", "docs", "user", "example.md"))
 	require.NoError(t, err)
 
@@ -42,19 +43,20 @@ func TestUserDocExampleBecomesReady(t *testing.T) {
 	t.Cleanup(func() { instance.DeleteProject(context.Background(), t, projectName) })
 
 	cl := startOperator(t, true)
-	readyConnection(t, cl, instance, "default", nil)
+	namespace := newNamespace(t, cl, "docs")
+	readyConnection(t, cl, instance, namespace, nil)
 
 	for _, document := range bytes.Split(match[1], []byte("\n---\n")) {
 		object := &unstructured.Unstructured{}
 		require.NoError(t, yaml.Unmarshal(document, &object.Object))
 
 		if object.GetNamespace() == "" {
-			object.SetNamespace("default")
+			object.SetNamespace(namespace)
 		}
 
 		require.NoError(t, cl.Create(t.Context(), object))
 	}
 
-	awaitProject(t, cl, client.ObjectKey{Namespace: "default", Name: "my-app"}, metav1.ConditionTrue, harborv1alpha1.ReasonReady)
-	awaitRobot(t, cl, client.ObjectKey{Namespace: "default", Name: "ci"}, metav1.ConditionTrue, harborv1alpha1.ReasonReady)
+	awaitProject(t, cl, client.ObjectKey{Namespace: namespace, Name: "my-app"}, metav1.ConditionTrue, harborv1alpha1.ReasonReady)
+	awaitRobot(t, cl, client.ObjectKey{Namespace: namespace, Name: "ci"}, metav1.ConditionTrue, harborv1alpha1.ReasonReady)
 }

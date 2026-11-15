@@ -9,7 +9,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -19,17 +18,23 @@ import (
 	"github.com/solidDoWant/harbor-operator/test/harborfixture"
 )
 
-// deletionSetup creates a namespace with a ready connection, and a unique Harbor project name that is cleaned up,
+// deletionSetup creates a ready connection in namespace, and a unique Harbor project name that is cleaned up,
 // with its repositories, when the test ends.
 func deletionSetup(t *testing.T, cl client.Client, instance *harborfixture.Harbor, namespace string) (*harborv1alpha1.HarborConnection, string) {
 	t.Helper()
 
-	require.NoError(t, cl.Create(t.Context(), &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}))
-
-	name := harborfixture.UniqueName(t, "op")
+	name := runUniqueName(t, "op")
 	t.Cleanup(func() { instance.DeleteProject(context.Background(), t, name) })
 
 	return readyConnection(t, cl, instance, namespace, nil), name
+}
+
+// runUniqueName is harborfixture.UniqueName with a random suffix. Resources of earlier runs stay in the shared API server
+// (namespaces are never removed there), so a name that repeats between runs (-count) would be claimed by both.
+func runUniqueName(t *testing.T, prefix string) string {
+	t.Helper()
+
+	return harborfixture.UniqueName(t, prefix) + "-" + randomHex(t, 3)
 }
 
 func awaitGone(t *testing.T, cl client.Client, key client.ObjectKey, message string) {
@@ -51,6 +56,8 @@ func newRobot(namespace, name string, project client.ObjectKey) *harborv1alpha1.
 }
 
 func TestProjectDeletion(t *testing.T) {
+	t.Parallel()
+
 	instance := harborfixture.FromEnv(t)
 	admin, err := harbor.NewClient(harbor.ConnectionConfig{URL: instance.URL, Username: instance.Username, Password: instance.Password})
 	require.NoError(t, err)
@@ -58,9 +65,10 @@ func TestProjectDeletion(t *testing.T) {
 	cl := startOperator(t, true)
 
 	t.Run("policy Delete deletes the empty Harbor project", func(t *testing.T) {
-		connection, name := deletionSetup(t, cl, instance, "delete-empty")
+		t.Parallel()
+		connection, name := deletionSetup(t, cl, instance, newNamespace(t, cl, "delete-empty"))
 
-		project := newProject("delete-empty", name, connection)
+		project := newProject(connection.Namespace, name, connection)
 		project.Spec.DeletionPolicy = harborv1alpha1.DeletionPolicyDelete
 		require.NoError(t, cl.Create(t.Context(), project))
 		awaitProject(t, cl, client.ObjectKeyFromObject(project), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
@@ -73,9 +81,10 @@ func TestProjectDeletion(t *testing.T) {
 	})
 
 	t.Run("policy Orphan leaves the Harbor project", func(t *testing.T) {
-		connection, name := deletionSetup(t, cl, instance, "delete-orphan")
+		t.Parallel()
+		connection, name := deletionSetup(t, cl, instance, newNamespace(t, cl, "delete-orphan"))
 
-		project := newProject("delete-orphan", name, connection)
+		project := newProject(connection.Namespace, name, connection)
 		project.Spec.DeletionPolicy = harborv1alpha1.DeletionPolicyOrphan
 		require.NoError(t, cl.Create(t.Context(), project))
 		ready := awaitProject(t, cl, client.ObjectKeyFromObject(project), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
@@ -89,9 +98,10 @@ func TestProjectDeletion(t *testing.T) {
 	})
 
 	t.Run("a project holding an image reports DeleteBlocked until the image is removed", func(t *testing.T) {
-		connection, name := deletionSetup(t, cl, instance, "delete-blocked")
+		t.Parallel()
+		connection, name := deletionSetup(t, cl, instance, newNamespace(t, cl, "delete-blocked"))
 
-		project := newProject("delete-blocked", name, connection)
+		project := newProject(connection.Namespace, name, connection)
 		require.NoError(t, cl.Create(t.Context(), project))
 		key := client.ObjectKeyFromObject(project)
 		awaitProject(t, cl, key, metav1.ConditionTrue, harborv1alpha1.ReasonReady)
@@ -115,24 +125,25 @@ func TestProjectDeletion(t *testing.T) {
 	})
 
 	t.Run("deletion waits for robots in namespaces the project admits", func(t *testing.T) {
-		connection, name := deletionSetup(t, cl, instance, "delete-robots")
-		require.NoError(t, cl.Create(t.Context(), &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "delete-robots-other"}}))
+		t.Parallel()
+		connection, name := deletionSetup(t, cl, instance, newNamespace(t, cl, "delete-robots"))
+		otherNamespace := newNamespace(t, cl, "delete-robots-other")
 
-		project := newProject("delete-robots", name, connection)
+		project := newProject(connection.Namespace, name, connection)
 		require.NoError(t, cl.Create(t.Context(), project))
 		key := client.ObjectKeyFromObject(project)
 		awaitProject(t, cl, key, metav1.ConditionTrue, harborv1alpha1.ReasonReady)
 
-		admitted := newRobot("delete-robots", "ci", key)
+		admitted := newRobot(connection.Namespace, "ci", key)
 		require.NoError(t, cl.Create(t.Context(), admitted))
 		// The project does not admit this namespace, so its robot does not hold the deletion.
-		outsider := newRobot("delete-robots-other", "outsider", key)
+		outsider := newRobot(otherNamespace, "outsider", key)
 		require.NoError(t, cl.Create(t.Context(), outsider))
 
 		require.NoError(t, cl.Delete(t.Context(), project))
 		waiting := awaitProject(t, cl, key, metav1.ConditionFalse, harborv1alpha1.ReasonDependentsExist)
-		assert.Contains(t, readyMessage(waiting), "delete-robots/ci")
-		assert.NotContains(t, readyMessage(waiting), "outsider")
+		assert.Contains(t, readyMessage(waiting), connection.Namespace+"/ci")
+		assert.NotContains(t, readyMessage(waiting), otherNamespace+"/outsider")
 
 		_, err := admin.GetProjectByName(t.Context(), name)
 		require.NoError(t, err, "the Harbor project stays while a robot references it")
@@ -145,28 +156,30 @@ func TestProjectDeletion(t *testing.T) {
 	})
 
 	t.Run("deletion waits for retention policies the project admits", func(t *testing.T) {
-		connection, name := deletionSetup(t, cl, instance, "delete-retention")
+		t.Parallel()
+		connection, name := deletionSetup(t, cl, instance, newNamespace(t, cl, "delete-retention"))
 
-		project := newProject("delete-retention", name, connection)
+		project := newProject(connection.Namespace, name, connection)
 		require.NoError(t, cl.Create(t.Context(), project))
 		key := client.ObjectKeyFromObject(project)
 		awaitProject(t, cl, key, metav1.ConditionTrue, harborv1alpha1.ReasonReady)
 
-		policy := keepVersionsAndRecentPulls("delete-retention", "retention", project)
+		policy := keepVersionsAndRecentPulls(project.Namespace, "retention", project)
 		require.NoError(t, cl.Create(t.Context(), policy))
 
 		require.NoError(t, cl.Delete(t.Context(), project))
 		waiting := awaitProject(t, cl, key, metav1.ConditionFalse, harborv1alpha1.ReasonDependentsExist)
-		assert.Contains(t, readyMessage(waiting), "HarborRetentionPolicy delete-retention/retention")
+		assert.Contains(t, readyMessage(waiting), "HarborRetentionPolicy "+project.Namespace+"/retention")
 
 		require.NoError(t, cl.Delete(t.Context(), policy))
 		awaitGone(t, cl, key, "the deletion finishes once the retention policy is gone")
 	})
 
 	t.Run("a resource in Conflict never touches the project, even with an ID", func(t *testing.T) {
-		connection, name := deletionSetup(t, cl, instance, "delete-conflict")
+		t.Parallel()
+		connection, name := deletionSetup(t, cl, instance, newNamespace(t, cl, "delete-conflict"))
 
-		owner := newProject("delete-conflict", name, connection)
+		owner := newProject(connection.Namespace, name, connection)
 		require.NoError(t, cl.Create(t.Context(), owner))
 		ready := awaitProject(t, cl, client.ObjectKeyFromObject(owner), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
 
@@ -175,7 +188,7 @@ func TestProjectDeletion(t *testing.T) {
 			return time.Now().Add(-time.Second).After(ready.CreationTimestamp.Time)
 		}, 5*time.Second, 50*time.Millisecond)
 
-		second := newProject("delete-conflict", name, connection)
+		second := newProject(connection.Namespace, name, connection)
 		second.Name = "second"
 		require.NoError(t, cl.Create(t.Context(), second))
 		secondKey := client.ObjectKeyFromObject(second)
@@ -203,6 +216,7 @@ func TestProjectDeletion(t *testing.T) {
 	})
 
 	t.Run("a project whose connection stopped admitting it and was then deleted is orphaned", func(t *testing.T) {
+		t.Parallel()
 		setup := withdrawnAndDeletedConnection(t, cl, instance, "gone-conn", false)
 
 		require.NoError(t, cl.Delete(t.Context(), setup.project))
@@ -215,6 +229,7 @@ func TestProjectDeletion(t *testing.T) {
 	})
 
 	t.Run("a robot and its project whose connection stopped admitting them and was then deleted are orphaned", func(t *testing.T) {
+		t.Parallel()
 		setup := withdrawnAndDeletedConnection(t, cl, instance, "gone-conn-robot", true)
 
 		require.NoError(t, cl.Delete(t.Context(), setup.robot))
@@ -235,14 +250,15 @@ func TestProjectDeletion(t *testing.T) {
 	})
 
 	t.Run("deletion of an admitted project waits while its connection's credentials are missing", func(t *testing.T) {
-		connection, name := deletionSetup(t, cl, instance, "delete-no-creds")
+		t.Parallel()
+		connection, name := deletionSetup(t, cl, instance, newNamespace(t, cl, "delete-no-creds"))
 
-		project := newProject("delete-no-creds", name, connection)
+		project := newProject(connection.Namespace, name, connection)
 		require.NoError(t, cl.Create(t.Context(), project))
 		key := client.ObjectKeyFromObject(project)
 		awaitProject(t, cl, key, metav1.ConditionTrue, harborv1alpha1.ReasonReady)
 
-		require.NoError(t, cl.Delete(t.Context(), credentials("delete-no-creds", "harbor-creds", "", "")))
+		require.NoError(t, cl.Delete(t.Context(), credentials(connection.Namespace, "harbor-creds", "", "")))
 		awaitReady(t, cl, client.ObjectKeyFromObject(connection), metav1.ConditionFalse, harborv1alpha1.ReasonCredentialsInvalid)
 
 		require.NoError(t, cl.Delete(t.Context(), project))
@@ -252,7 +268,7 @@ func TestProjectDeletion(t *testing.T) {
 		require.NoError(t, err, "the Harbor project stays while the deletion waits")
 
 		// With the credentials back the deletion finishes.
-		require.NoError(t, cl.Create(t.Context(), credentials("delete-no-creds", "harbor-creds", instance.Username, instance.Password)))
+		require.NoError(t, cl.Create(t.Context(), credentials(connection.Namespace, "harbor-creds", instance.Username, instance.Password)))
 		awaitGone(t, cl, key, "the deletion finishes once the credentials are back")
 
 		_, err = admin.GetProjectByName(t.Context(), name)
@@ -274,12 +290,9 @@ type goneConnectionSetup struct {
 func withdrawnAndDeletedConnection(t *testing.T, cl client.Client, instance *harborfixture.Harbor, prefix string, withRobot bool) goneConnectionSetup {
 	t.Helper()
 
-	connectionNamespace, namespace := prefix+"-harbor", prefix
-	for _, name := range []string{connectionNamespace, namespace} {
-		require.NoError(t, cl.Create(t.Context(), &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: name}}))
-	}
+	connectionNamespace, namespace := newNamespace(t, cl, prefix+"-harbor"), newNamespace(t, cl, prefix)
 
-	harborName := harborfixture.UniqueName(t, "op")
+	harborName := runUniqueName(t, "op")
 	t.Cleanup(func() { instance.DeleteProject(context.Background(), t, harborName) })
 
 	connection := readyConnection(t, cl, instance, connectionNamespace, func(connection *harborv1alpha1.HarborConnection) {

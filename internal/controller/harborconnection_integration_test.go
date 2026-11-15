@@ -4,9 +4,13 @@ package controller_test
 
 import (
 	"context"
-	"path/filepath"
+	"crypto/rand"
+	"encoding/hex"
+	"strings"
 	"testing"
 	"time"
+
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/go-logr/logr"
 
@@ -15,101 +19,107 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/rest"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/config"
-	"sigs.k8s.io/controller-runtime/pkg/envtest"
-	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	harborv1alpha1 "github.com/solidDoWant/harbor-operator/api/v1alpha1"
 	"github.com/solidDoWant/harbor-operator/internal/controller"
 	"github.com/solidDoWant/harbor-operator/internal/harbor"
-	"github.com/solidDoWant/harbor-operator/internal/ownership"
-	"github.com/solidDoWant/harbor-operator/internal/scheme"
 	"github.com/solidDoWant/harbor-operator/test/harborfixture"
 )
 
-// startOperator runs an API server and the connection controller in-process and returns a client for it. withProjects
-// also runs the project controller.
-func startOperator(t *testing.T, withProjects ...bool) client.Client {
+// startOperator returns a client for the operator that TestMain started once for the whole package. The operator runs
+// every controller. Tests must keep to their own namespaces (see newNamespace) and never assert on global counts.
+// The withProjects argument is accepted for older call sites and ignored: every controller always runs.
+func startOperator(t *testing.T, _ ...bool) client.Client {
 	t.Helper()
 
-	return startOperatorLogging(t, logr.Logger{}, withProjects...)
+	if sharedClient == nil {
+		t.Skipf("envtest is not available: %v", sharedStartErr)
+	}
+
+	return sharedClient
 }
 
-// startOperatorLogging is startOperator with the operator's log sent to logger; the zero logger keeps the default.
-func startOperatorLogging(t *testing.T, logger logr.Logger, withProjects ...bool) client.Client {
+// newNamespace creates a namespace with a random name starting with prefix and returns the name. The suffix is random,
+// not derived from the test name, so repeated runs (-count) on the same API server never collide.
+func newNamespace(t *testing.T, cl client.Client, prefix string) string {
 	t.Helper()
 
-	return startOperatorWith(t, operatorOptions{logger: logger, withProjects: len(withProjects) > 0 && withProjects[0]})
+	name := strings.ToLower(prefix) + "-" + randomHex(t, 5)
+	require.NoError(t, cl.Create(t.Context(), &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: name}}))
+	// Cleanups run last-in first-out, so this runs before cleanups registered earlier that delete Harbor objects.
+	t.Cleanup(func() { abandonNamespace(cl, name) })
+
+	return name
 }
 
-// operatorOptions change how startOperatorWith runs the operator.
+// abandonNamespace removes every operator resource in the namespace without running their finalizers, so the shared
+// operator stops reconciling them and cannot recreate the Harbor objects a test cleanup is about to delete.
+// Envtest has no namespace controller, so deleting the Namespace itself would not do this.
+func abandonNamespace(cl client.Client, namespace string) {
+	ctx := context.Background()
+	lists := []client.ObjectList{
+		&harborv1alpha1.HarborImmutabilityPolicyList{}, &harborv1alpha1.HarborRetentionPolicyList{},
+		&harborv1alpha1.HarborProjectRobotList{}, &harborv1alpha1.HarborSystemRobotList{},
+		&harborv1alpha1.HarborProjectList{}, &harborv1alpha1.HarborRegistryList{}, &harborv1alpha1.HarborConnectionList{},
+	}
+
+	for _, list := range lists {
+		if cl.List(ctx, list, client.InNamespace(namespace)) != nil {
+			continue
+		}
+
+		items, err := meta.ExtractList(list)
+		if err != nil {
+			continue
+		}
+
+		for _, item := range items {
+			object, ok := item.(client.Object)
+			if !ok {
+				continue
+			}
+
+			_ = cl.Patch(ctx, object, client.RawPatch(types.MergePatchType, []byte(`{"metadata":{"finalizers":null}}`)))
+			_ = cl.Delete(ctx, object)
+		}
+	}
+}
+
+// randomHex returns 2*length random hex characters.
+func randomHex(t *testing.T, length int) string {
+	t.Helper()
+
+	raw := make([]byte, length)
+	_, err := rand.Read(raw)
+	require.NoError(t, err)
+
+	return hex.EncodeToString(raw)
+}
+
+// operatorOptions change how startIsolatedOperator runs the operator.
 type operatorOptions struct {
 	// logger receives the operator's log; the zero logger keeps the default.
 	logger logr.Logger
-	// withProjects also runs the project, robot, system robot, retention policy and immutability policy controllers.
-	withProjects bool
 	// wrapRobotClient, when set, wraps the robot controller's client so a test can change what the controller reads.
 	wrapRobotClient func(client.Client) client.Client
 }
 
-// startOperatorWith is startOperator with options.
-func startOperatorWith(t *testing.T, options operatorOptions) client.Client {
+// startIsolatedOperator starts a private API server and operator for one test. It is the documented exception for
+// tests that need operator-wide settings the shared operator does not have: a different logger, or a wrapped client.
+func startIsolatedOperator(t *testing.T, options operatorOptions) client.Client {
 	t.Helper()
 
-	environment := &envtest.Environment{CRDDirectoryPaths: []string{filepath.Join("..", "..", "config", "crd", "bases")}, ErrorIfCRDPathMissing: true}
-
-	var (
-		restConfig *rest.Config
-		err        error
-	)
-
-	restConfig, err = environment.Start()
+	environment, restConfig, err := startEnvironment()
 	if err != nil {
 		t.Skipf("envtest is not available: %v", err)
 	}
 
 	t.Cleanup(func() { _ = environment.Stop() })
 
-	runtimeScheme, err := scheme.New()
+	stop, direct, err := runOperator(restConfig, options)
 	require.NoError(t, err)
-
-	manager, err := ctrl.NewManager(restConfig, ctrl.Options{Scheme: runtimeScheme, Logger: options.logger, Metrics: metricsserver.Options{BindAddress: "0"}, Controller: config.Controller{SkipNameValidation: ptr(true)}})
-	require.NoError(t, err)
-	require.NoError(t, controller.IndexFields(t.Context(), manager.GetFieldIndexer()))
-	clients := harbor.NewClientCache(manager.GetClient())
-	require.NoError(t, (&controller.HarborConnectionReconciler{Client: manager.GetClient(), Clients: clients}).SetupWithManager(manager))
-
-	if options.withProjects {
-		robotClient := manager.GetClient()
-		if options.wrapRobotClient != nil {
-			robotClient = options.wrapRobotClient(robotClient)
-		}
-
-		require.NoError(t, ownership.SetupIndexes(t.Context(), manager.GetFieldIndexer()))
-		require.NoError(t, (&controller.HarborProjectReconciler{Client: manager.GetClient(), Clients: clients, Recorder: manager.GetEventRecorder("harbor-operator"), MaxBackoff: 2 * time.Second}).SetupWithManager(manager))
-		require.NoError(t, (&controller.HarborProjectRobotReconciler{Client: robotClient, Clients: clients, Recorder: manager.GetEventRecorder("harbor-operator")}).SetupWithManager(manager))
-		require.NoError(t, (&controller.HarborSystemRobotReconciler{Client: manager.GetClient(), Clients: clients, Recorder: manager.GetEventRecorder("harbor-operator")}).SetupWithManager(manager))
-		require.NoError(t, (&controller.HarborRetentionPolicyReconciler{Client: manager.GetClient(), Clients: clients, Recorder: manager.GetEventRecorder("harbor-operator")}).SetupWithManager(manager))
-		require.NoError(t, (&controller.HarborImmutabilityPolicyReconciler{Client: manager.GetClient(), Clients: clients, Recorder: manager.GetEventRecorder("harbor-operator")}).SetupWithManager(manager))
-		require.NoError(t, (&controller.HarborRegistryReconciler{Client: manager.GetClient(), Clients: clients, Recorder: manager.GetEventRecorder("harbor-operator"), MaxBackoff: 2 * time.Second}).SetupWithManager(manager))
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-
-	go func() {
-		defer close(done)
-
-		_ = manager.Start(ctx)
-	}()
-
-	t.Cleanup(func() { cancel(); <-done })
-
-	direct, err := client.New(restConfig, client.Options{Scheme: runtimeScheme})
-	require.NoError(t, err)
+	t.Cleanup(stop)
 
 	return direct
 }
@@ -157,12 +167,19 @@ func awaitReady(t *testing.T, cl client.Client, key client.ObjectKey, status met
 	return &connection
 }
 
+// unknownUser is a Harbor user that does not exist. Failed sign-ins for a real account such as the admin lock it out,
+// and the shared operator keeps retrying a bad credential for as long as the connection exists, which would lock the
+// admin out for every other test.
+const unknownUser = "no-such-user"
+
 func TestConnectionBecomesReadyWithValidCredentials(t *testing.T) {
+	t.Parallel()
 	instance := harborfixture.FromEnv(t)
 	cl := startOperator(t)
+	namespace := newNamespace(t, cl, "conn")
 
-	require.NoError(t, cl.Create(t.Context(), credentials("default", "harbor-creds", instance.Username, instance.Password)))
-	connection := newConnection("default", "harbor", instance.URL, "harbor-creds")
+	require.NoError(t, cl.Create(t.Context(), credentials(namespace, "harbor-creds", instance.Username, instance.Password)))
+	connection := newConnection(namespace, "harbor", instance.URL, "harbor-creds")
 	require.NoError(t, cl.Create(t.Context(), connection))
 
 	ready := awaitReady(t, cl, client.ObjectKeyFromObject(connection), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
@@ -174,11 +191,13 @@ func TestConnectionBecomesReadyWithValidCredentials(t *testing.T) {
 }
 
 func TestConnectionReportsBadCredentials(t *testing.T) {
+	t.Parallel()
 	instance := harborfixture.FromEnv(t)
 	cl := startOperator(t)
+	namespace := newNamespace(t, cl, "conn")
 
-	require.NoError(t, cl.Create(t.Context(), credentials("default", "wrong-password", instance.Username, "not-the-password")))
-	require.NoError(t, cl.Create(t.Context(), &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "no-password"}, StringData: map[string]string{"username": "admin"}}))
+	require.NoError(t, cl.Create(t.Context(), credentials(namespace, "wrong-password", unknownUser, "not-the-password")))
+	require.NoError(t, cl.Create(t.Context(), &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "no-password"}, StringData: map[string]string{"username": "admin"}}))
 
 	for name, test := range map[string]struct {
 		secret string
@@ -189,7 +208,9 @@ func TestConnectionReportsBadCredentials(t *testing.T) {
 		"missing Secret": {secret: "absent", reason: harborv1alpha1.ReasonCredentialsInvalid},
 	} {
 		t.Run(name, func(t *testing.T) {
-			connection := newConnection("default", "conn-"+test.secret, instance.URL, test.secret)
+			t.Parallel()
+
+			connection := newConnection(namespace, "conn-"+test.secret, instance.URL, test.secret)
 			require.NoError(t, cl.Create(t.Context(), connection))
 			awaitReady(t, cl, client.ObjectKeyFromObject(connection), metav1.ConditionFalse, test.reason)
 		})
@@ -197,13 +218,15 @@ func TestConnectionReportsBadCredentials(t *testing.T) {
 }
 
 func TestConnectionRevalidatesWhenCredentialsSecretChanges(t *testing.T) {
+	t.Parallel()
 	instance := harborfixture.FromEnv(t)
 	cl := startOperator(t)
+	namespace := newNamespace(t, cl, "conn")
 
-	secret := credentials("default", "harbor-creds", instance.Username, "not-the-password")
+	secret := credentials(namespace, "harbor-creds", unknownUser, "not-the-password")
 	require.NoError(t, cl.Create(t.Context(), secret))
 
-	connection := newConnection("default", "harbor", instance.URL, "harbor-creds")
+	connection := newConnection(namespace, "harbor", instance.URL, "harbor-creds")
 	require.NoError(t, cl.Create(t.Context(), connection))
 	awaitReady(t, cl, client.ObjectKeyFromObject(connection), metav1.ConditionFalse, harborv1alpha1.ReasonUnauthorized)
 
@@ -221,36 +244,36 @@ func TestConnectionRevalidatesWhenCredentialsSecretChanges(t *testing.T) {
 }
 
 func TestConnectionDeletionWaitsForAdmittedProjects(t *testing.T) {
+	t.Parallel()
 	instance := harborfixture.FromEnv(t)
 	cl := startOperator(t)
+	namespace := newNamespace(t, cl, "conn")
 
-	for _, name := range []string{"admitted", "outsider"} {
-		require.NoError(t, cl.Create(t.Context(), &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: name}}))
-	}
+	admittedNamespace, outsiderNamespace := newNamespace(t, cl, "admitted"), newNamespace(t, cl, "outsider")
 
-	require.NoError(t, cl.Create(t.Context(), credentials("default", "harbor-creds", instance.Username, instance.Password)))
+	require.NoError(t, cl.Create(t.Context(), credentials(namespace, "harbor-creds", instance.Username, instance.Password)))
 
-	connection := newConnection("default", "harbor", instance.URL, "harbor-creds")
-	connection.Spec.AllowedNamespaces.Names = []string{"admitted"}
+	connection := newConnection(namespace, "harbor", instance.URL, "harbor-creds")
+	connection.Spec.AllowedNamespaces.Names = []string{admittedNamespace}
 	require.NoError(t, cl.Create(t.Context(), connection))
 	awaitReady(t, cl, client.ObjectKeyFromObject(connection), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
 
-	newProject := func(namespace string) *harborv1alpha1.HarborProject {
+	newProject := func(projectNamespace string) *harborv1alpha1.HarborProject {
 		return &harborv1alpha1.HarborProject{
-			ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "project", Finalizers: []string{"test/hold"}},
-			Spec:       harborv1alpha1.HarborProjectSpec{ConnectionRef: harborv1alpha1.ObjectReference{Namespace: "default", Name: "harbor"}},
+			ObjectMeta: metav1.ObjectMeta{Namespace: projectNamespace, Name: "project", Finalizers: []string{"test/hold"}},
+			Spec:       harborv1alpha1.HarborProjectSpec{ConnectionRef: harborv1alpha1.ObjectReference{Namespace: namespace, Name: "harbor"}},
 		}
 	}
 
-	admitted, outsider := newProject("admitted"), newProject("outsider")
+	admitted, outsider := newProject(admittedNamespace), newProject(outsiderNamespace)
 	require.NoError(t, cl.Create(t.Context(), admitted))
 	require.NoError(t, cl.Create(t.Context(), outsider))
 
 	require.NoError(t, cl.Delete(t.Context(), connection))
 
 	held := awaitReady(t, cl, client.ObjectKeyFromObject(connection), metav1.ConditionFalse, harborv1alpha1.ReasonDependentsExist)
-	assert.Contains(t, held.Status.Conditions[0].Message, "admitted/project")
-	assert.NotContains(t, held.Status.Conditions[0].Message, "outsider/project", "references from namespaces the connection does not admit are ignored")
+	assert.Contains(t, held.Status.Conditions[0].Message, admittedNamespace+"/project")
+	assert.NotContains(t, held.Status.Conditions[0].Message, outsiderNamespace+"/project", "references from namespaces the connection does not admit are ignored")
 	assert.Contains(t, held.Finalizers, controller.ConnectionFinalizer)
 
 	// Removing the project lets the connection go, with no other trigger.

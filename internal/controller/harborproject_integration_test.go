@@ -24,7 +24,7 @@ import (
 const projectWait = 90 * time.Second
 
 // projectHarbor gives a test a Harbor client and a unique project name, and deletes the project when the test ends.
-// Call it before startOperator so the project is deleted after the operator has stopped and cannot recreate it.
+// The operator is shared, so the project may be recreated between a test's end and this cleanup; deleting it is best effort.
 func projectHarbor(t *testing.T) (*harborfixture.Harbor, *harbor.Client, string) {
 	t.Helper()
 
@@ -148,12 +148,15 @@ func harborSettings(t *testing.T, admin *harbor.Client, name string) (*harbor.Pr
 }
 
 func TestProjectIsCreatedWithTheSpecSettings(t *testing.T) {
+	t.Parallel()
+
 	instance, admin, name := projectHarbor(t)
 	cl := startOperator(t, true)
-	connection := readyConnection(t, cl, instance, "default", nil)
+	ns := newNamespace(t, cl, "project")
+	connection := readyConnection(t, cl, instance, ns, nil)
 	expires := time.Now().Add(72 * time.Hour).UTC().Truncate(time.Second)
 
-	project := newProject("default", name, connection)
+	project := newProject(ns, name, connection)
 	fullSpec(project, expires)
 	require.NoError(t, cl.Create(t.Context(), project))
 
@@ -174,11 +177,14 @@ func TestProjectIsCreatedWithTheSpecSettings(t *testing.T) {
 }
 
 func TestProjectFollowsSpecChanges(t *testing.T) {
+	t.Parallel()
+
 	instance, admin, name := projectHarbor(t)
 	cl := startOperator(t, true)
-	connection := readyConnection(t, cl, instance, "default", nil)
+	ns := newNamespace(t, cl, "project")
+	connection := readyConnection(t, cl, instance, ns, nil)
 
-	project := newProject("default", name, connection)
+	project := newProject(ns, name, connection)
 	fullSpec(project, time.Now().Add(72*time.Hour))
 	require.NoError(t, cl.Create(t.Context(), project))
 	key := client.ObjectKeyFromObject(project)
@@ -223,12 +229,15 @@ func TestProjectFollowsSpecChanges(t *testing.T) {
 }
 
 func TestProjectDriftInHarborIsReverted(t *testing.T) {
+	t.Parallel()
+
 	instance, admin, name := projectHarbor(t)
 	cl := startOperator(t, true)
-	connection := readyConnection(t, cl, instance, "default", nil)
+	ns := newNamespace(t, cl, "project")
+	connection := readyConnection(t, cl, instance, ns, nil)
 	expires := time.Now().Add(72 * time.Hour).UTC().Truncate(time.Second)
 
-	project := newProject("default", name, connection)
+	project := newProject(ns, name, connection)
 	fullSpec(project, expires)
 	// scanOnPush is left unset: its Harbor value must survive every resync.
 	project.Spec.Vulnerability.ScanOnPush = nil
@@ -266,11 +275,14 @@ func TestProjectDriftInHarborIsReverted(t *testing.T) {
 }
 
 func TestProjectDeletedInHarborIsRecreated(t *testing.T) {
+	t.Parallel()
+
 	instance, admin, name := projectHarbor(t)
 	cl := startOperator(t, true)
-	connection := readyConnection(t, cl, instance, "default", nil)
+	ns := newNamespace(t, cl, "project")
+	connection := readyConnection(t, cl, instance, ns, nil)
 
-	project := newProject("default", name, connection)
+	project := newProject(ns, name, connection)
 	project.Spec.Public = ptr(true)
 	require.NoError(t, cl.Create(t.Context(), project))
 	key := client.ObjectKeyFromObject(project)
@@ -296,16 +308,19 @@ func TestProjectDeletedInHarborIsRecreated(t *testing.T) {
 }
 
 func TestProjectNamingAnExistingHarborProject(t *testing.T) {
+	t.Parallel()
+
 	instance, admin, name := projectHarbor(t)
 	cl := startOperator(t, true)
+	ns := newNamespace(t, cl, "project")
 
 	_, err := admin.CreateProject(t.Context(), name, harbor.ProjectSettings{Public: ptr(false)}, nil)
 	require.NoError(t, err)
 
 	t.Run("without adopt reports AlreadyExists and changes nothing", func(t *testing.T) {
-		connection := readyConnection(t, cl, instance, "default", func(connection *harborv1alpha1.HarborConnection) { connection.Spec.AllowAdoption = true })
+		connection := readyConnection(t, cl, instance, ns, func(connection *harborv1alpha1.HarborConnection) { connection.Spec.AllowAdoption = true })
 
-		project := newProject("default", name, connection)
+		project := newProject(ns, name, connection)
 		project.Spec.Public = ptr(true)
 		require.NoError(t, cl.Create(t.Context(), project))
 		reported := awaitProject(t, cl, client.ObjectKeyFromObject(project), metav1.ConditionFalse, harborv1alpha1.ReasonAlreadyExists)
@@ -321,10 +336,10 @@ func TestProjectNamingAnExistingHarborProject(t *testing.T) {
 	})
 
 	t.Run("adopt without allowAdoption reports AdoptionNotAllowed", func(t *testing.T) {
-		require.NoError(t, cl.Create(t.Context(), &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "no-adoption"}}))
-		connection := readyConnection(t, cl, instance, "no-adoption", nil)
+		noAdoption := newNamespace(t, cl, "no-adoption")
+		connection := readyConnection(t, cl, instance, noAdoption, nil)
 
-		project := newProject("no-adoption", name, connection)
+		project := newProject(noAdoption, name, connection)
 		project.Spec.Adopt = true
 		project.Spec.Public = ptr(true)
 		require.NoError(t, cl.Create(t.Context(), project))
@@ -337,10 +352,10 @@ func TestProjectNamingAnExistingHarborProject(t *testing.T) {
 	})
 
 	t.Run("adopt with allowAdoption takes the project over", func(t *testing.T) {
-		require.NoError(t, cl.Create(t.Context(), &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "adoption"}}))
-		connection := readyConnection(t, cl, instance, "adoption", func(connection *harborv1alpha1.HarborConnection) { connection.Spec.AllowAdoption = true })
+		adoption := newNamespace(t, cl, "adoption")
+		connection := readyConnection(t, cl, instance, adoption, func(connection *harborv1alpha1.HarborConnection) { connection.Spec.AllowAdoption = true })
 
-		project := newProject("adoption", name, connection)
+		project := newProject(adoption, name, connection)
 		project.Spec.Adopt = true
 		project.Spec.Public = ptr(true)
 		require.NoError(t, cl.Create(t.Context(), project))
@@ -354,30 +369,33 @@ func TestProjectNamingAnExistingHarborProject(t *testing.T) {
 }
 
 func TestSecondResourceForTheSameHarborProjectConflicts(t *testing.T) {
+	t.Parallel()
+
 	instance, admin, name := projectHarbor(t)
 	cl := startOperator(t, true)
-	connection := readyConnection(t, cl, instance, "default", nil)
+	ns := newNamespace(t, cl, "project")
+	connection := readyConnection(t, cl, instance, ns, nil)
 
-	first := newProject("default", name, connection)
+	first := newProject(ns, name, connection)
 	first.Spec.Public = ptr(true)
 	require.NoError(t, cl.Create(t.Context(), first))
 	owner := awaitProject(t, cl, client.ObjectKeyFromObject(first), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
 
 	// The second resource lives in another namespace and reaches the same Harbor through its own connection, even
 	// with adoption allowed.
-	require.NoError(t, cl.Create(t.Context(), &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "second"}}))
-	secondConnection := readyConnection(t, cl, instance, "second", func(connection *harborv1alpha1.HarborConnection) {
+	secondNamespace := newNamespace(t, cl, "second")
+	secondConnection := readyConnection(t, cl, instance, secondNamespace, func(connection *harborv1alpha1.HarborConnection) {
 		connection.Spec.URL += "/"
 		connection.Spec.AllowAdoption = true
 	})
 
-	second := newProject("second", name, secondConnection)
+	second := newProject(secondNamespace, name, secondConnection)
 	second.Spec.Public = ptr(false)
 	second.Spec.Adopt = true
 	require.NoError(t, cl.Create(t.Context(), second))
 	conflicted := awaitProject(t, cl, client.ObjectKeyFromObject(second), metav1.ConditionFalse, harborv1alpha1.ReasonConflict)
 	assert.Zero(t, conflicted.Status.ProjectID)
-	assert.Contains(t, readyMessage(conflicted), "default/project")
+	assert.Contains(t, readyMessage(conflicted), ns+"/project")
 
 	// The first keeps working: its spec changes still reach Harbor, and the second's settings never do.
 	updateProject(t, cl, client.ObjectKeyFromObject(first), func(project *harborv1alpha1.HarborProject) {
@@ -401,17 +419,21 @@ func TestSecondResourceForTheSameHarborProjectConflicts(t *testing.T) {
 }
 
 func TestProjectInANamespaceTheConnectionDoesNotAdmit(t *testing.T) {
+	t.Parallel()
+
 	instance, admin, name := projectHarbor(t)
 	cl := startOperator(t, true)
+	ns := newNamespace(t, cl, "project")
 
-	connection := readyConnection(t, cl, instance, "default", func(connection *harborv1alpha1.HarborConnection) {
+	connection := readyConnection(t, cl, instance, ns, func(connection *harborv1alpha1.HarborConnection) {
 		connection.Spec.AllowedNamespaces.Selector = &metav1.LabelSelector{MatchLabels: map[string]string{"harbor.soliddowant.dev/ci": "true"}}
 	})
 
-	namespace := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "team"}}
-	require.NoError(t, cl.Create(t.Context(), namespace))
+	team := newNamespace(t, cl, "team")
+	namespace := &corev1.Namespace{}
+	require.NoError(t, cl.Get(t.Context(), client.ObjectKey{Name: team}, namespace))
 
-	project := newProject("team", name, connection)
+	project := newProject(team, name, connection)
 	// With a long resync only the Namespace watch can bring the project back once the label is added.
 	project.Spec.ResyncInterval = &metav1.Duration{Duration: time.Hour}
 	require.NoError(t, cl.Create(t.Context(), project))
@@ -432,14 +454,17 @@ func TestProjectInANamespaceTheConnectionDoesNotAdmit(t *testing.T) {
 }
 
 func TestProjectSpecHarborRejectsReportsInvalidSpec(t *testing.T) {
+	t.Parallel()
+
 	instance, admin, name := projectHarbor(t)
 	cl := startOperator(t, true)
-	connection := readyConnection(t, cl, instance, "default", nil)
+	ns := newNamespace(t, cl, "project")
+	connection := readyConnection(t, cl, instance, ns, nil)
 
 	// Harbor refuses storage quotas above 1024 TB with a 400; CRD validation cannot know that limit.
 	tooLarge := resource.MustParse("2Pi")
 
-	project := newProject("default", name, connection)
+	project := newProject(ns, name, connection)
 	project.Spec.StorageQuota = &tooLarge
 	require.NoError(t, cl.Create(t.Context(), project))
 	key := client.ObjectKeyFromObject(project)

@@ -93,17 +93,21 @@ func readyRobotProjectWith(t *testing.T, options operatorOptions, useSystemRobot
 	projectName := harborfixture.UniqueName(t, "op")
 	t.Cleanup(func() { instance.DeleteProject(context.Background(), t, projectName) })
 
-	options.withProjects = true
-	cl := startOperatorWith(t, options)
+	// Only a test with its own logger or wrapped client needs a private operator; the rest share one.
+	cl := startOperator(t)
+	if options.wrapRobotClient != nil || options.logger.GetSink() != nil {
+		cl = startIsolatedOperator(t, options)
+	}
 
 	connectionInstance := *instance
 	if useSystemRobot {
 		connectionInstance.Username, connectionInstance.Password = instance.CreateSystemRobot(t, systemRobotPermissions())
 	}
 
-	connection := readyConnection(t, cl, &connectionInstance, "default", changeConnection)
+	namespace := newNamespace(t, cl, "robot")
+	connection := readyConnection(t, cl, &connectionInstance, namespace, changeConnection)
 
-	project := newProject("default", projectName, connection)
+	project := newProject(namespace, projectName, connection)
 	if changeProject != nil {
 		changeProject(project)
 	}
@@ -179,10 +183,12 @@ func push(t *testing.T, instance *harborfixture.Harbor, username, password, proj
 }
 
 func TestRobotWithPushAndPullCanPushOnlyToItsProject(t *testing.T) {
+	t.Parallel()
+
 	setup := readyRobotProject(t, nil, nil)
 	other := setup.instance.CreateProject(t)
 
-	robot := ciRobot("default", setup.project)
+	robot := ciRobot(setup.project.Namespace, setup.project)
 	require.NoError(t, setup.cl.Create(t.Context(), robot))
 
 	ready := awaitRobot(t, setup.cl, client.ObjectKeyFromObject(robot), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
@@ -194,7 +200,7 @@ func TestRobotWithPushAndPullCanPushOnlyToItsProject(t *testing.T) {
 	assert.Equal(t, setup.project.Spec.Name, found.ProjectName)
 	assert.ElementsMatch(t, []harbor.RobotAccess{{Resource: "repository", Action: "push"}, {Resource: "repository", Action: "pull"}}, found.Permissions)
 
-	username, password := dockerCredentials(t, setup.cl, "default", "ci-dockerconfig", setup.instance.Registry(t))
+	username, password := dockerCredentials(t, setup.cl, setup.project.Namespace, "ci-dockerconfig", setup.instance.Registry(t))
 	assert.Equal(t, found.Name, username)
 
 	require.NoError(t, push(t, setup.instance, username, password, setup.project.Spec.Name, "app"), "the robot pushes to its own project")
@@ -202,10 +208,11 @@ func TestRobotWithPushAndPullCanPushOnlyToItsProject(t *testing.T) {
 }
 
 func TestRobotInANamespaceTheProjectDoesNotAdmit(t *testing.T) {
+	t.Parallel()
+
 	setup := readyRobotProject(t, nil, nil)
 
-	namespace := harborfixture.UniqueName(t, "robots")
-	require.NoError(t, setup.cl.Create(t.Context(), &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}))
+	namespace := newNamespace(t, setup.cl, "robots")
 
 	robot := ciRobot(namespace, setup.project)
 	require.NoError(t, setup.cl.Create(t.Context(), robot))
@@ -232,9 +239,11 @@ func TestRobotInANamespaceTheProjectDoesNotAdmit(t *testing.T) {
 }
 
 func TestRobotDriftInHarborIsPutBack(t *testing.T) {
+	t.Parallel()
+
 	setup := readyRobotProject(t, nil, nil)
 
-	robot := ciRobot("default", setup.project)
+	robot := ciRobot(setup.project.Namespace, setup.project)
 	require.NoError(t, setup.cl.Create(t.Context(), robot))
 	ready := awaitRobot(t, setup.cl, client.ObjectKeyFromObject(robot), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
 
@@ -258,7 +267,7 @@ func TestRobotDriftInHarborIsPutBack(t *testing.T) {
 				map[harbor.RobotAccess]bool{found.Permissions[0]: true, found.Permissions[1]: true})
 	}, projectWait, 500*time.Millisecond, "waiting for Harbor's robot to match the spec again, have %+v", found)
 
-	username, password := dockerCredentials(t, setup.cl, "default", "ci-dockerconfig", setup.instance.Registry(t))
+	username, password := dockerCredentials(t, setup.cl, setup.project.Namespace, "ci-dockerconfig", setup.instance.Registry(t))
 	require.NoError(t, push(t, setup.instance, username, password, setup.project.Spec.Name, "app"), "the robot's Secret still works")
 }
 
@@ -275,14 +284,16 @@ func driftRobotInHarbor(t *testing.T, setup *robotSetup, id int64) {
 }
 
 func TestRobotDriftInHarborIsPutBackByReplacingTheRobotWithASystemRobotConnection(t *testing.T) {
+	t.Parallel()
+
 	setup := readyRobotProjectWithSystemRobot(t, true, nil, nil)
 
-	robot := ciRobot("default", setup.project)
+	robot := ciRobot(setup.project.Namespace, setup.project)
 	require.NoError(t, setup.cl.Create(t.Context(), robot))
 	key := client.ObjectKeyFromObject(robot)
 	ready := awaitRobot(t, setup.cl, key, metav1.ConditionTrue, harborv1alpha1.ReasonReady)
 
-	username, old := dockerCredentials(t, setup.cl, "default", "ci-dockerconfig", setup.instance.Registry(t))
+	username, old := dockerCredentials(t, setup.cl, setup.project.Namespace, "ci-dockerconfig", setup.instance.Registry(t))
 	oldID := ready.Status.RobotID
 	driftRobotInHarbor(t, setup, oldID)
 
@@ -305,9 +316,11 @@ func TestRobotDriftInHarborIsPutBackByReplacingTheRobotWithASystemRobotConnectio
 }
 
 func TestRobotIsNotReplacedWhenTheConnectionLacksADesiredPermission(t *testing.T) {
+	t.Parallel()
+
 	setup := readyRobotProjectWithSystemRobot(t, true, nil, nil)
 
-	robot := ciRobot("default", setup.project)
+	robot := ciRobot(setup.project.Namespace, setup.project)
 	require.NoError(t, setup.cl.Create(t.Context(), robot))
 	key := client.ObjectKeyFromObject(robot)
 	ready := awaitRobot(t, setup.cl, key, metav1.ConditionTrue, harborv1alpha1.ReasonReady)
@@ -330,12 +343,14 @@ func TestRobotIsNotReplacedWhenTheConnectionLacksADesiredPermission(t *testing.T
 }
 
 func TestRobotSecretRenewalReplacesTheRobotWithASystemRobotConnection(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name  string
 		renew func(t *testing.T, setup *robotSetup, key client.ObjectKey)
 	}{
 		{name: "Secret deleted", renew: func(t *testing.T, setup *robotSetup, _ client.ObjectKey) {
-			require.NoError(t, setup.cl.Delete(t.Context(), &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "ci-dockerconfig"}}))
+			require.NoError(t, setup.cl.Delete(t.Context(), &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: setup.project.Namespace, Name: "ci-dockerconfig"}}))
 		}},
 		{name: "rotate changed", renew: func(t *testing.T, setup *robotSetup, key client.ObjectKey) {
 			updateRobot(t, setup.cl, key, func(robot *harborv1alpha1.HarborProjectRobot) { robot.Spec.Secret.Rotate = "second" })
@@ -344,15 +359,17 @@ func TestRobotSecretRenewalReplacesTheRobotWithASystemRobotConnection(t *testing
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
 			setup := readyRobotProjectWithSystemRobot(t, true, nil, nil)
 
-			robot := ciRobot("default", setup.project)
+			robot := ciRobot(setup.project.Namespace, setup.project)
 			robot.Spec.Secret.Rotate = "first"
 			require.NoError(t, setup.cl.Create(t.Context(), robot))
 			key := client.ObjectKeyFromObject(robot)
 			ready := awaitRobot(t, setup.cl, key, metav1.ConditionTrue, harborv1alpha1.ReasonReady)
 
-			username, old := dockerCredentials(t, setup.cl, "default", "ci-dockerconfig", setup.instance.Registry(t))
+			username, old := dockerCredentials(t, setup.cl, setup.project.Namespace, "ci-dockerconfig", setup.instance.Registry(t))
 			test.renew(t, setup, key)
 
 			newUsername, password := awaitNewDockerPassword(t, setup, "ci-dockerconfig", old)
@@ -366,6 +383,8 @@ func TestRobotSecretRenewalReplacesTheRobotWithASystemRobotConnection(t *testing
 }
 
 func TestRobotAdoptsAnExistingHarborRobot(t *testing.T) {
+	t.Parallel()
+
 	setup := readyRobotProject(t, func(connection *harborv1alpha1.HarborConnection) { connection.Spec.AllowAdoption = true }, nil)
 
 	existing, err := setup.admin.CreateRobot(t.Context(), setup.project.Spec.Name, harbor.RobotSpec{
@@ -373,14 +392,14 @@ func TestRobotAdoptsAnExistingHarborRobot(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	robot := ciRobot("default", setup.project)
+	robot := ciRobot(setup.project.Namespace, setup.project)
 	require.NoError(t, setup.cl.Create(t.Context(), robot))
 	key := client.ObjectKeyFromObject(robot)
 
 	awaitRobot(t, setup.cl, key, metav1.ConditionFalse, harborv1alpha1.ReasonAlreadyExists)
 
 	secret := &corev1.Secret{}
-	require.True(t, apierrors.IsNotFound(setup.cl.Get(t.Context(), client.ObjectKey{Namespace: "default", Name: "ci-dockerconfig"}, secret)),
+	require.True(t, apierrors.IsNotFound(setup.cl.Get(t.Context(), client.ObjectKey{Namespace: setup.project.Namespace, Name: "ci-dockerconfig"}, secret)),
 		"no Secret is written for a robot that is not adopted")
 
 	require.Eventually(t, func() bool {
@@ -398,7 +417,7 @@ func TestRobotAdoptsAnExistingHarborRobot(t *testing.T) {
 	assert.Equal(t, existing.ID, ready.Status.RobotID)
 	awaitEvent(t, setup.cl, ready, harborv1alpha1.EventReasonAdopted)
 
-	username, password := dockerCredentials(t, setup.cl, "default", "ci-dockerconfig", setup.instance.Registry(t))
+	username, password := dockerCredentials(t, setup.cl, setup.project.Namespace, "ci-dockerconfig", setup.instance.Registry(t))
 	assert.Equal(t, existing.Name, username)
 	assert.NotEqual(t, existing.Secret, password, "adoption refreshes the robot's secret")
 	require.NoError(t, push(t, setup.instance, username, password, setup.project.Spec.Name, "app"), "the refreshed secret works")
@@ -406,6 +425,8 @@ func TestRobotAdoptsAnExistingHarborRobot(t *testing.T) {
 }
 
 func TestRobotAdoptionNeedsTheConnectionToAllowIt(t *testing.T) {
+	t.Parallel()
+
 	setup := readyRobotProject(t, nil, nil)
 
 	_, err := setup.admin.CreateRobot(t.Context(), setup.project.Spec.Name, harbor.RobotSpec{
@@ -413,7 +434,7 @@ func TestRobotAdoptionNeedsTheConnectionToAllowIt(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	robot := ciRobot("default", setup.project)
+	robot := ciRobot(setup.project.Namespace, setup.project)
 	robot.Spec.Adopt = true
 	require.NoError(t, setup.cl.Create(t.Context(), robot))
 
@@ -421,6 +442,8 @@ func TestRobotAdoptionNeedsTheConnectionToAllowIt(t *testing.T) {
 }
 
 func TestRobotDeletion(t *testing.T) {
+	t.Parallel()
+
 	for _, test := range []struct {
 		name        string
 		policy      harborv1alpha1.DeletionPolicy
@@ -430,9 +453,11 @@ func TestRobotDeletion(t *testing.T) {
 		{name: "Orphan leaves the Harbor robot", policy: harborv1alpha1.DeletionPolicyOrphan, harborStays: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
 			setup := readyRobotProject(t, nil, nil)
 
-			robot := ciRobot("default", setup.project)
+			robot := ciRobot(setup.project.Namespace, setup.project)
 			robot.Spec.DeletionPolicy = test.policy
 			robot.Spec.Secret.Opaque.Enabled = ptr(true)
 			require.NoError(t, setup.cl.Create(t.Context(), robot))
@@ -440,7 +465,7 @@ func TestRobotDeletion(t *testing.T) {
 			ready := awaitRobot(t, setup.cl, key, metav1.ConditionTrue, harborv1alpha1.ReasonReady)
 
 			for _, secretName := range []string{"ci-dockerconfig", "ci-credentials"} {
-				require.NoError(t, setup.cl.Get(t.Context(), client.ObjectKey{Namespace: "default", Name: secretName}, &corev1.Secret{}))
+				require.NoError(t, setup.cl.Get(t.Context(), client.ObjectKey{Namespace: setup.project.Namespace, Name: secretName}, &corev1.Secret{}))
 			}
 
 			require.NoError(t, setup.cl.Delete(t.Context(), ready))
@@ -450,7 +475,7 @@ func TestRobotDeletion(t *testing.T) {
 			}, projectWait, 200*time.Millisecond, "waiting for the robot resource to go")
 
 			for _, secretName := range []string{"ci-dockerconfig", "ci-credentials"} {
-				err := setup.cl.Get(t.Context(), client.ObjectKey{Namespace: "default", Name: secretName}, &corev1.Secret{})
+				err := setup.cl.Get(t.Context(), client.ObjectKey{Namespace: setup.project.Namespace, Name: secretName}, &corev1.Secret{})
 				assert.True(t, apierrors.IsNotFound(err), "Secret %s is deleted with the robot: %v", secretName, err)
 			}
 
@@ -467,15 +492,14 @@ func TestRobotDeletion(t *testing.T) {
 // A robot in Conflict can still hold the owner's robot ID in status: here the second resource adopted the robot while
 // the owner's namespace was not admitted. Deleting it with policy Delete must leave the owner's Harbor robot alone.
 func TestRobotInConflictDeletionLeavesTheOwnersHarborRobot(t *testing.T) {
+	t.Parallel()
+
+	teamA, teamB := newNamespace(t, startOperator(t), "team-a"), newNamespace(t, startOperator(t), "team-b")
 	setup := readyRobotProject(t, func(connection *harborv1alpha1.HarborConnection) { connection.Spec.AllowAdoption = true },
 		func(project *harborv1alpha1.HarborProject) {
-			project.Spec.AllowedNamespaces.Names = []string{"team-a", "team-b"}
+			project.Spec.AllowedNamespaces.Names = []string{teamA, teamB}
 		})
 	cl := setup.cl
-
-	for _, namespace := range []string{"team-a", "team-b"} {
-		require.NoError(t, client.IgnoreAlreadyExists(cl.Create(t.Context(), &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}})))
-	}
 
 	setAllowed := func(names ...string) {
 		updateProject(t, cl, client.ObjectKeyFromObject(setup.project), func(project *harborv1alpha1.HarborProject) {
@@ -483,13 +507,13 @@ func TestRobotInConflictDeletionLeavesTheOwnersHarborRobot(t *testing.T) {
 		})
 	}
 
-	first := ciRobot("team-a", setup.project)
+	first := ciRobot(teamA, setup.project)
 	require.NoError(t, cl.Create(t.Context(), first))
 	t.Cleanup(func() { _ = cl.Delete(context.Background(), first) })
 
 	owner := awaitRobot(t, cl, client.ObjectKeyFromObject(first), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
 
-	setAllowed("team-b")
+	setAllowed(teamB)
 	awaitRobot(t, cl, client.ObjectKeyFromObject(first), metav1.ConditionFalse, harborv1alpha1.ReasonNotAllowed)
 
 	// Creation timestamps have whole-second resolution and ties go to the lowest
@@ -499,7 +523,7 @@ func TestRobotInConflictDeletionLeavesTheOwnersHarborRobot(t *testing.T) {
 		return time.Now().After(owner.CreationTimestamp.Add(time.Second))
 	}, 5*time.Second, 50*time.Millisecond, "waiting for a new second to start")
 
-	second := ciRobot("team-b", setup.project)
+	second := ciRobot(teamB, setup.project)
 	second.Spec.Adopt = true
 	second.Spec.DeletionPolicy = harborv1alpha1.DeletionPolicyDelete
 	require.NoError(t, cl.Create(t.Context(), second))
@@ -508,7 +532,7 @@ func TestRobotInConflictDeletionLeavesTheOwnersHarborRobot(t *testing.T) {
 	adopted := awaitRobot(t, cl, client.ObjectKeyFromObject(second), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
 	require.Equal(t, owner.Status.RobotID, adopted.Status.RobotID)
 
-	setAllowed("team-a", "team-b")
+	setAllowed(teamA, teamB)
 	awaitRobot(t, cl, client.ObjectKeyFromObject(first), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
 	loser := awaitRobot(t, cl, client.ObjectKeyFromObject(second), metav1.ConditionFalse, harborv1alpha1.ReasonConflict)
 	require.Equal(t, owner.Status.RobotID, loser.Status.RobotID, "the resource in Conflict still records the robot's ID")

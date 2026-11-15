@@ -21,7 +21,7 @@ import (
 
 // createDocExample applies every document of the YAML block that follows the marker in a user guide.
 // replacements are exact text swaps applied to the block first, for values that cannot work in a test.
-func createDocExample(t *testing.T, cl client.Client, page, marker string, replacements ...string) {
+func createDocExample(t *testing.T, cl client.Client, namespace, page, marker string, replacements ...string) {
 	t.Helper()
 
 	content, err := os.ReadFile(filepath.Join("..", "..", "docs", "user", page))
@@ -43,7 +43,7 @@ func createDocExample(t *testing.T, cl client.Client, page, marker string, repla
 		require.NoError(t, yaml.Unmarshal(document, &object.Object))
 
 		if object.GetNamespace() == "" {
-			object.SetNamespace("default")
+			object.SetNamespace(namespace)
 		}
 
 		require.NoError(t, cl.Create(t.Context(), object))
@@ -51,6 +51,7 @@ func createDocExample(t *testing.T, cl client.Client, page, marker string, repla
 }
 
 func TestUserDocGuidesBecomeReady(t *testing.T) {
+	// Serial: the guides name fixed Harbor projects and registries.
 	setup := readyRegistrySetup(t, nil, nil)
 	cl := setup.cl
 
@@ -60,12 +61,12 @@ func TestUserDocGuidesBecomeReady(t *testing.T) {
 
 		// Harbor checks the upstream when it creates the registry, and the placeholder token in the guide is not a
 		// real ghcr.io login. The test points the registry at the plain registry in the Harbor cluster instead.
-		createDocExample(t, cl, "proxy-cache.md", "proxy-cache",
+		createDocExample(t, cl, setup.ownNamespace, "proxy-cache.md", "proxy-cache",
 			"type: github-ghcr", "type: docker-registry",
 			"url: https://ghcr.io", "url: "+setup.upstreamURL)
 
-		awaitRegistry(t, cl, client.ObjectKey{Namespace: "default", Name: "ghcr"}, metav1.ConditionTrue, harborv1alpha1.ReasonReady)
-		awaitProject(t, cl, client.ObjectKey{Namespace: "default", Name: "ghcr-cache"}, metav1.ConditionTrue, harborv1alpha1.ReasonReady)
+		awaitRegistry(t, cl, client.ObjectKey{Namespace: setup.ownNamespace, Name: "ghcr"}, metav1.ConditionTrue, harborv1alpha1.ReasonReady)
+		awaitProject(t, cl, client.ObjectKey{Namespace: setup.ownNamespace, Name: "ghcr-cache"}, metav1.ConditionTrue, harborv1alpha1.ReasonReady)
 	})
 
 	// The policy guides name a project that the reader already has.
@@ -74,7 +75,7 @@ func TestUserDocGuidesBecomeReady(t *testing.T) {
 
 		setup.projects = append(setup.projects, name)
 
-		project := newProject("default", name, setup.connection)
+		project := newProject(setup.ownNamespace, name, setup.connection)
 		project.Name = name
 		require.NoError(t, cl.Create(context.Background(), project))
 		awaitProject(t, cl, client.ObjectKeyFromObject(project), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
@@ -82,13 +83,13 @@ func TestUserDocGuidesBecomeReady(t *testing.T) {
 
 	t.Run("the retention example", func(t *testing.T) {
 		newReadyProject(t, "app")
-		createDocExample(t, cl, "retention.md", "retention")
-		awaitRetention(t, cl, client.ObjectKey{Namespace: "default", Name: "app"}, metav1.ConditionTrue, harborv1alpha1.ReasonReady)
+		createDocExample(t, cl, setup.ownNamespace, "retention.md", "retention")
+		awaitRetention(t, cl, client.ObjectKey{Namespace: setup.ownNamespace, Name: "app"}, metav1.ConditionTrue, harborv1alpha1.ReasonReady)
 	})
 
 	t.Run("the immutability example", func(t *testing.T) {
 		newReadyProject(t, "my-app")
-		createDocExample(t, cl, "immutability.md", "immutability")
-		awaitImmutabilityPolicy(t, cl, client.ObjectKey{Namespace: "default", Name: "my-app"}, metav1.ConditionTrue, harborv1alpha1.ReasonReady)
+		createDocExample(t, cl, setup.ownNamespace, "immutability.md", "immutability")
+		awaitImmutabilityPolicy(t, cl, client.ObjectKey{Namespace: setup.ownNamespace, Name: "my-app"}, metav1.ConditionTrue, harborv1alpha1.ReasonReady)
 	})
 }
