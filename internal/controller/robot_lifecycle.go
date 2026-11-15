@@ -152,6 +152,18 @@ func connectionNotReady(connection *harborv1alpha1.HarborConnection) (string, st
 	return reason, fmt.Sprintf("HarborConnection %s is not ready", client.ObjectKeyFromObject(connection))
 }
 
+// connectionNotReadyForDeletion is connectionNotReady for a dependent's finalizer. A terminating connection keeps its
+// finalizer, and reports not ready, until its dependents are gone, so it still counts as usable while it knows its
+// Harbor identity: requiring Ready there would leave both sides waiting for each other. Whether Harbor is reachable and
+// accepts the credentials is then decided by the Harbor calls themselves, whose errors keep the dependent's finalizer.
+func connectionNotReadyForDeletion(connection *harborv1alpha1.HarborConnection) (string, string) {
+	if !connection.DeletionTimestamp.IsZero() && connection.Status.HarborIdentity != "" {
+		return "", ""
+	}
+
+	return connectionNotReady(connection)
+}
+
 // sync finds, creates or adopts the Harbor robot, then makes it match the spec.
 func (r *robotLifecycle) sync(ctx context.Context, state *robotReconcile) (reconcile.Result, error) {
 	robot := state.robot
