@@ -121,6 +121,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	systemRobots := &controller.HarborSystemRobotReconciler{Client: mgr.GetClient(), Clients: clients, Recorder: mgr.GetEventRecorder("harbor-operator")}
+	if err := systemRobots.SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to set up the HarborSystemRobot controller")
+		os.Exit(1)
+	}
+
 	retentions := &controller.HarborRetentionPolicyReconciler{Client: mgr.GetClient(), Clients: clients, Recorder: mgr.GetEventRecorder("harbor-operator")}
 	if err := retentions.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to set up the HarborRetentionPolicy controller")
