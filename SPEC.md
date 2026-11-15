@@ -130,7 +130,7 @@ The dockerconfigjson Secret holds an auth entry for the connection's registry ho
 
 ## 8. Errors and status
 
-- Harbor errors map to condition reasons: `Unauthorized` (401), `Forbidden` (403), `NotFound`, `Conflict`, `InvalidSpec` (Harbor 400 with its message), `DeleteBlocked` (412 on project delete), `HarborUnavailable` (network, 5xx). Invalid specs that can be caught statically are rejected by CRD validation (CEL), not at reconcile.
+- Harbor errors map to condition reasons: `Unauthorized` (401), `Forbidden` (403), `NotFound`, `Conflict`, `InvalidSpec` (Harbor 400 with its message), `DeleteBlocked` (412 on project or registry delete), `HarborUnavailable` (network, 5xx), and the reference reasons `NotAllowed`, `ProjectNotReady`, `RegistryNotReady`, `RegistryOnOtherHarbor`, `ProjectNotFound`, `OperatorCredential` (phase designs). Invalid specs that can be caught statically are rejected by CRD validation (CEL), not at reconcile.
 - Transient errors retry with controller-runtime's exponential backoff; `InvalidSpec` waits for a spec change.
 - Every status change also emits a Kubernetes event on the resource. Messages never include secrets.
 
