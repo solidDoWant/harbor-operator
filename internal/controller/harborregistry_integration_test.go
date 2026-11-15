@@ -330,6 +330,79 @@ func TestRegistryDriftInHarborIsPutBack(t *testing.T) {
 	}, "url, description and insecure are put back")
 }
 
+func TestRegistryRenamedInHarborStaysWithItsOwner(t *testing.T) {
+	t.Parallel()
+
+	setup := readyRegistrySetup(t, nil, func(connection *harborv1alpha1.HarborConnection) { connection.Spec.AllowAdoption = true })
+	otherTeam := newNamespace(t, setup.cl, "other-team")
+	ownerName := setup.harborRegistryName(t, "own")
+	renamed := setup.harborRegistryName(t, "new")
+
+	owner := setup.newRegistry(setup.ownNamespace, "owner", ownerName)
+	owner.Spec.Description = "owned"
+	// A long resync keeps the owner from putting its name back before the other resource has looked.
+	owner.Spec.ResyncInterval = &metav1.Duration{Duration: time.Hour}
+	require.NoError(t, setup.cl.Create(t.Context(), owner))
+	id := awaitRegistry(t, setup.cl, client.ObjectKeyFromObject(owner), metav1.ConditionTrue, harborv1alpha1.ReasonReady).Status.RegistryID
+
+	// Any reconcile of the owner after the rename puts its name back, so the rename waits until the owner has
+	// stopped writing its status.
+	lastVersion := ""
+
+	require.Eventually(t, func() bool {
+		current := &harborv1alpha1.HarborRegistry{}
+		if err := setup.cl.Get(t.Context(), client.ObjectKeyFromObject(owner), current); err != nil || current.Status.Health == "" {
+			return false
+		}
+
+		settled := current.ResourceVersion == lastVersion
+		lastVersion = current.ResourceVersion
+
+		return settled
+	}, projectWait, time.Second, "the owner settles")
+
+	require.NoError(t, setup.admin.UpdateRegistry(t.Context(), id, harbor.RegistrySpec{
+		Name: renamed, URL: setup.upstreamURL, Description: "renamed in the UI",
+	}))
+
+	for _, adopt := range []bool{true, false} {
+		t.Run(fmt.Sprintf("a resource with the new name and adopt %t gets Conflict and is deleted without deleting it", adopt), func(t *testing.T) {
+			other := setup.newRegistry(otherTeam, fmt.Sprintf("other-%t", adopt), renamed)
+			other.Spec.Description = "taken over"
+			other.Spec.Adopt = adopt
+			other.Spec.DeletionPolicy = harborv1alpha1.DeletionPolicyDelete
+			require.NoError(t, setup.cl.Create(t.Context(), other))
+
+			conflict := awaitRegistry(t, setup.cl, client.ObjectKeyFromObject(other), metav1.ConditionFalse, harborv1alpha1.ReasonConflict)
+			assert.Zero(t, conflict.Status.RegistryID)
+
+			found, err := setup.admin.GetRegistry(t.Context(), id)
+			require.NoError(t, err)
+			assert.Equal(t, renamed, found.Name)
+			assert.Equal(t, "renamed in the UI", found.Description, "the other resource writes nothing")
+
+			require.NoError(t, setup.cl.Delete(t.Context(), other))
+			awaitRegistryGone(t, setup.cl, client.ObjectKeyFromObject(other))
+
+			_, err = setup.admin.GetRegistry(t.Context(), id)
+			require.NoError(t, err, "the owner's registry still exists")
+		})
+	}
+
+	t.Run("the owner puts its name back and stays Ready", func(t *testing.T) {
+		updateRegistry(t, setup.cl, client.ObjectKeyFromObject(owner), func(registry *harborv1alpha1.HarborRegistry) {
+			registry.Spec.ResyncInterval = &metav1.Duration{Duration: 2 * time.Second}
+		})
+
+		awaitHarborRegistry(t, setup.admin, ownerName, func(found *harbor.Registry) bool {
+			return found.ID == id && found.Description == "owned"
+		}, "the owner renames its registry back")
+
+		ready := awaitRegistry(t, setup.cl, client.ObjectKeyFromObject(owner), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
+		assert.Equal(t, id, ready.Status.RegistryID)
+	})
+}
+
 func TestRegistryInANamespaceTheConnectionAdmitsOnlyForProjects(t *testing.T) {
 	t.Parallel()
 

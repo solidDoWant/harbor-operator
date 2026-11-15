@@ -21,6 +21,8 @@ When you change a namespace label, the operator checks the resources again.
 
 Two resources cannot control one Harbor object. If two resources name the same project, the oldest one owns it. The other shows `Conflict` and changes nothing.
 
+A registry that somebody renames in Harbor stays with the `HarborRegistry` that recorded its ID. The owner puts the old name back at its next check. Until then, a `HarborRegistry` that uses the new name shows `Conflict`. It does not adopt, change or delete the registry.
+
 ## Adoption
 
 By default, a resource whose Harbor object already exists shows `AlreadyExists`. To take over an existing object:
