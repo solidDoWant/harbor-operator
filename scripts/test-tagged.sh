@@ -34,6 +34,7 @@ fi
 
 case "$tag" in
 e2e) minutes=50 ;;
+integration) minutes=6 ;;
 *) minutes=25 ;;
 esac
 echo "test-$tag: ${packages[*]}"
