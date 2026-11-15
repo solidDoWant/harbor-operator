@@ -70,4 +70,4 @@ Approved for the owner by the operator on 2026-11-15. Only the owner adds scenar
 - **AC-1-25 Chart install.** `helm install` of the chart into a kind cluster with the released-image tag runs the operator, and AC-1-03 passes against it (the e2e suite runs the operator from the chart).
   Tests: `test/e2e: TestProjectIsCreatedByTheOperatorInstalledFromTheChart`
 - **AC-1-26 Docs.** `docs/user/` shows a complete example of a project plus a CI push robot; `docs/admin/` explains creating the system robot, the connection and allowing namespaces. `make docs-check` passes.
-  Tests:
+  Tests: `internal/controller: TestUserDocExampleBecomesReady`
