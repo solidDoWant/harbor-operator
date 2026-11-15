@@ -1,0 +1,55 @@
+# Phase 3 design: operations and documentation
+
+Builds on phases 1 and 2. No new kinds and no new Harbor behaviour. Each section maps to scenarios in `docs/acceptance/phase-3.md`.
+
+## 1. Harbor version matrix
+
+- The CI `e2e` job becomes a matrix over the two most recent Harbor minor releases (chart versions pinned in `test/harbor/versions.yaml`; Renovate updates them). The `checks` aggregator needs the whole matrix.
+- A test that needs a feature only one version has skips with the version in the message. Nothing in the operator branches on the Harbor version unless a test proves it necessary; if one does, the branch lives in `internal/harbor` only.
+
+## 2. Metrics
+
+Registered on controller-runtime's metrics registry:
+
+| Metric | Type | Labels |
+|---|---|---|
+| `harbor_operator_resources` | gauge | `kind`, `reason` (`Ready` or the condition reason) |
+| `harbor_operator_harbor_requests_seconds` | histogram | `operation` (fixed enum: one value per `internal/harbor` method), `result` (`ok` or the mapped reason) |
+| `harbor_operator_drift_corrections_total` | counter | `kind` |
+
+No label carries an object name, namespace, Harbor URL or project name. A unit test lists every series the operator can export with two kinds' worth of resources and checks the count stays under 200.
+
+## 3. Events
+
+One helper, `internal/controller/events.go`, emits `Normal` events `Created`, `Updated` (drift corrected, with the field names, never values), `Recreated`, `Adopted`, `Deleted`, `Orphaned`, and `Warning` events with the condition reason for every error. It is called from the same place status is written, so the two never disagree. Rate: at most one identical event per resource per resync (client-go's event correlator already aggregates).
+
+## 4. Harbor unreachable
+
+- `HarborUnavailable` requeues with exponential backoff from 5 s to 5 min (controller-runtime rate limiter, per item), and the connection reconciler probes `/systeminfo` on the same backoff.
+- While the connection is `HarborUnavailable`, project-level reconcilers return early with `HarborUnavailable` and **no Harbor call**; the connection becoming `Ready` re-queues all dependents (the existing index). This bounds calls to one probe per connection per backoff step.
+- Test: integration test that stops Harbor's core (scale to 0), counts requests through a recording `http.RoundTripper`, then restores it and waits for `Ready`.
+
+## 5. watchNamespaces
+
+- Chart value `watchNamespaces: []`. Empty: cluster-wide cache, ClusterRole. Non-empty: the manager's cache is limited to those namespaces (`cache.Options.DefaultNamespaces`), and the chart renders a Role and RoleBinding in each instead of the ClusterRole, plus a small ClusterRole for `namespaces` get/list/watch only (label selectors need namespace labels).
+- Resources outside the list are invisible to the operator (not reported); documented.
+
+## 6. Chart hardening
+
+- `networkPolicy.enabled` (default false): egress to the API server (`kubernetes.default` service CIDR or the endpoints, value-supplied CIDRs) and to `networkPolicy.harborEgress` (pod selector + namespace selector, or CIDRs); DNS egress to kube-dns. Ingress only to the metrics and health ports.
+- `podDisruptionBudget.enabled` (default false, `maxUnavailable: 1`).
+- Default resources: memory request 128Mi = limit, CPU request 10m, no CPU limit.
+- Pod: `runAsNonRoot`, `readOnlyRootFilesystem`, drop all capabilities, seccomp `RuntimeDefault`.
+
+## 7. Upgrade test
+
+An e2e test installs the previous release's chart from `oci://ghcr.io/soliddowant/charts/harbor-operator` (version from `test/upgrade/previous-version`), creates one of every kind, upgrades to the local chart and image, and checks: every resource stays `Ready`, `harbor_operator_drift_corrections_total` stays 0, and Harbor objects' update times don't change.
+
+## 8. CI chart example
+
+`docs/user/ci-chart-example.md` embeds a Helm template from `docs/user/examples/ci-chart/` (namespace, `HarborProject`, push `HarborProjectRobot`, `HarborRetentionPolicy`). The e2e test runs `helm template` on that directory and applies the output. The doc includes the files with a generated block, so `make docs-check` fails if they drift.
+
+## 9. Troubleshooting and reference
+
+- `docs/admin/troubleshooting.md`: one entry per condition reason constant in `api/v1alpha1` (cause, what to check, fix). A unit test lists the constants and fails if one has no entry.
+- `docs/admin/crd-reference.md` generated from the API types' doc comments (`crd-ref-docs` or equivalent maintained tool), checked by `make docs-check`.
