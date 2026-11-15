@@ -149,11 +149,21 @@ func (c *Client) GetProject(ctx context.Context, id int64) (*Project, error) {
 
 // CreateProject creates a project. A nil storageLimit leaves Harbor's default.
 func (c *Client) CreateProject(ctx context.Context, name string, settings ProjectSettings, storageLimit *int64) (*Project, error) {
+	return c.CreateProxyCacheProject(ctx, name, settings, storageLimit, 0)
+}
+
+// CreateProxyCacheProject creates a project that is a proxy cache of the registry with registryID; 0 creates a normal
+// project. A nil storageLimit leaves Harbor's default.
+func (c *Client) CreateProxyCacheProject(ctx context.Context, name string, settings ProjectSettings, storageLimit *int64, registryID int64) (*Project, error) {
 	request := &models.ProjectReq{
 		ProjectName:  name,
 		Metadata:     settings.metadata(),
 		StorageLimit: storageLimit,
 	}
+	if registryID != 0 {
+		request.RegistryID = &registryID
+	}
+
 	if settings.Public != nil {
 		request.Public = settings.Public
 	}
@@ -177,6 +187,16 @@ func (c *Client) CreateProject(ctx context.Context, name string, settings Projec
 func (c *Client) UpdateProjectMetadata(ctx context.Context, name string, settings ProjectSettings) error {
 	resource := true
 	request := &models.ProjectReq{Metadata: settings.metadata(), CVEAllowlist: settings.CVEAllowlist.toModel()}
+
+	_, err := c.api.Project.UpdateProject(ctx, &project.UpdateProjectParams{ProjectNameOrID: name, XIsResourceName: &resource, Project: request})
+
+	return c.fail(err)
+}
+
+// SetProjectRegistry points a proxy-cache project at another upstream registry.
+func (c *Client) SetProjectRegistry(ctx context.Context, name string, registryID int64) error {
+	resource := true
+	request := &models.ProjectReq{RegistryID: &registryID}
 
 	_, err := c.api.Project.UpdateProject(ctx, &project.UpdateProjectParams{ProjectNameOrID: name, XIsResourceName: &resource, Project: request})
 

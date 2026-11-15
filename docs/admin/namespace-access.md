@@ -41,7 +41,8 @@ The operator deletes a Harbor object only when the resource that owns it is dele
 - `Orphan` leaves the Harbor object in place and removes the resource.
 - When a `HarborRetentionPolicy` is deleted with `Delete`, the operator removes the rules and the schedule from the project's retention policy.
 - A project that has repositories cannot be deleted. The resource shows `DeleteBlocked` until the repositories are gone.
-- A project waits for robots and retention policies that it admits. A connection waits for projects that it admits. Both show `DependentsExist`.
+- A project waits for robots and retention policies that it admits. A registry waits for proxy-cache projects that it admits, also with `Orphan`. A connection waits for projects that its `allowedNamespaces` admits, and for registries that its `systemAllowedNamespaces` admits. All show `DependentsExist`.
+- A registry that a project or replication rule in Harbor still uses cannot be deleted. The resource shows `DeleteBlocked` with the message from Harbor.
 - If the namespace of the resource is no longer admitted when it is deleted, the operator removes the resource and does not touch Harbor.
 
 The operator never deletes an object that it did not create or adopt.

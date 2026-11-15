@@ -49,6 +49,7 @@ type HarborConnectionReconciler struct {
 // +kubebuilder:rbac:groups=harbor.soliddowant.dev,resources=harborprojects,verbs=get;list;watch
 // +kubebuilder:rbac:groups=harbor.soliddowant.dev,resources=harborprojectrobots,verbs=get;list;watch
 // +kubebuilder:rbac:groups=harbor.soliddowant.dev,resources=harborimmutabilitypolicies,verbs=get;list;watch
+// +kubebuilder:rbac:groups=harbor.soliddowant.dev,resources=harborregistries,verbs=get;list;watch
 // +kubebuilder:rbac:groups=harbor.soliddowant.dev,resources=harborsystemrobots,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
@@ -64,6 +65,34 @@ func IndexFields(ctx context.Context, indexer client.FieldIndexer) error {
 
 	if err := indexer.IndexField(ctx, &harborv1alpha1.HarborProject{}, ProjectConnectionIndex, func(object client.Object) []string {
 		return []string{connectionKey(object.(*harborv1alpha1.HarborProject)).String()}
+	}); err != nil {
+		return err
+	}
+
+	if err := indexer.IndexField(ctx, &harborv1alpha1.HarborProject{}, ProjectRegistryIndex, func(object client.Object) []string {
+		project := object.(*harborv1alpha1.HarborProject)
+		if project.Spec.ProxyCache == nil {
+			return nil
+		}
+
+		return []string{projectRegistryKey(project).String()}
+	}); err != nil {
+		return err
+	}
+
+	if err := indexer.IndexField(ctx, &harborv1alpha1.HarborRegistry{}, RegistryConnectionIndex, func(object client.Object) []string {
+		return []string{registryConnectionKey(object.(*harborv1alpha1.HarborRegistry)).String()}
+	}); err != nil {
+		return err
+	}
+
+	if err := indexer.IndexField(ctx, &harborv1alpha1.HarborRegistry{}, RegistryCredentialsSecretIndex, func(object client.Object) []string {
+		registry := object.(*harborv1alpha1.HarborRegistry)
+		if registry.Spec.CredentialsSecretRef == nil {
+			return nil
+		}
+
+		return []string{registry.Namespace + "/" + registry.Spec.CredentialsSecretRef.Name}
 	}); err != nil {
 		return err
 	}
@@ -100,13 +129,17 @@ func connectionKey(project *harborv1alpha1.HarborProject) types.NamespacedName {
 	return types.NamespacedName{Namespace: namespace, Name: project.Spec.ConnectionRef.Name}
 }
 
-// SetupWithManager registers the reconciler with its watches: the credential Secret and the projects that use the connection.
+// SetupWithManager registers the reconciler with its watches: the credential Secret and the projects and registries
+// that use the connection.
 func (r *HarborConnectionReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&harborv1alpha1.HarborConnection{}).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.connectionsForSecret)).
 		Watches(&harborv1alpha1.HarborProject{}, handler.EnqueueRequestsFromMapFunc(func(_ context.Context, object client.Object) []reconcile.Request {
 			return []reconcile.Request{{NamespacedName: connectionKey(object.(*harborv1alpha1.HarborProject))}}
+		})).
+		Watches(&harborv1alpha1.HarborRegistry{}, handler.EnqueueRequestsFromMapFunc(func(_ context.Context, object client.Object) []reconcile.Request {
+			return []reconcile.Request{{NamespacedName: registryConnectionKey(object.(*harborv1alpha1.HarborRegistry))}}
 		})).
 		Watches(&harborv1alpha1.HarborSystemRobot{}, handler.EnqueueRequestsFromMapFunc(func(_ context.Context, object client.Object) []reconcile.Request {
 			return []reconcile.Request{{NamespacedName: systemRobotConnectionKey(object.(*harborv1alpha1.HarborSystemRobot))}}
@@ -250,7 +283,7 @@ func (r *HarborConnectionReconciler) setCondition(ctx context.Context, connectio
 	return r.Status().Update(ctx, connection)
 }
 
-// finalize keeps the finalizer while a project that the connection admits still uses it.
+// finalize keeps the finalizer while a project or registry that the connection admits still uses it.
 func (r *HarborConnectionReconciler) finalize(ctx context.Context, connection *harborv1alpha1.HarborConnection) (reconcile.Result, error) {
 	if !controllerutil.ContainsFinalizer(connection, ConnectionFinalizer) {
 		return reconcile.Result{}, nil
@@ -271,7 +304,7 @@ func (r *HarborConnectionReconciler) finalize(ctx context.Context, connection *h
 
 		message := "still used by " + strings.Join(listed, ", ") + suffix
 
-		// A deleted dependent triggers a new reconcile through the project watch.
+		// A deleted dependent triggers a new reconcile through the project and registry watches.
 		return reconcile.Result{}, r.setNotReady(ctx, connection, harborv1alpha1.ReasonDependentsExist, message)
 	}
 
@@ -281,11 +314,18 @@ func (r *HarborConnectionReconciler) finalize(ctx context.Context, connection *h
 	return reconcile.Result{}, client.IgnoreNotFound(r.Update(ctx, connection))
 }
 
-// dependents lists the projects that use the connection and are in a namespace it admits, then the system robots that
-// use it and are in a namespace its systemAllowedNamespaces admits, each as "Kind namespace/name".
+// dependents lists the projects that use the connection and are in a namespace it admits, then the registries and system
+// robots that use it and are in a namespace its systemAllowedNamespaces admits, each as "Kind namespace/name".
 func (r *HarborConnectionReconciler) dependents(ctx context.Context, connection *harborv1alpha1.HarborConnection) ([]string, error) {
+	key := client.ObjectKeyFromObject(connection).String()
+
 	var projects harborv1alpha1.HarborProjectList
-	if err := r.List(ctx, &projects, client.MatchingFields{ProjectConnectionIndex: client.ObjectKeyFromObject(connection).String()}); err != nil {
+	if err := r.List(ctx, &projects, client.MatchingFields{ProjectConnectionIndex: key}); err != nil {
+		return nil, err
+	}
+
+	var registries harborv1alpha1.HarborRegistryList
+	if err := r.List(ctx, &registries, client.MatchingFields{RegistryConnectionIndex: key}); err != nil {
 		return nil, err
 	}
 
@@ -301,6 +341,19 @@ func (r *HarborConnectionReconciler) dependents(ctx context.Context, connection 
 
 		if admitted {
 			names = append(names, "HarborProject "+client.ObjectKeyFromObject(project).String())
+		}
+	}
+
+	for index := range registries.Items {
+		registry := &registries.Items[index]
+
+		admitted, err := access.Admits(ctx, r.Client, connection.Spec.SystemAllowedNamespaces, connection.Namespace, registry.Namespace)
+		if err != nil {
+			return nil, err
+		}
+
+		if admitted {
+			names = append(names, "HarborRegistry "+client.ObjectKeyFromObject(registry).String())
 		}
 	}
 

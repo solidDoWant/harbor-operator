@@ -12,6 +12,11 @@ import (
 func desiredProjectSettings(spec *harborv1alpha1.HarborProjectSpec) harbor.ProjectSettings {
 	settings := harbor.ProjectSettings{Public: spec.Public}
 
+	if spec.ProxyCache != nil && spec.ProxyCache.SpeedLimitKbps != nil {
+		speed := *spec.ProxyCache.SpeedLimitKbps
+		settings.ProxySpeedKbps = &speed
+	}
+
 	vulnerability := spec.Vulnerability
 	if vulnerability == nil {
 		return settings
@@ -64,6 +69,10 @@ func projectSettingsDiff(desired, current harbor.ProjectSettings) (harbor.Projec
 
 	if desired.Severity != nil && (current.Severity == nil || *current.Severity != *desired.Severity) {
 		diff.Severity, changed = desired.Severity, true
+	}
+
+	if desired.ProxySpeedKbps != nil && (current.ProxySpeedKbps == nil || *current.ProxySpeedKbps != *desired.ProxySpeedKbps) {
+		diff.ProxySpeedKbps, changed = desired.ProxySpeedKbps, true
 	}
 
 	if desired.CVEAllowlist != nil && !sameAllowlist(desired.CVEAllowlist, current.CVEAllowlist) {

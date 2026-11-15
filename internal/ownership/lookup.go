@@ -46,6 +46,12 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 		return fmt.Errorf("indexing HarborImmutabilityPolicy %s: %w", HarborKeyField, err)
 	}
 
+	if err := indexer.IndexField(ctx, &v1alpha1.HarborRegistry{}, HarborKeyField, func(object client.Object) []string {
+		return harborKeyValues(object.(*v1alpha1.HarborRegistry).Status.HarborKey)
+	}); err != nil {
+		return fmt.Errorf("indexing HarborRegistry %s: %w", HarborKeyField, err)
+	}
+
 	return nil
 }
 
@@ -156,6 +162,22 @@ func ImmutabilityOwner(ctx context.Context, reader client.Reader, key string, ad
 	}
 
 	return owner(ctx, claimants, func(policy *v1alpha1.HarborImmutabilityPolicy) bool { return policy.Status.ProjectID != 0 }, admitted)
+}
+
+// RegistryOwner returns the HarborRegistry that owns the Harbor registry with the given key, or nil when no claimant
+// counts. It reads only the claimants of key, through the status.harborKey index.
+func RegistryOwner(ctx context.Context, reader client.Reader, key string, admitted AdmittedFunc[*v1alpha1.HarborRegistry]) (*v1alpha1.HarborRegistry, error) {
+	list := &v1alpha1.HarborRegistryList{}
+	if err := reader.List(ctx, list, client.MatchingFields{HarborKeyField: key}); err != nil {
+		return nil, fmt.Errorf("listing HarborRegistry claimants: %w", err)
+	}
+
+	claimants := make([]*v1alpha1.HarborRegistry, 0, len(list.Items))
+	for index := range list.Items {
+		claimants = append(claimants, &list.Items[index])
+	}
+
+	return owner(ctx, claimants, func(registry *v1alpha1.HarborRegistry) bool { return registry.Status.RegistryID != 0 }, admitted)
 }
 
 func owner[T client.Object](ctx context.Context, objects []T, hasID func(T) bool, admitted AdmittedFunc[T]) (T, error) {

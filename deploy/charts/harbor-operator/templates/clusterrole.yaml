@@ -53,6 +53,7 @@ rules:
   - harborimmutabilitypolicies
   - harborprojectrobots
   - harborprojects
+  - harborregistries
   - harborretentionpolicies
   - harborsystemrobots
   verbs:
@@ -68,6 +69,7 @@ rules:
   - harborimmutabilitypolicies/finalizers
   - harborprojectrobots/finalizers
   - harborprojects/finalizers
+  - harborregistries/finalizers
   - harborretentionpolicies/finalizers
   - harborsystemrobots/finalizers
   verbs:
@@ -79,6 +81,7 @@ rules:
   - harborimmutabilitypolicies/status
   - harborprojectrobots/status
   - harborprojects/status
+  - harborregistries/status
   - harborretentionpolicies/status
   - harborsystemrobots/status
   verbs:

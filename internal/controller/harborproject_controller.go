@@ -47,9 +47,11 @@ type HarborProjectReconciler struct {
 // +kubebuilder:rbac:groups=harbor.soliddowant.dev,resources=harborprojects/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=harbor.soliddowant.dev,resources=harborprojects/finalizers,verbs=update
 // +kubebuilder:rbac:groups=harbor.soliddowant.dev,resources=harborprojectrobots,verbs=get;list;watch
+// +kubebuilder:rbac:groups=harbor.soliddowant.dev,resources=harborregistries,verbs=get;list;watch
 
 // SetupWithManager registers the reconciler with its watches: connections, namespaces, the other claimants of the
-// same Harbor project and the robots and immutability policies that reference a project.
+// same Harbor project, the robots and immutability policies that reference a project and the registries
+// proxy-cache projects use.
 func (r *HarborProjectReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&harborv1alpha1.HarborProject{}).
@@ -59,6 +61,9 @@ func (r *HarborProjectReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&harborv1alpha1.HarborProjectRobot{}, handler.EnqueueRequestsFromMapFunc(r.projectForRobot)).
 		Watches(&harborv1alpha1.HarborRetentionPolicy{}, handler.EnqueueRequestsFromMapFunc(r.projectForRetention)).
 		Watches(&harborv1alpha1.HarborImmutabilityPolicy{}, handler.EnqueueRequestsFromMapFunc(r.projectForImmutabilityPolicy)).
+		Watches(&harborv1alpha1.HarborRegistry{}, handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
+			return r.projectRequests(ctx, client.MatchingFields{ProjectRegistryIndex: client.ObjectKeyFromObject(object).String()})
+		})).
 		WithOptions(controller.Options{MaxConcurrentReconciles: 4, RateLimiter: r.rateLimiter()}).
 		Named("harborproject").
 		Complete(r)
@@ -121,6 +126,9 @@ type projectReconcile struct {
 	connection *harborv1alpha1.HarborConnection
 	harbor     *harbor.Client
 	resync     time.Duration
+	// registryID is the Harbor ID of a proxy-cache project's upstream registry, or 0 when the project is not a proxy
+	// cache or its registry resource is not usable now.
+	registryID int64
 }
 
 // Reconcile makes the Harbor project match the resource and records the result in status.
@@ -231,7 +239,74 @@ func (r *HarborProjectReconciler) resolve(ctx context.Context, project *harborv1
 		return stop(harborv1alpha1.ReasonConflict, fmt.Sprintf("Harbor project %q is owned by HarborProject %s/%s", projectName(project), owner.Namespace, owner.Name))
 	}
 
-	return &projectReconcile{project: project, connection: connection, harbor: harborClient, resync: resync}, reconcile.Result{}, nil
+	state := &projectReconcile{project: project, connection: connection, harbor: harborClient, resync: resync}
+
+	if project.Spec.ProxyCache != nil {
+		registryID, reason, message, err := r.resolveRegistry(ctx, project, identity)
+		if err != nil {
+			return nil, reconcile.Result{}, err
+		}
+
+		if reason != "" {
+			r.setReferenceResolved(project, metav1.ConditionFalse, reason, message)
+
+			return stop(reason, message)
+		}
+
+		state.registryID = registryID
+	}
+
+	return state, reconcile.Result{}, nil
+}
+
+// resolveRegistry checks a proxy-cache project's registry on every reconcile. It returns a reason and message when the
+// reconcile must stop: the registry does not admit the project's namespace, or it is in another Harbor. Otherwise it
+// returns the registry's Harbor ID, or 0 when the registry resource is missing, has no ID yet, or is in Conflict or
+// NotAllowed; creating or adopting the project then waits for it.
+func (r *HarborProjectReconciler) resolveRegistry(ctx context.Context, project *harborv1alpha1.HarborProject, identity string) (int64, string, string, error) {
+	key := projectRegistryKey(project)
+	registry := &harborv1alpha1.HarborRegistry{}
+
+	if err := r.Get(ctx, key, registry); err != nil {
+		if apierrors.IsNotFound(err) {
+			return 0, "", "", nil
+		}
+
+		return 0, "", "", err
+	}
+
+	admitted, err := access.Admits(ctx, r.Client, registry.Spec.AllowedNamespaces, registry.Namespace, project.Namespace)
+	if err != nil {
+		return 0, "", "", err
+	}
+
+	if !admitted {
+		return 0, harborv1alpha1.ReasonNotAllowed, fmt.Sprintf("HarborRegistry %s does not admit namespace %q", key, project.Namespace), nil
+	}
+
+	if registry.Status.HarborKey != "" && registry.Status.HarborKey != ownership.RegistryKey(identity, registryName(registry)) {
+		return 0, harborv1alpha1.ReasonRegistryOnOtherHarbor, fmt.Sprintf("HarborRegistry %s is in another Harbor than the project's connection", key), nil
+	}
+
+	if ready := meta.FindStatusCondition(registry.Status.Conditions, harborv1alpha1.ConditionReady); ready != nil &&
+		(ready.Reason == harborv1alpha1.ReasonConflict || ready.Reason == harborv1alpha1.ReasonNotAllowed) {
+		return 0, "", "", nil
+	}
+
+	if registry.Status.HarborKey == "" {
+		return 0, "", "", nil
+	}
+
+	return registry.Status.RegistryID, "", "", nil
+}
+
+// registryNotReady stops a proxy-cache project's create or adoption while its registry is not usable.
+func (r *HarborProjectReconciler) registryNotReady(ctx context.Context, state *projectReconcile) (reconcile.Result, error) {
+	project := state.project
+	message := fmt.Sprintf("HarborRegistry %s does not exist, has no Harbor registry yet, or is in Conflict or NotAllowed", projectRegistryKey(project))
+	r.setReferenceResolved(project, metav1.ConditionFalse, harborv1alpha1.ReasonRegistryNotReady, message)
+
+	return reconcile.Result{RequeueAfter: state.resync}, r.setReady(ctx, project, metav1.ConditionFalse, harborv1alpha1.ReasonRegistryNotReady, message)
 }
 
 // admitted reports whether a claimant's connection admits the claimant's namespace.
@@ -278,6 +353,10 @@ func (r *HarborProjectReconciler) sync(ctx context.Context, state *projectReconc
 		}
 	}
 
+	if project.Spec.ProxyCache != nil && state.registryID == 0 {
+		return r.registryNotReady(ctx, state)
+	}
+
 	found, err := state.harbor.GetProjectByName(ctx, name)
 
 	switch {
@@ -298,6 +377,12 @@ func (r *HarborProjectReconciler) sync(ctx context.Context, state *projectReconc
 	case !state.connection.Spec.AllowAdoption:
 		return reconcile.Result{RequeueAfter: state.resync}, r.setReady(ctx, project, metav1.ConditionFalse, harborv1alpha1.ReasonAdoptionNotAllowed,
 			fmt.Sprintf("HarborConnection %s does not allow adoption", client.ObjectKeyFromObject(state.connection)))
+	}
+
+	// Harbor cannot turn a project into a proxy cache or back, so a project in the other mode is never taken over.
+	if (found.RegistryID != 0) != (project.Spec.ProxyCache != nil) {
+		return reconcile.Result{}, r.setReady(ctx, project, metav1.ConditionFalse, harborv1alpha1.ReasonInvalidSpec,
+			fmt.Sprintf("Harbor project %q: proxy-cache mode can't be changed", name))
 	}
 
 	if err := r.recordID(ctx, project, found.ID); err != nil {
@@ -329,7 +414,7 @@ func (r *HarborProjectReconciler) create(ctx context.Context, state *projectReco
 		storageLimit = &limit
 	}
 
-	created, err := state.harbor.CreateProject(ctx, name, desiredProjectSettings(&project.Spec), storageLimit)
+	created, err := state.harbor.CreateProxyCacheProject(ctx, name, desiredProjectSettings(&project.Spec), storageLimit, state.registryID)
 	if err != nil {
 		// Harbor refused, so nothing was created: a project made later by someone else must not pass for this one.
 		if harbor.IsRefused(err) {
@@ -362,6 +447,28 @@ func (r *HarborProjectReconciler) recordID(ctx context.Context, project *harborv
 // update writes the spec's fields that differ in Harbor, and only those.
 func (r *HarborProjectReconciler) update(ctx context.Context, state *projectReconcile, current *harbor.Project) (reconcile.Result, error) {
 	project := state.project
+
+	// A proxy-cache project follows its registry resource, which may have been re-created with a new ID.
+	if project.Spec.ProxyCache != nil && state.registryID != 0 && current.RegistryID != state.registryID {
+		if err := state.harbor.SetProjectRegistry(ctx, current.Name, state.registryID); err != nil {
+			return r.harborFailed(ctx, state, err)
+		}
+
+		// Harbor answers this PUT with success but may keep the old registry. Read it back, and write nothing else
+		// while the project still points elsewhere.
+		after, err := state.harbor.GetProject(ctx, current.ID)
+		if err != nil {
+			return r.harborFailed(ctx, state, err)
+		}
+
+		if after.RegistryID != state.registryID {
+			message := fmt.Sprintf("Harbor can't change the proxy-cache registry of an existing project (it keeps registry ID %d; the registry resource has ID %d)", after.RegistryID, state.registryID)
+
+			return reconcile.Result{}, r.setReady(ctx, project, metav1.ConditionFalse, harborv1alpha1.ReasonInvalidSpec, message)
+		}
+
+		current = after
+	}
 
 	if diff, changed := projectSettingsDiff(desiredProjectSettings(&project.Spec), current.Settings); changed {
 		if err := state.harbor.UpdateProjectMetadata(ctx, current.Name, diff); err != nil {
