@@ -2,12 +2,12 @@
 
 A `HarborRetentionPolicy` sets the tag retention policy of one Harbor project. Tag retention is a set of rules that Harbor runs to delete old images. Harbor keeps the images that match at least one rule and deletes the others.
 
+<!-- example:retention -->
 ```yaml
 apiVersion: harbor.soliddowant.dev/v1alpha1
 kind: HarborRetentionPolicy
 metadata:
   name: app
-  namespace: team-a
 spec:
   projectRef:
     name: app
