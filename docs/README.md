@@ -39,6 +39,7 @@ docs/user/
   crd-reference.md         Every resource field (generated).
   robot-permissions.md     The resource and action pairs a project robot may be granted.
   immutability.md          Tag immutability rules for a project.
+  proxy-cache.md           A pull-through cache: a registry, a proxy-cache project and their status reasons.
 
 docs/admin/
   README.md                The pages for admins.
