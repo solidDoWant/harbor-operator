@@ -303,6 +303,31 @@ func TestRobotDriftInHarborIsPutBackByReplacingTheRobotWithASystemRobotConnectio
 	require.NoError(t, push(t, setup.instance, username, password, setup.project.Spec.Name, "app"), "the rewritten Secret works")
 }
 
+func TestRobotIsNotReplacedWhenTheConnectionLacksADesiredPermission(t *testing.T) {
+	setup := readyRobotProjectWithSystemRobot(t, true, nil, nil)
+
+	robot := ciRobot("default", setup.project)
+	require.NoError(t, setup.cl.Create(t.Context(), robot))
+	key := client.ObjectKeyFromObject(robot)
+	ready := awaitRobot(t, setup.cl, key, metav1.ConditionTrue, harborv1alpha1.ReasonReady)
+
+	// The connection's system robot holds repository push and pull on all projects, but not artifact delete.
+	updateRobot(t, setup.cl, key, func(robot *harborv1alpha1.HarborProjectRobot) {
+		robot.Spec.Permissions = append(robot.Spec.Permissions, harborv1alpha1.RobotAccess{Resource: "artifact", Action: "delete"})
+	})
+
+	refused := awaitRobot(t, setup.cl, key, metav1.ConditionFalse, harborv1alpha1.ReasonForbidden)
+	condition := meta.FindStatusCondition(refused.Status.Conditions, harborv1alpha1.ConditionReady)
+	require.NotNil(t, condition)
+	assert.Contains(t, condition.Message, "artifact delete")
+	assert.NotContains(t, condition.Message, "repository")
+	assert.Equal(t, ready.Status.RobotID, refused.Status.RobotID, "the robot is not replaced")
+
+	found, err := setup.admin.GetRobot(t.Context(), ready.Status.RobotID)
+	require.NoError(t, err, "the Harbor robot is not deleted")
+	assert.ElementsMatch(t, []harbor.RobotAccess{{Resource: "repository", Action: "push"}, {Resource: "repository", Action: "pull"}}, found.Permissions)
+}
+
 func TestRobotSecretRenewalReplacesTheRobotWithASystemRobotConnection(t *testing.T) {
 	tests := []struct {
 		name  string

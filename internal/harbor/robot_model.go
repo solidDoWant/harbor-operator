@@ -89,3 +89,25 @@ func robotFromModel(model *models.Robot) *Robot {
 
 	return robot
 }
+
+// MissingAccess returns the entries of want that are not in held, in want's order and without repeats.
+func MissingAccess(want, held []RobotAccess) []RobotAccess {
+	have := make(map[RobotAccess]bool, len(held))
+	for _, access := range held {
+		have[access] = true
+	}
+
+	missing := []RobotAccess{}
+
+	for _, access := range want {
+		if !have[access] {
+			missing = append(missing, access)
+			have[access] = true
+		}
+	}
+
+	return missing
+}
+
+// String is the permission as "resource action".
+func (a RobotAccess) String() string { return a.Resource + " " + a.Action }

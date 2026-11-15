@@ -620,6 +620,17 @@ func (r *HarborProjectRobotReconciler) secretConflict(ctx context.Context, robot
 func (r *HarborProjectRobotReconciler) replace(ctx context.Context, state *robotReconcile, current *harbor.Robot) (reconcile.Result, error) {
 	robot := state.robot
 
+	// Harbor refuses a robot that asks for more than its creator holds. Deleting first would leave no robot at all.
+	missing, err := state.harbor.MissingPermissions(ctx, harbor.ProjectScope(int64(state.project.Status.ProjectID)), desiredRobot(robot).Permissions)
+	if err != nil {
+		return r.harborFailed(ctx, state, err)
+	}
+
+	if len(missing) > 0 {
+		return reconcile.Result{RequeueAfter: state.resync}, r.setReady(ctx, robot, metav1.ConditionFalse, harborv1alpha1.ReasonForbidden,
+			replaceForbiddenMessage(missing))
+	}
+
 	if err := r.markCreatePending(ctx, robot); err != nil {
 		return reconcile.Result{}, err
 	}
@@ -642,6 +653,18 @@ func (r *HarborProjectRobotReconciler) replace(ctx context.Context, state *robot
 		"Replaced Harbor robot %q because the connection's credentials cannot update robots", created.Name)
 
 	return reconcile.Result{RequeueAfter: state.resync}, r.setReady(ctx, robot, metav1.ConditionTrue, harborv1alpha1.ReasonReady, "Harbor robot matches the spec")
+}
+
+// replaceForbiddenMessage says why a robot that cannot be updated is not replaced, naming the permissions the
+// connection lacks.
+func replaceForbiddenMessage(missing []harbor.RobotAccess) string {
+	names := make([]string, 0, len(missing))
+	for _, access := range missing {
+		names = append(names, access.String())
+	}
+
+	return "the connection's credentials cannot update the Harbor robot, and the robot is not replaced because they lack these permissions: " +
+		strings.Join(names, ", ")
 }
 
 // errSourceSecretGone reports that the Secret a robot secret was read from was deleted before it was written back. The
