@@ -77,6 +77,7 @@ type robotReconcile struct {
 type robotLifecycle struct {
 	client.Client
 	Recorder events.EventRecorder
+	Wakeups  ConnectionWakeups
 }
 
 // robotResync is the robot's resync interval: its own, else the connection's default.
@@ -753,6 +754,10 @@ func (r *robotLifecycle) deleteOwnedSecrets(ctx context.Context, robot robotReso
 // backoff.
 func (r *robotLifecycle) harborFailed(ctx context.Context, state *robotReconcile, err error) (reconcile.Result, error) {
 	reason, retry := harbor.MapError(err)
+	if state.connection != nil {
+		r.Wakeups.wakeIfUnavailable(client.ObjectKeyFromObject(state.connection), reason)
+	}
+
 	if statusErr := r.setReady(ctx, state.robot, metav1.ConditionFalse, reason, err.Error()); statusErr != nil {
 		return reconcile.Result{}, statusErr
 	}

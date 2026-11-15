@@ -110,42 +110,43 @@ func main() {
 
 	clients := harbor.NewClientCache(mgr.GetClient())
 
-	if err := (&controller.HarborConnectionReconciler{Client: mgr.GetClient(), Clients: clients, Recorder: mgr.GetEventRecorder("harbor-operator")}).SetupWithManager(mgr); err != nil {
+	wakeups := controller.NewConnectionWakeups()
+	if err := (&controller.HarborConnectionReconciler{Client: mgr.GetClient(), Clients: clients, Recorder: mgr.GetEventRecorder("harbor-operator"), Wakeups: wakeups}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to set up the HarborConnection controller")
 		os.Exit(1)
 	}
 
-	projects := &controller.HarborProjectReconciler{Client: mgr.GetClient(), Clients: clients, Recorder: mgr.GetEventRecorder("harbor-operator")}
+	projects := &controller.HarborProjectReconciler{Client: mgr.GetClient(), Clients: clients, Recorder: mgr.GetEventRecorder("harbor-operator"), Wakeups: wakeups}
 	if err := projects.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to set up the HarborProject controller")
 		os.Exit(1)
 	}
 
-	registries := &controller.HarborRegistryReconciler{Client: mgr.GetClient(), Clients: clients, Recorder: mgr.GetEventRecorder("harbor-operator")}
+	registries := &controller.HarborRegistryReconciler{Client: mgr.GetClient(), Clients: clients, Recorder: mgr.GetEventRecorder("harbor-operator"), Wakeups: wakeups}
 	if err := registries.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to set up the HarborRegistry controller")
 		os.Exit(1)
 	}
 
-	robots := &controller.HarborProjectRobotReconciler{Client: mgr.GetClient(), Clients: clients, Recorder: mgr.GetEventRecorder("harbor-operator")}
+	robots := &controller.HarborProjectRobotReconciler{Client: mgr.GetClient(), Clients: clients, Recorder: mgr.GetEventRecorder("harbor-operator"), Wakeups: wakeups}
 	if err := robots.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to set up the HarborProjectRobot controller")
 		os.Exit(1)
 	}
 
-	systemRobots := &controller.HarborSystemRobotReconciler{Client: mgr.GetClient(), Clients: clients, Recorder: mgr.GetEventRecorder("harbor-operator")}
+	systemRobots := &controller.HarborSystemRobotReconciler{Client: mgr.GetClient(), Clients: clients, Recorder: mgr.GetEventRecorder("harbor-operator"), Wakeups: wakeups}
 	if err := systemRobots.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to set up the HarborSystemRobot controller")
 		os.Exit(1)
 	}
 
-	retentions := &controller.HarborRetentionPolicyReconciler{Client: mgr.GetClient(), Clients: clients, Recorder: mgr.GetEventRecorder("harbor-operator")}
+	retentions := &controller.HarborRetentionPolicyReconciler{Client: mgr.GetClient(), Clients: clients, Recorder: mgr.GetEventRecorder("harbor-operator"), Wakeups: wakeups}
 	if err := retentions.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to set up the HarborRetentionPolicy controller")
 		os.Exit(1)
 	}
 
-	immutability := &controller.HarborImmutabilityPolicyReconciler{Client: mgr.GetClient(), Clients: clients, Recorder: mgr.GetEventRecorder("harbor-operator")}
+	immutability := &controller.HarborImmutabilityPolicyReconciler{Client: mgr.GetClient(), Clients: clients, Recorder: mgr.GetEventRecorder("harbor-operator"), Wakeups: wakeups}
 	if err := immutability.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to set up the HarborImmutabilityPolicy controller")
 		os.Exit(1)

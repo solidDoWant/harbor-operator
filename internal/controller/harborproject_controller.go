@@ -39,8 +39,10 @@ type HarborProjectReconciler struct {
 	Clients *harbor.ClientCache
 	// Recorder emits events on the resource.
 	Recorder events.EventRecorder
-	// MaxBackoff caps the retry delay of a failing reconcile. Zero means 10 minutes.
+	// MaxBackoff caps the retry delay of a failing reconcile; tests lower it. Zero means 5 minutes.
 	MaxBackoff time.Duration
+	// Wakeups receives the connection when a Harbor call fails as unavailable. Nil sends nothing.
+	Wakeups ConnectionWakeups
 }
 
 // +kubebuilder:rbac:groups=harbor.soliddowant.dev,resources=harborprojects,verbs=get;list;watch;update;patch
@@ -64,7 +66,7 @@ func (r *HarborProjectReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&harborv1alpha1.HarborRegistry{}, handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
 			return r.projectRequests(ctx, client.MatchingFields{ProjectRegistryIndex: client.ObjectKeyFromObject(object).String()})
 		})).
-		WithOptions(controller.Options{MaxConcurrentReconciles: 4, RateLimiter: r.rateLimiter()}).
+		WithOptions(controller.Options{MaxConcurrentReconciles: 4, RateLimiter: backoffLimiter(r.MaxBackoff)}).
 		Named("harborproject").
 		Complete(r)
 }
@@ -516,6 +518,10 @@ func (r *HarborProjectReconciler) update(ctx context.Context, state *projectReco
 // backoff.
 func (r *HarborProjectReconciler) harborFailed(ctx context.Context, state *projectReconcile, err error) (reconcile.Result, error) {
 	reason, retry := harbor.MapError(err)
+	if state.connection != nil {
+		r.Wakeups.wakeIfUnavailable(client.ObjectKeyFromObject(state.connection), reason)
+	}
+
 	if statusErr := r.setReady(ctx, state.project, metav1.ConditionFalse, reason, err.Error()); statusErr != nil {
 		return reconcile.Result{}, statusErr
 	}

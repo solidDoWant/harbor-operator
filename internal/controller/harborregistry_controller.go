@@ -13,7 +13,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
-	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -50,8 +49,10 @@ type HarborRegistryReconciler struct {
 	Clients *harbor.ClientCache
 	// Recorder emits events on the resource.
 	Recorder events.EventRecorder
-	// MaxBackoff caps the retry delay of a failing reconcile. Zero means 10 minutes.
+	// MaxBackoff caps the retry delay of a failing reconcile; tests lower it. Zero means 5 minutes.
 	MaxBackoff time.Duration
+	// Wakeups receives the connection when a Harbor call fails as unavailable. Nil sends nothing.
+	Wakeups ConnectionWakeups
 
 	// lastWrite remembers, per resource, when every field and the credential were last written and which version of
 	// the credentials Secret was sent. Harbor never returns the credential, so this is how a resync or a changed
@@ -94,18 +95,9 @@ func (r *HarborRegistryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			return []reconcile.Request{{NamespacedName: projectRegistryKey(project)}}
 		})).
 		Watches(&harborv1alpha1.HarborRegistry{}, handler.EnqueueRequestsFromMapFunc(r.otherClaimants)).
-		WithOptions(controller.Options{MaxConcurrentReconciles: 4, RateLimiter: r.rateLimiter()}).
+		WithOptions(controller.Options{MaxConcurrentReconciles: 4, RateLimiter: backoffLimiter(r.MaxBackoff)}).
 		Named("harborregistry").
 		Complete(r)
-}
-
-func (r *HarborRegistryReconciler) rateLimiter() workqueue.TypedRateLimiter[reconcile.Request] {
-	maxDelay := r.MaxBackoff
-	if maxDelay <= 0 {
-		maxDelay = defaultMaxBackoff
-	}
-
-	return backoffLimiter(maxDelay)
 }
 
 func (r *HarborRegistryReconciler) otherClaimants(ctx context.Context, object client.Object) []reconcile.Request {
@@ -598,6 +590,10 @@ func isAuthFailure(err error) bool {
 // backoff.
 func (r *HarborRegistryReconciler) harborFailed(ctx context.Context, state *registryReconcile, err error) (reconcile.Result, error) {
 	reason, retry := harbor.MapError(err)
+	if state.connection != nil {
+		r.Wakeups.wakeIfUnavailable(client.ObjectKeyFromObject(state.connection), reason)
+	}
+
 	if statusErr := r.setReady(ctx, state.registry, metav1.ConditionFalse, reason, err.Error()); statusErr != nil {
 		return reconcile.Result{}, statusErr
 	}

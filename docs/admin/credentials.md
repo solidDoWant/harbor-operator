@@ -32,7 +32,7 @@ Run `kubectl get harborconnection`. The `Ready` column shows `True` when Harbor 
 |---|---|---|
 | `CredentialsInvalid` | The Secret is missing, is in another namespace, or has no `username` or `password` key. | Create the Secret in the connection's namespace with both keys. |
 | `Unauthorized` or `Forbidden` | Harbor does not accept the username and password. | Correct the Secret. The operator does not retry at once. See below. |
-| `HarborUnavailable` | The operator cannot reach Harbor, or Harbor answered with a server error. | Check the URL, the network and Harbor itself. The operator tries again with a growing delay. |
+| `HarborUnavailable` | The operator cannot reach Harbor, or Harbor answered with a server error. | Check the URL, the network and Harbor itself. The operator tries again after 5 seconds, then waits twice as long each time, up to 5 minutes. While the connection has this reason, the resources that use it also show `HarborUnavailable` and do not call Harbor. They recover by themselves when Harbor is back. |
 | `DependentsExist` | You deleted the connection while a project, registry or system robot still uses it. | Delete those resources. The operator still uses the connection to apply their `deletionPolicy` in Harbor, and then the connection goes. The message lists up to five. Projects in namespaces the connection does not admit do not count. |
 
 When you change the Secret, the operator checks the credentials again at once. You do not need to restart it.

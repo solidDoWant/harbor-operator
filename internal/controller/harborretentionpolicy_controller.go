@@ -46,6 +46,8 @@ type HarborRetentionPolicyReconciler struct {
 	Clients *harbor.ClientCache
 	// Recorder emits events on the resource.
 	Recorder events.EventRecorder
+	// Wakeups receives the connection when a Harbor call fails as unavailable. Nil sends nothing.
+	Wakeups ConnectionWakeups
 }
 
 // +kubebuilder:rbac:groups=harbor.soliddowant.dev,resources=harborretentionpolicies,verbs=get;list;watch;update;patch
@@ -60,7 +62,7 @@ func (r *HarborRetentionPolicyReconciler) SetupWithManager(mgr ctrl.Manager) err
 		Watches(&harborv1alpha1.HarborProject{}, handler.EnqueueRequestsFromMapFunc(r.policiesForProject)).
 		Watches(&corev1.Namespace{}, handler.EnqueueRequestsFromMapFunc(r.policiesInNamespace)).
 		Watches(&harborv1alpha1.HarborRetentionPolicy{}, handler.EnqueueRequestsFromMapFunc(r.otherClaimants)).
-		WithOptions(controller.Options{MaxConcurrentReconciles: 4}).
+		WithOptions(controller.Options{MaxConcurrentReconciles: 4, RateLimiter: backoffLimiter(0)}).
 		Named("harborretentionpolicy").
 		Complete(r)
 }
@@ -170,10 +172,12 @@ func retentionResync(policy *harborv1alpha1.HarborRetentionPolicy, connection *h
 
 // retentionReconcile carries what one reconcile has resolved.
 type retentionReconcile struct {
-	policy    *harborv1alpha1.HarborRetentionPolicy
-	projectID int64
-	harbor    *harbor.Client
-	resync    time.Duration
+	// connection is the HarborConnection the policy reaches Harbor through.
+	connection types.NamespacedName
+	policy     *harborv1alpha1.HarborRetentionPolicy
+	projectID  int64
+	harbor     *harbor.Client
+	resync     time.Duration
 }
 
 // Reconcile makes the project's retention policy in Harbor match the resource and records the result in status.
@@ -296,7 +300,7 @@ func (r *HarborRetentionPolicyReconciler) resolve(ctx context.Context, policy *h
 			projectName(project), owner.Namespace, owner.Name))
 	}
 
-	return &retentionReconcile{policy: policy, projectID: int64(project.Status.ProjectID), harbor: harborClient, resync: resync}, reconcile.Result{}, nil
+	return &retentionReconcile{connection: client.ObjectKeyFromObject(connection), policy: policy, projectID: int64(project.Status.ProjectID), harbor: harborClient, resync: resync}, reconcile.Result{}, nil
 }
 
 // admitted reports whether a claimant's project admits the claimant's namespace.
@@ -324,7 +328,7 @@ func (r *HarborRetentionPolicyReconciler) sync(ctx context.Context, state *reten
 
 	project, err := state.harbor.GetProject(ctx, state.projectID)
 	if err != nil {
-		return r.harborFailed(ctx, policy, err)
+		return r.syncFailed(ctx, state, err)
 	}
 
 	want := desiredRetention(policy)
@@ -332,7 +336,7 @@ func (r *HarborRetentionPolicyReconciler) sync(ctx context.Context, state *reten
 	if project.RetentionID == 0 {
 		id, err := state.harbor.CreateRetention(ctx, state.projectID, want)
 		if err != nil {
-			return r.harborFailed(ctx, policy, err)
+			return r.syncFailed(ctx, state, err)
 		}
 
 		recordCreated(r.Recorder, policy, "retention policy", policy.Name)
@@ -342,7 +346,7 @@ func (r *HarborRetentionPolicyReconciler) sync(ctx context.Context, state *reten
 
 	have, err := state.harbor.GetRetention(ctx, project.RetentionID)
 	if err != nil {
-		return r.harborFailed(ctx, policy, err)
+		return r.syncFailed(ctx, state, err)
 	}
 
 	if have.ProjectID != state.projectID {
@@ -352,7 +356,7 @@ func (r *HarborRetentionPolicyReconciler) sync(ctx context.Context, state *reten
 
 	if !harbor.RetentionPolicyEqual(want, *have) {
 		if err := state.harbor.UpdateRetention(ctx, have.ID, state.projectID, want); err != nil {
-			return r.harborFailed(ctx, policy, err)
+			return r.syncFailed(ctx, state, err)
 		}
 
 		recordUpdated(r.Recorder, policy, "retention policy", policy.Name,
@@ -495,6 +499,15 @@ func (r *HarborRetentionPolicyReconciler) clearRetention(ctx context.Context, po
 	recordDeleted(r.Recorder, policy, "retention policy", policy.Name)
 
 	return release()
+}
+
+// syncFailed is harborFailed for a reconcile that reached Harbor through a ready connection: when Harbor is
+// unavailable, it also asks for the connection to be checked again.
+func (r *HarborRetentionPolicyReconciler) syncFailed(ctx context.Context, state *retentionReconcile, err error) (reconcile.Result, error) {
+	reason, _ := harbor.MapError(err)
+	r.Wakeups.wakeIfUnavailable(state.connection, reason)
+
+	return r.harborFailed(ctx, state.policy, err)
 }
 
 // harborFailed reports a Harbor error. A spec Harbor rejects waits for a spec change; anything else retries with

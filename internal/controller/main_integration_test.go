@@ -102,17 +102,18 @@ func runOperator(restConfig *rest.Config, options operatorOptions) (func(), clie
 
 	recorder := manager.GetEventRecorder("harbor-operator")
 	clients := harbor.NewClientCache(manager.GetClient())
+	wakeups := controller.NewConnectionWakeups()
 
 	setup := []error{
 		controller.IndexFields(ctx, manager.GetFieldIndexer()),
 		ownership.SetupIndexes(ctx, manager.GetFieldIndexer()),
-		(&controller.HarborConnectionReconciler{Client: manager.GetClient(), Clients: clients, Recorder: recorder}).SetupWithManager(manager),
-		(&controller.HarborProjectReconciler{Client: manager.GetClient(), Clients: clients, Recorder: recorder, MaxBackoff: 2 * time.Second}).SetupWithManager(manager),
-		(&controller.HarborProjectRobotReconciler{Client: robotClient, Clients: clients, Recorder: recorder}).SetupWithManager(manager),
-		(&controller.HarborSystemRobotReconciler{Client: manager.GetClient(), Clients: clients, Recorder: recorder}).SetupWithManager(manager),
-		(&controller.HarborRetentionPolicyReconciler{Client: manager.GetClient(), Clients: clients, Recorder: recorder}).SetupWithManager(manager),
-		(&controller.HarborRegistryReconciler{Client: manager.GetClient(), Clients: clients, Recorder: recorder, MaxBackoff: 2 * time.Second}).SetupWithManager(manager),
-		(&controller.HarborImmutabilityPolicyReconciler{Client: manager.GetClient(), Clients: clients, Recorder: recorder}).SetupWithManager(manager),
+		(&controller.HarborConnectionReconciler{Client: manager.GetClient(), Clients: clients, Recorder: recorder, Wakeups: wakeups}).SetupWithManager(manager),
+		(&controller.HarborProjectReconciler{Client: manager.GetClient(), Clients: clients, Recorder: recorder, Wakeups: wakeups, MaxBackoff: 2 * time.Second}).SetupWithManager(manager),
+		(&controller.HarborProjectRobotReconciler{Client: robotClient, Clients: clients, Recorder: recorder, Wakeups: wakeups}).SetupWithManager(manager),
+		(&controller.HarborSystemRobotReconciler{Client: manager.GetClient(), Clients: clients, Recorder: recorder, Wakeups: wakeups}).SetupWithManager(manager),
+		(&controller.HarborRetentionPolicyReconciler{Client: manager.GetClient(), Clients: clients, Recorder: recorder, Wakeups: wakeups}).SetupWithManager(manager),
+		(&controller.HarborRegistryReconciler{Client: manager.GetClient(), Clients: clients, Recorder: recorder, Wakeups: wakeups, MaxBackoff: 2 * time.Second}).SetupWithManager(manager),
+		(&controller.HarborImmutabilityPolicyReconciler{Client: manager.GetClient(), Clients: clients, Recorder: recorder, Wakeups: wakeups}).SetupWithManager(manager),
 	}
 
 	for _, err := range setup {
