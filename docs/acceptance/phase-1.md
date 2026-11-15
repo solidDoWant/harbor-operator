@@ -4,7 +4,7 @@ Approved for the owner by the operator on 2026-11-15. Only the owner adds scenar
 
 ## Connection
 
-- **AC-1-01 Connect.** A `HarborConnection` with valid robot credentials becomes `Ready` and shows Harbor's version. With a wrong password it shows `Unauthorized`.
+- **AC-1-01 Connect.** A `HarborConnection` with valid system-robot credentials becomes `Ready` and shows Harbor's version. With a wrong password it shows `Unauthorized`.
   Tests:
 - **AC-1-02 Credential change.** After the credential Secret is updated to new valid credentials, dependent resources keep reconciling without restarting the operator.
   Tests:
@@ -47,7 +47,7 @@ Approved for the owner by the operator on 2026-11-15. Only the owner adds scenar
   Tests:
 - **AC-1-17 Rotate.** Changing `secret.rotate` gives the robot a new secret and rewrites the Secret.
   Tests:
-- **AC-1-18 Robot drift.** Permissions, description, expiry and disabled state changed in Harbor are put back.
+- **AC-1-18 Robot drift.** Permissions, description, expiry and disabled state changed in Harbor are put back, both with a system-robot connection (by replacing the robot and rewriting its Secret) and with an admin-user connection (in place).
   Tests:
 - **AC-1-19 Robot delete.** Deleting the resource deletes the Harbor robot and its Secrets; with `Orphan` the Harbor robot stays.
   Tests:
