@@ -114,6 +114,15 @@ func (r *HarborRegistryReconciler) deleteOwned(ctx context.Context, registry *ha
 		return reconcile.Result{}, r.release(ctx, registry)
 	}
 
+	other, err := r.otherIDOwner(ctx, registry, identity, registry.Status.RegistryID)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
+
+	if other != nil {
+		return reconcile.Result{}, r.release(ctx, registry)
+	}
+
 	if err := harborClient.DeleteRegistry(ctx, registry.Status.RegistryID); err != nil && !harbor.IsNotFound(err) {
 		// Harbor answers 412 while a project or replication rule uses the registry: DeleteBlocked with its message.
 		reason, _ := harbor.MapError(err)

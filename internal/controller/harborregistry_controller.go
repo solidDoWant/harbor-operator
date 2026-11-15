@@ -109,13 +109,22 @@ func (r *HarborRegistryReconciler) rateLimiter() workqueue.TypedRateLimiter[reco
 }
 
 func (r *HarborRegistryReconciler) otherClaimants(ctx context.Context, object client.Object) []reconcile.Request {
-	key := object.(*harborv1alpha1.HarborRegistry).Status.HarborKey
+	registry := object.(*harborv1alpha1.HarborRegistry)
+
+	key := registry.Status.HarborKey
 	if key == "" {
 		return nil
 	}
 
 	self := client.ObjectKeyFromObject(object)
 	requests := r.registryRequests(ctx, client.MatchingFields{ownership.HarborKeyField: key})
+
+	// Claimants that found the same registry under another name, after a rename in Harbor.
+	if identity, ok := ownership.RegistryIdentity(key); ok && registry.Status.RegistryID != 0 {
+		requests = append(requests, r.registryRequests(ctx, client.MatchingFields{
+			ownership.RegistryIDField: ownership.RegistryIDKey(identity, registry.Status.RegistryID),
+		})...)
+	}
 
 	others := requests[:0]
 	for _, request := range requests {
@@ -174,6 +183,7 @@ type registryReconcile struct {
 	registry      *harborv1alpha1.HarborRegistry
 	connection    *harborv1alpha1.HarborConnection
 	harbor        *harbor.Client
+	identity      string
 	resync        time.Duration
 	credential    *harbor.RegistryCredential
 	secretVersion string
@@ -302,10 +312,36 @@ func (r *HarborRegistryReconciler) resolve(ctx context.Context, registry *harbor
 		return stop(harborv1alpha1.ReasonConflict, fmt.Sprintf("Harbor registry %q is owned by HarborRegistry %s/%s", registryName(registry), owner.Namespace, owner.Name))
 	}
 
+	if registry.Status.RegistryID != 0 {
+		other, err := r.otherIDOwner(ctx, registry, identity, registry.Status.RegistryID)
+		if err != nil {
+			return nil, reconcile.Result{}, err
+		}
+
+		if other != nil {
+			return stop(harborv1alpha1.ReasonConflict, idConflictMessage(registry.Status.RegistryID, other))
+		}
+	}
+
 	return &registryReconcile{
-		registry: registry, connection: connection, harbor: harborClient, resync: resync,
+		registry: registry, connection: connection, harbor: harborClient, identity: identity, resync: resync,
 		credential: credential, secretVersion: secretVersion,
 	}, reconcile.Result{}, nil
+}
+
+// otherIDOwner returns the HarborRegistry other than registry that owns the Harbor registry with the given ID, or nil.
+// Harbor can rename a registry, so the owner may record it under a name other than registry's.
+func (r *HarborRegistryReconciler) otherIDOwner(ctx context.Context, registry *harborv1alpha1.HarborRegistry, identity string, id int64) (*harborv1alpha1.HarborRegistry, error) {
+	owner, err := ownership.RegistryIDOwner(ctx, r.Client, identity, id, r.admitted)
+	if err != nil || owner == nil || owner.UID == registry.UID {
+		return nil, err
+	}
+
+	return owner, nil
+}
+
+func idConflictMessage(id int64, owner *harborv1alpha1.HarborRegistry) string {
+	return fmt.Sprintf("Harbor registry with ID %d is owned by HarborRegistry %s/%s", id, owner.Namespace, owner.Name)
 }
 
 // readCredential reads the credentials Secret the spec names. It returns a nil credential when the spec names none,
@@ -392,6 +428,16 @@ func (r *HarborRegistryReconciler) sync(ctx context.Context, state *registryReco
 		return r.create(ctx, state, recreate)
 	case err != nil:
 		return r.harborFailed(ctx, state, err)
+	}
+
+	// A registry renamed in Harbor is still its owner's, whatever name the owner records.
+	other, err := r.otherIDOwner(ctx, registry, state.identity, found.ID)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
+
+	if other != nil {
+		return reconcile.Result{RequeueAfter: state.resync}, r.setReady(ctx, registry, metav1.ConditionFalse, harborv1alpha1.ReasonConflict, idConflictMessage(found.ID, other))
 	}
 
 	ownCreate := isOwnCreate(registry.Status.CreatePending, found.CreationTime)

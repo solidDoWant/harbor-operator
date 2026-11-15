@@ -13,8 +13,12 @@ import (
 // HarborKeyField is the field index on status.harborKey that ownership lookups use.
 const HarborKeyField = "status.harborKey"
 
-// SetupIndexes registers the status.harborKey field index for every kind that claims Harbor objects. The manager's
-// cache must have it before ProjectOwner or RobotOwner run.
+// RegistryIDField is the field index on the Harbor identity and status.registryID of a HarborRegistry. Harbor can
+// rename a registry, so a registry found by name may be one another resource records under its old name.
+const RegistryIDField = "status.registryID"
+
+// SetupIndexes registers the status.harborKey field index for every kind that claims Harbor objects, and the registry
+// ID index of HarborRegistry. The manager's cache must have them before any owner lookup runs.
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 	if err := indexer.IndexField(ctx, &v1alpha1.HarborProject{}, HarborKeyField, func(object client.Object) []string {
 		return harborKeyValues(object.(*v1alpha1.HarborProject).Status.HarborKey)
@@ -52,7 +56,23 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 		return fmt.Errorf("indexing HarborRegistry %s: %w", HarborKeyField, err)
 	}
 
+	if err := indexer.IndexField(ctx, &v1alpha1.HarborRegistry{}, RegistryIDField, func(object client.Object) []string {
+		return registryIDValues(object.(*v1alpha1.HarborRegistry))
+	}); err != nil {
+		return fmt.Errorf("indexing HarborRegistry %s: %w", RegistryIDField, err)
+	}
+
 	return nil
+}
+
+// registryIDValues is the RegistryIDField value of a registry that records an ID.
+func registryIDValues(registry *v1alpha1.HarborRegistry) []string {
+	identity, ok := RegistryIdentity(registry.Status.HarborKey)
+	if !ok || registry.Status.RegistryID == 0 {
+		return nil
+	}
+
+	return []string{RegistryIDKey(identity, registry.Status.RegistryID)}
 }
 
 func harborKeyValues(key string) []string {
@@ -170,6 +190,23 @@ func RegistryOwner(ctx context.Context, reader client.Reader, key string, admitt
 	list := &v1alpha1.HarborRegistryList{}
 	if err := reader.List(ctx, list, client.MatchingFields{HarborKeyField: key}); err != nil {
 		return nil, fmt.Errorf("listing HarborRegistry claimants: %w", err)
+	}
+
+	claimants := make([]*v1alpha1.HarborRegistry, 0, len(list.Items))
+	for index := range list.Items {
+		claimants = append(claimants, &list.Items[index])
+	}
+
+	return owner(ctx, claimants, func(registry *v1alpha1.HarborRegistry) bool { return registry.Status.RegistryID != 0 }, admitted)
+}
+
+// RegistryIDOwner returns the HarborRegistry that owns the Harbor registry with the given ID in the Harbor at
+// identity, whatever name each claimant records, or nil when no claimant records the ID. Among several claimants
+// that record it, the ownership rule picks the oldest admitted one.
+func RegistryIDOwner(ctx context.Context, reader client.Reader, identity string, id int64, admitted AdmittedFunc[*v1alpha1.HarborRegistry]) (*v1alpha1.HarborRegistry, error) {
+	list := &v1alpha1.HarborRegistryList{}
+	if err := reader.List(ctx, list, client.MatchingFields{RegistryIDField: RegistryIDKey(identity, id)}); err != nil {
+		return nil, fmt.Errorf("listing HarborRegistry claimants of registry %d: %w", id, err)
 	}
 
 	claimants := make([]*v1alpha1.HarborRegistry, 0, len(list.Items))

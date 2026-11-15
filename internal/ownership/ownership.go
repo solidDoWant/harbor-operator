@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -81,7 +82,26 @@ func ImmutabilityKey(identity, projectName string) string {
 
 // RegistryKey is the status.harborKey of a registry endpoint named registryName in the Harbor at identity.
 func RegistryKey(identity, registryName string) string {
-	return identity + "/registries/" + registryName
+	return identity + registriesSegment + registryName
+}
+
+// registriesSegment separates the identity from the registry name in a registry's status.harborKey.
+const registriesSegment = "/registries/"
+
+// RegistryIdentity returns the Harbor identity of a registry's status.harborKey. A registry name never contains a
+// slash, so the last registries segment ends the identity.
+func RegistryIdentity(key string) (string, bool) {
+	index := strings.LastIndex(key, registriesSegment)
+	if index < 0 {
+		return "", false
+	}
+
+	return key[:index], true
+}
+
+// RegistryIDKey is the RegistryIDField value of a registry with the given Harbor ID in the Harbor at identity.
+func RegistryIDKey(identity string, id int64) string {
+	return identity + "/registry-ids/" + strconv.FormatInt(id, 10)
 }
 
 // Claimant is what the ownership rule needs to know about a resource that claims a Harbor object.
