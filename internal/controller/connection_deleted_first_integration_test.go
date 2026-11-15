@@ -94,6 +94,8 @@ func TestProjectDependentsDeletedAfterTheirConnectionIsDeletedFollowTheirDeletio
 	t.Run("an unreachable Harbor keeps the dependent waiting", func(t *testing.T) {
 		original := setup.connection.Spec.URL
 		setConnectionURL(t, setup.cl, setup.connection, "https://127.0.0.1:1")
+		// Restore the URL even when an assertion below stops the subtest, so the rest of the test can finish.
+		defer setConnectionURL(t, setup.cl, setup.connection, original)
 
 		require.NoError(t, setup.cl.Delete(t.Context(), readySystemRobot))
 		held := awaitSystemRobot(t, setup.cl, client.ObjectKeyFromObject(systemRobot), metav1.ConditionFalse, harborv1alpha1.ReasonHarborUnavailable)
@@ -101,8 +103,6 @@ func TestProjectDependentsDeletedAfterTheirConnectionIsDeletedFollowTheirDeletio
 
 		_, err := setup.admin.GetRobot(t.Context(), readySystemRobot.Status.RobotID)
 		require.NoError(t, err, "the Harbor robot is not deleted while Harbor is unreachable")
-
-		setConnectionURL(t, setup.cl, setup.connection, original)
 	})
 
 	awaitObjectGone(t, setup.cl, systemRobot, "the system robot goes once Harbor is reachable again")
@@ -121,13 +121,19 @@ func TestProjectDependentsDeletedAfterTheirConnectionIsDeletedFollowTheirDeletio
 	awaitObjectGone(t, setup.cl, &harborv1alpha1.HarborConnection{ObjectMeta: setup.connection.ObjectMeta}, "the connection goes after its dependents")
 }
 
-// setConnectionURL points the connection at url; a terminating connection's spec can still change.
+// setConnectionURL points the connection at url; a terminating connection's spec can still change. It returns once
+// the connection controller has recorded the new generation: the operator's controllers share one informer cache, so
+// from then on every dependent's reconcile reads the new URL. Without this wait a dependent reconciled right after the
+// update can still read the old URL from the cache and reach the old Harbor.
 func setConnectionURL(t *testing.T, cl client.Client, connection *harborv1alpha1.HarborConnection, url string) {
 	t.Helper()
 
+	key := client.ObjectKeyFromObject(connection)
+
+	var current harborv1alpha1.HarborConnection
+
 	require.Eventually(t, func() bool {
-		var current harborv1alpha1.HarborConnection
-		if err := cl.Get(t.Context(), client.ObjectKeyFromObject(connection), &current); err != nil {
+		if err := cl.Get(t.Context(), key, &current); err != nil {
 			return false
 		}
 
@@ -135,4 +141,15 @@ func setConnectionURL(t *testing.T, cl client.Client, connection *harborv1alpha1
 
 		return cl.Update(t.Context(), &current) == nil
 	}, projectWait, 200*time.Millisecond, "updating the connection's URL")
+
+	generation := current.Generation
+
+	require.Eventually(t, func() bool {
+		var observed harborv1alpha1.HarborConnection
+		if err := cl.Get(t.Context(), key, &observed); err != nil {
+			return false
+		}
+
+		return observed.Status.ObservedGeneration >= generation
+	}, projectWait, 200*time.Millisecond, "waiting for the operator to observe the connection's new URL")
 }
