@@ -5,7 +5,7 @@ Same rules as phase 1. Approved for the owner by the operator on 2026-11-15.
 - **AC-3-01 Harbor versions.** The e2e suite passes against the two most recent Harbor minor releases (CI matrix).
   Tests: `test/e2e: TestHarborRunsTheMatrixMinorRelease`
 - **AC-3-02 Metrics.** The metrics endpoint exposes, per kind, the count of resources by `Ready` reason, a histogram of Harbor API call latency by operation and result, and the count of registries by upstream health (`healthy`, `unhealthy`, `unknown`). Labels are fixed enums or kind names only (no object names, no namespaces).
-  Tests:
+  Tests: `internal/harbor: TestHarborRequestsAreObservedByOperationAndResult`, `internal/controller: TestResourceCollectorCountsByKindReasonAndHealth`
 - **AC-3-03 Events.** Create, update (drift corrected), recreate, adopt, delete and every error reason emit a Kubernetes event on the resource.
   Tests: `internal/controller: TestProjectStateChangesEmitEvents`, `internal/controller: TestProjectLeftInHarborEmitsAnOrphanedEvent`, `internal/controller: TestProjectErrorReasonEmitsAWarningEvent`, `internal/controller: TestConnectionReadinessEmitsAnEvent`
 - **AC-3-04 Harbor down.** With Harbor unreachable, resources report `HarborUnavailable`, the operator doesn't crash or spin (bounded backoff, no more than one Harbor call per resource per backoff step), and everything recovers by itself within one resync after Harbor returns.

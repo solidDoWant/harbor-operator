@@ -49,6 +49,7 @@ docs/admin/
   namespace-access.md      Allowed namespaces, adoption, deletion policies and the security model.
   credentials.md           Which Harbor credential the operator signs in with.
   system-robots.md         System robots: access to many projects, and their status reasons.
+  metrics.md               The metrics the operator exports.
   chart-values.md          Every Helm chart value (generated).
 
 docs/dev/

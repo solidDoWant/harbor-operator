@@ -13,6 +13,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
@@ -99,6 +100,11 @@ func main() {
 
 	if err := ownership.SetupIndexes(ctx, mgr.GetFieldIndexer()); err != nil {
 		setupLog.Error(err, "unable to register ownership indexes")
+		os.Exit(1)
+	}
+
+	if err := ctrlmetrics.Registry.Register(controller.NewResourceCollector(mgr.GetClient(), mgr.Elected())); err != nil {
+		setupLog.Error(err, "unable to register the resource metrics")
 		os.Exit(1)
 	}
 

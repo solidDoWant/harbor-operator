@@ -75,7 +75,7 @@ func NewClient(config ConnectionConfig) (*Client, error) {
 
 	harborConfig := &harbor.Config{
 		URL:       parsed,
-		Transport: transport,
+		Transport: meteredTransport{next: transport},
 		AuthInfo:  httptransport.BasicAuth(config.Username, config.Password),
 	}
 
