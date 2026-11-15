@@ -83,7 +83,7 @@ type HarborProjectStatus struct {
 	// +optional
 	HarborKey string `json:"harborKey,omitempty"`
 	// CreatePending is set just before the operator asks Harbor to create the project, and cleared once the ID is
-	// recorded. A project found in Harbor counts as this resource's own interrupted create only when it was created no
+	// recorded or Harbor refuses the create. A project found in Harbor counts as this resource's own interrupted create only when it was created no
 	// earlier than this time, less a clock-skew allowance.
 	// +optional
 	CreatePending *metav1.Time `json:"createPending,omitempty"`

@@ -91,7 +91,7 @@ type HarborProjectRobotStatus struct {
 	// +optional
 	HarborName string `json:"harborName,omitempty"`
 	// CreatePending is set just before the operator asks Harbor to create the robot, and cleared once its Secrets hold
-	// the new secret. A robot found in Harbor counts as this resource's own interrupted create only when it was created
+	// the new secret or Harbor refuses the create. A robot found in Harbor counts as this resource's own interrupted create only when it was created
 	// no earlier than this time, less a clock-skew allowance.
 	// +optional
 	CreatePending *metav1.Time `json:"createPending,omitempty"`

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/goharbor/go-client/pkg/sdk/v2.0/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
@@ -225,4 +226,86 @@ func TestRobotCreateMarkerInStatusClaimsOnlyARobotCreatedAfterIt(t *testing.T) {
 	assert.Equal(t, existing.Name, username)
 	assert.NotEqual(t, existing.Secret, password, "the lost secret is refreshed")
 	require.NoError(t, push(t, setup.instance, username, password, setup.project.Spec.Name, "app"), "the refreshed secret works")
+}
+
+func TestProjectWhoseCreateHarborRefusedDoesNotTakeOverAProjectMadeLater(t *testing.T) {
+	instance, admin, name := projectHarbor(t)
+	cl := startOperator(t, true)
+
+	access := func(resource string, actions ...string) []*models.Access {
+		result := make([]*models.Access, 0, len(actions))
+		for _, action := range actions {
+			result = append(result, &models.Access{Resource: resource, Action: action, Effect: "allow"})
+		}
+
+		return result
+	}
+
+	// The connection's system robot may not create projects, so Harbor refuses the create.
+	connectionInstance := *instance
+	connectionInstance.Username, connectionInstance.Password = instance.CreateSystemRobot(t, []*models.RobotPermission{
+		{Kind: "system", Namespace: "/", Access: append(access("project", "list"), access("quota", "read", "update")...)},
+		{Kind: "project", Namespace: "*", Access: access("project", "read", "update", "delete")},
+	})
+	connection := readyConnection(t, cl, &connectionInstance, "default", nil)
+
+	project := newProject("default", name, connection)
+	project.Spec.Public = ptr(true)
+	project.Spec.DeletionPolicy = harborv1alpha1.DeletionPolicyDelete
+	require.NoError(t, cl.Create(t.Context(), project))
+	key := client.ObjectKeyFromObject(project)
+
+	refused := awaitProject(t, cl, key, metav1.ConditionFalse, harborv1alpha1.ReasonForbidden)
+	assert.Nil(t, refused.Status.CreatePending, "a create Harbor refused leaves no marker")
+
+	existing, err := admin.CreateProject(t.Context(), name, harbor.ProjectSettings{Public: ptr(false)}, nil)
+	require.NoError(t, err)
+
+	reported := awaitProject(t, cl, key, metav1.ConditionFalse, harborv1alpha1.ReasonAlreadyExists)
+	assert.Zero(t, reported.Status.ProjectID)
+
+	found, _ := harborSettings(t, admin, name)
+	assert.Equal(t, ptr(false), found.Settings.Public, "the project's settings are not overwritten")
+
+	require.NoError(t, cl.Delete(t.Context(), project))
+	awaitGone(t, cl, key, "a resource without an ID is released at once")
+
+	found, err = admin.GetProjectByName(t.Context(), name)
+	require.NoError(t, err, "the project the resource did not create is not deleted")
+	assert.Equal(t, existing.ID, found.ID)
+}
+
+func TestRobotWhoseCreateHarborRefusedDoesNotTakeOverARobotMadeLater(t *testing.T) {
+	setup := readyRobotProjectWithSystemRobot(t, true, nil, nil)
+
+	// The connection's system robot does not hold artifact:delete, so Harbor refuses to create a robot with it.
+	robot := ciRobot("default", setup.project)
+	robot.Spec.Permissions = []harborv1alpha1.RobotAccess{{Resource: "artifact", Action: "delete"}}
+	robot.Spec.DeletionPolicy = harborv1alpha1.DeletionPolicyDelete
+	require.NoError(t, setup.cl.Create(t.Context(), robot))
+	key := client.ObjectKeyFromObject(robot)
+
+	refused := awaitRobot(t, setup.cl, key, metav1.ConditionFalse, harborv1alpha1.ReasonForbidden)
+	assert.Nil(t, refused.Status.CreatePending, "a create Harbor refused leaves no marker")
+
+	// The robot can push, so a push with its secret shows that the secret was not refreshed.
+	existing, err := setup.admin.CreateRobot(t.Context(), setup.project.Spec.Name, harbor.RobotSpec{
+		Name: "ci", Description: "made by hand", Duration: -1,
+		Permissions: []harbor.RobotAccess{{Resource: "repository", Action: "push"}, {Resource: "repository", Action: "pull"}},
+	})
+	require.NoError(t, err)
+
+	reported := awaitRobot(t, setup.cl, key, metav1.ConditionFalse, harborv1alpha1.ReasonAlreadyExists)
+	assert.Zero(t, reported.Status.RobotID)
+
+	found, err := setup.admin.GetRobot(t.Context(), existing.ID)
+	require.NoError(t, err, "the hand-made robot is not deleted")
+	assert.Equal(t, "made by hand", found.Description, "the robot is not changed")
+	require.NoError(t, push(t, setup.instance, existing.Name, existing.Secret, setup.project.Spec.Name, "app"), "the robot's secret still works")
+
+	require.NoError(t, setup.cl.Delete(t.Context(), robot))
+	awaitGone(t, setup.cl, key, "a resource without an ID is released at once")
+
+	_, err = setup.admin.GetRobot(t.Context(), existing.ID)
+	require.NoError(t, err, "the robot the resource did not create is not deleted")
 }
