@@ -1,4 +1,3 @@
-// Package chart_test renders the operator's Helm chart and checks the objects it produces.
 package chart_test
 
 import (
@@ -38,7 +37,7 @@ func repoRoot(t *testing.T) string {
 	return filepath.Join(filepath.Dir(file), "..", "..")
 }
 
-func render(t *testing.T, args ...string) rendered {
+func renderRBAC(t *testing.T, args ...string) rendered {
 	t.Helper()
 
 	if _, err := exec.LookPath("helm"); err != nil {
@@ -137,7 +136,7 @@ func withoutResources(rules []rbacv1.PolicyRule, keep func(resource string) bool
 }
 
 func TestChartGrantsTheManagerRulesClusterWideWithoutWatchNamespaces(t *testing.T) {
-	result := render(t)
+	result := renderRBAC(t)
 
 	require.Contains(t, result.clusterRoles, "harbor-operator")
 	assert.Equal(t, generatedRules(t), result.clusterRoles["harbor-operator"].Rules)
@@ -152,7 +151,7 @@ func TestChartGrantsTheManagerRulesClusterWideWithoutWatchNamespaces(t *testing.
 }
 
 func TestChartGrantsTheManagerRulesOnlyInWatchedNamespaces(t *testing.T) {
-	result := render(t, "--set", "watchNamespaces={team-a,team-b}")
+	result := renderRBAC(t, "--set", "watchNamespaces={team-a,team-b}")
 	rules := generatedRules(t)
 	subject := rbacv1.Subject{Kind: "ServiceAccount", Name: "harbor-operator", Namespace: releaseNamespace}
 
