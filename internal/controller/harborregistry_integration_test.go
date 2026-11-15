@@ -343,11 +343,26 @@ func TestRegistryRenamedInHarborStaysWithItsOwner(t *testing.T) {
 	require.NoError(t, setup.cl.Create(t.Context(), owner))
 	id := awaitRegistry(t, setup.cl, client.ObjectKeyFromObject(owner), metav1.ConditionTrue, harborv1alpha1.ReasonReady).Status.RegistryID
 
+	// Any reconcile of the owner after the rename puts its name back, so the rename waits until the owner has
+	// stopped writing its status.
+	lastVersion := ""
+	require.Eventually(t, func() bool {
+		current := &harborv1alpha1.HarborRegistry{}
+		if err := setup.cl.Get(t.Context(), client.ObjectKeyFromObject(owner), current); err != nil || current.Status.Health == "" {
+			return false
+		}
+
+		settled := current.ResourceVersion == lastVersion
+		lastVersion = current.ResourceVersion
+
+		return settled
+	}, projectWait, time.Second, "the owner settles")
+
 	require.NoError(t, setup.admin.UpdateRegistry(t.Context(), id, harbor.RegistrySpec{
 		Name: renamed, URL: setup.upstreamURL, Description: "renamed in the UI",
 	}))
 
-	for _, adopt := range []bool{false, true} {
+	for _, adopt := range []bool{true, false} {
 		t.Run(fmt.Sprintf("a resource with the new name and adopt %t gets Conflict and is deleted without deleting it", adopt), func(t *testing.T) {
 			other := setup.newRegistry("other-team", fmt.Sprintf("other-%t", adopt), renamed)
 			other.Spec.Description = "taken over"
