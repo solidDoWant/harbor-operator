@@ -8,5 +8,7 @@ cd "$(git rev-parse --show-toplevel)"
 chart=deploy/charts/harbor-operator
 helm lint --strict "$chart"
 helm template harbor-operator "$chart" --namespace harbor-operator >/dev/null
+helm template harbor-operator "$chart" --namespace harbor-operator \
+  --set grafanaDashboard.configMap.enabled=true --set grafanaDashboard.grafanaOperator.enabled=true >/dev/null
 helm template harbor-operator "$chart" --namespace harbor-operator --set 'watchNamespaces={team-a,team-b}' >/dev/null
 echo "chart-lint: passed"

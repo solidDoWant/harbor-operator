@@ -3,6 +3,7 @@ module github.com/solidDoWant/harbor-operator
 go 1.27.0
 
 require (
+	github.com/VictoriaMetrics/metricsql v0.87.6
 	github.com/go-logr/logr v1.4.3
 	github.com/go-openapi/runtime v0.21.0
 	github.com/goharbor/go-client v0.213.1
@@ -22,6 +23,7 @@ require (
 
 require (
 	cel.dev/expr v0.25.1 // indirect
+	github.com/VictoriaMetrics/metrics v1.35.3 // indirect
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
 	github.com/asaskevich/govalidator v0.0.0-20210307081110-f21760c49a8d // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
@@ -81,6 +83,8 @@ require (
 	github.com/sirupsen/logrus v1.9.4 // indirect
 	github.com/spf13/cobra v1.10.2 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
+	github.com/valyala/fastrand v1.1.0 // indirect
+	github.com/valyala/histogram v1.2.0 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	go.mongodb.org/mongo-driver v1.7.3 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect

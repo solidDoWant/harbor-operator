@@ -1,0 +1,13 @@
+{{- if .Values.grafanaDashboard.grafanaOperator.enabled }}
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  name: {{ include "harbor-operator.fullname" . }}
+  labels:
+    {{- include "harbor-operator.labels" . | nindent 4 }}
+spec:
+  instanceSelector:
+    {{- toYaml .Values.grafanaDashboard.grafanaOperator.instanceSelector | nindent 4 }}
+  json: |
+    {{- .Files.Get "dashboards/harbor-operator.json" | nindent 4 }}
+{{- end }}

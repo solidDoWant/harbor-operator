@@ -21,6 +21,10 @@ For: admins who install harbor-operator with its Helm chart.
 | `watchNamespaces` | `[]` | Namespaces that the operator watches. Empty means all namespaces. See docs/admin/install.md. |
 | `metrics.port` | `8443` | Port of the metrics endpoint. |
 | `metrics.secure` | `true` | Serve metrics over HTTPS with authentication and authorization. |
+| `grafanaDashboard.configMap.enabled` | `false` | Render a ConfigMap with the dashboard for Grafana's dashboard sidecar. |
+| `grafanaDashboard.configMap.labels` | `""` | Labels on the dashboard ConfigMap. The sidecar selects ConfigMaps by this label. |
+| `grafanaDashboard.grafanaOperator.enabled` | `false` | Render a grafana-operator GrafanaDashboard with the dashboard inline. |
+| `grafanaDashboard.grafanaOperator.instanceSelector` | `""` | Selects the Grafana instances that get the dashboard. |
 | `resources.requests.cpu` | `10m` | CPU request. There is no CPU limit. |
 | `resources.requests.memory` | `128Mi` | Memory request. |
 | `resources.limits.memory` | `128Mi` | Memory limit. Keep it equal to the memory request. |
