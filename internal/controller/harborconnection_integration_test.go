@@ -277,9 +277,11 @@ func TestConnectionDeletionWaitsForAdmittedProjects(t *testing.T) {
 	assert.Contains(t, held.Finalizers, controller.ConnectionFinalizer)
 
 	// Removing the project lets the connection go, with no other trigger.
+	// A patch carries no resourceVersion, so it cannot conflict with the controller writing status.
 	require.NoError(t, cl.Get(t.Context(), client.ObjectKeyFromObject(admitted), admitted))
+	original := admitted.DeepCopy()
 	admitted.Finalizers = nil
-	require.NoError(t, cl.Update(t.Context(), admitted))
+	require.NoError(t, cl.Patch(t.Context(), admitted, client.MergeFrom(original)))
 	require.NoError(t, cl.Delete(t.Context(), admitted))
 
 	require.Eventually(t, func() bool {
