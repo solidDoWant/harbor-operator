@@ -44,11 +44,11 @@ Approved for the owner by the operator on 2026-11-15. Only the owner adds scenar
 - **AC-1-15 Secret options.** Disabling the dockerconfigjson Secret, enabling the opaque Secret and setting custom names produce exactly the requested Secrets with the documented keys; switching back removes the disabled ones.
   Tests: `internal/controller: TestRobotSecretOptionsWriteExactlyTheRequestedSecrets`
 - **AC-1-16 Lost secret.** Deleting the robot's Secret produces a new working secret; the old one no longer authenticates.
-  Tests: `internal/controller: TestRobotSecretDeletedGetsANewRobotSecret`
+  Tests: `internal/controller: TestRobotSecretDeletedGetsANewRobotSecret`, `internal/controller: TestRobotSecretRenewalReplacesTheRobotWithASystemRobotConnection/Secret deleted`
 - **AC-1-17 Rotate.** Changing `secret.rotate` gives the robot a new secret and rewrites the Secret.
-  Tests: `internal/controller: TestRobotRotateGivesTheRobotANewSecret`
+  Tests: `internal/controller: TestRobotRotateGivesTheRobotANewSecret`, `internal/controller: TestRobotSecretRenewalReplacesTheRobotWithASystemRobotConnection/rotate changed`
 - **AC-1-18 Robot drift.** Permissions, description, expiry and disabled state changed in Harbor are put back, both with a system-robot connection (by replacing the robot and rewriting its Secret) and with an admin-user connection (in place).
-  Tests:
+  Tests: `internal/controller: TestRobotDriftInHarborIsPutBack`, `internal/controller: TestRobotDriftInHarborIsPutBackByReplacingTheRobotWithASystemRobotConnection`
 - **AC-1-19 Robot delete.** Deleting the resource deletes the Harbor robot and its Secrets; with `Orphan` the Harbor robot stays.
   Tests: `internal/controller: TestRobotDeletion/Delete removes the Harbor robot`, `internal/controller: TestRobotDeletion/Orphan leaves the Harbor robot`
 - **AC-1-20 Secret conflict.** A robot whose target Secret name is taken by a Secret it doesn't own reports `SecretConflict` and leaves that Secret untouched.

@@ -98,10 +98,40 @@ func (c *Client) GetProjectByName(ctx context.Context, name string) (*Project, e
 
 	response, err := c.api.Project.GetProject(ctx, &project.GetProjectParams{ProjectNameOrID: name, XIsResourceName: &resource})
 	if err != nil {
-		return nil, c.fail(err)
+		failure := c.fail(err)
+		if IsForbidden(failure) {
+			return c.findProjectByName(ctx, name)
+		}
+
+		return nil, failure
 	}
 
 	return projectFromModel(response.Payload), nil
+}
+
+// findProjectByName looks the project up in the list of projects the caller can see. Harbor answers a robot's read of a
+// project that does not exist with 403 instead of 404, so a 403 alone cannot tell "missing" from "not allowed".
+func (c *Client) findProjectByName(ctx context.Context, name string) (*Project, error) {
+	page, pageSize := int64(1), int64(100)
+
+	for {
+		response, err := c.api.Project.ListProjects(ctx, &project.ListProjectsParams{Name: &name, Page: &page, PageSize: &pageSize})
+		if err != nil {
+			return nil, c.fail(err)
+		}
+
+		for _, found := range response.Payload {
+			if found.Name == name {
+				return projectFromModel(found), nil
+			}
+		}
+
+		if int64(len(response.Payload)) < pageSize {
+			return nil, &Error{StatusCode: http.StatusNotFound, Message: "project " + name + " not found"}
+		}
+
+		page++
+	}
 }
 
 // GetProject returns the project with the ID, or a 404 error when there is none.

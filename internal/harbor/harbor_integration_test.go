@@ -3,9 +3,11 @@
 package harbor_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
+	"github.com/goharbor/go-client/pkg/sdk/v2.0/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -137,4 +139,25 @@ func TestProjectRobotLifecycleAndSecretRefresh(t *testing.T) {
 
 	_, err = client.GetRobot(ctx, created.ID)
 	assert.True(t, harbor.IsNotFound(err))
+}
+
+func TestSystemRobotSeesAMissingProjectAsNotFound(t *testing.T) {
+	admin, instance := newClient(t)
+	access := []*models.Access{{Resource: "project", Action: "read", Effect: "allow"}, {Resource: "project", Action: "delete", Effect: "allow"}}
+	username, secret := instance.CreateSystemRobot(t, []*models.RobotPermission{{Kind: "project", Namespace: "*", Access: access}})
+	robot, err := harbor.NewClient(harbor.ConnectionConfig{URL: instance.URL, Username: username, Password: secret})
+	require.NoError(t, err)
+
+	name := harborfixture.UniqueName(t, "op")
+	_, err = robot.GetProjectByName(t.Context(), name)
+	require.Error(t, err)
+	assert.True(t, harbor.IsNotFound(err), "Harbor answers a robot's read of a missing project with 403, which is not a failure to report")
+
+	_, err = admin.CreateProject(t.Context(), name, harbor.ProjectSettings{}, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = admin.DeleteProject(context.Background(), name) })
+
+	found, err := robot.GetProjectByName(t.Context(), name)
+	require.NoError(t, err)
+	assert.Equal(t, name, found.Name)
 }
