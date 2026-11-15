@@ -115,6 +115,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	robots := &controller.HarborProjectRobotReconciler{Client: mgr.GetClient(), Clients: clients, Recorder: mgr.GetEventRecorder("harbor-operator")}
+	if err := robots.SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to set up the HarborProjectRobot controller")
+		os.Exit(1)
+	}
+
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up the health check")
 		os.Exit(1)

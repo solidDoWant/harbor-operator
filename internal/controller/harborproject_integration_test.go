@@ -103,17 +103,17 @@ func updateProject(t *testing.T, cl client.Client, key client.ObjectKey, change 
 	}, 10*time.Second, 100*time.Millisecond)
 }
 
-func awaitEvent(t *testing.T, cl client.Client, project *harborv1alpha1.HarborProject, reason string) {
+func awaitEvent(t *testing.T, cl client.Client, object client.Object, reason string) {
 	t.Helper()
 
 	require.Eventually(t, func() bool {
 		var list eventsv1.EventList
-		if err := cl.List(t.Context(), &list, client.InNamespace(project.Namespace)); err != nil {
+		if err := cl.List(t.Context(), &list, client.InNamespace(object.GetNamespace())); err != nil {
 			return false
 		}
 
 		for _, event := range list.Items {
-			if event.Regarding.UID == project.UID && event.Reason == reason {
+			if event.Regarding.UID == object.GetUID() && event.Reason == reason {
 				return true
 			}
 		}

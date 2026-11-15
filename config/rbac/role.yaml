@@ -8,10 +8,21 @@ rules:
   - ""
   resources:
   - namespaces
-  - secrets
   verbs:
   - get
   - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
   - watch
 - apiGroups:
   - ""
@@ -37,6 +48,7 @@ rules:
   - harbor.soliddowant.dev
   resources:
   - harborconnections
+  - harborprojectrobots
   - harborprojects
   verbs:
   - get
@@ -48,6 +60,7 @@ rules:
   - harbor.soliddowant.dev
   resources:
   - harborconnections/finalizers
+  - harborprojectrobots/finalizers
   - harborprojects/finalizers
   verbs:
   - update
@@ -55,16 +68,9 @@ rules:
   - harbor.soliddowant.dev
   resources:
   - harborconnections/status
+  - harborprojectrobots/status
   - harborprojects/status
   verbs:
   - get
   - patch
   - update
-- apiGroups:
-  - harbor.soliddowant.dev
-  resources:
-  - harborprojectrobots
-  verbs:
-  - get
-  - list
-  - watch

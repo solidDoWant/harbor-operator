@@ -28,6 +28,8 @@ type Robot struct {
 	ID int64
 	// Name is the full name Harbor assigned, with its prefix.
 	Name string
+	// ProjectName is the project the robot's permissions are scoped to.
+	ProjectName string
 	// Secret is set only on create and refresh.
 	Secret      string
 	ExpiresAt   *time.Time
@@ -69,6 +71,10 @@ func robotFromModel(model *models.Robot) *Robot {
 	for _, permission := range model.Permissions {
 		if permission == nil {
 			continue
+		}
+
+		if permission.Kind == "project" && robot.ProjectName == "" {
+			robot.ProjectName = permission.Namespace
 		}
 
 		for _, access := range permission.Access {
