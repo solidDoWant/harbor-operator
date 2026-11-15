@@ -329,6 +329,11 @@ func (r *HarborProjectReconciler) create(ctx context.Context, state *projectReco
 
 	created, err := state.harbor.CreateProject(ctx, name, desiredProjectSettings(&project.Spec), storageLimit)
 	if err != nil {
+		// Harbor refused, so nothing was created: a project made later by someone else must not pass for this one.
+		if harbor.IsRefused(err) {
+			project.Status.CreatePending = nil
+		}
+
 		return r.harborFailed(ctx, state, err)
 	}
 

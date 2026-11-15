@@ -71,3 +71,28 @@ func TestErrorsNeverContainPassword(t *testing.T) {
 	assert.Equal(t, ReasonHarborUnavailable, reason)
 	assert.True(t, retry)
 }
+
+func TestIsRefusedOnlyForAnAnswerThatTheRequestWasNotCarriedOut(t *testing.T) {
+	tests := map[string]struct {
+		err     error
+		refused bool
+	}{
+		"nil":             {nil, false},
+		"400":             {project.NewCreateProjectBadRequest(), true},
+		"403":             {project.NewDeleteProjectForbidden(), true},
+		"409":             {project.NewCreateProjectConflict(), true},
+		"unknown 499":     {runtime.NewAPIError("x", nil, 499), true},
+		"wrapped 403":     {wrapError(project.NewDeleteProjectForbidden(), "pw"), true},
+		"500":             {project.NewCreateProjectInternalServerError(), false},
+		"unknown 502":     {runtime.NewAPIError("x", nil, 502), false},
+		"unknown 399":     {runtime.NewAPIError("x", nil, 399), false},
+		"network error":   {&net.OpError{Op: "dial", Err: errors.New("refused")}, false},
+		"wrapped network": {wrapError(&net.OpError{Op: "dial", Err: errors.New("refused")}, "pw"), false},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, test.refused, IsRefused(test.err))
+		})
+	}
+}

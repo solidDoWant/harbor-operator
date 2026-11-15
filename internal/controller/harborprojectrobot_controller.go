@@ -435,7 +435,13 @@ func (r *HarborProjectRobotReconciler) createRobot(ctx context.Context, state *r
 
 	created, err := state.harbor.CreateRobot(ctx, state.projectName, desiredRobot(robot))
 	if err != nil {
+		// Harbor refused, so nothing was created: a robot made later by someone else must not pass for this one.
+		if harbor.IsRefused(err) {
+			robot.Status.CreatePending = nil
+		}
+
 		result, err := r.harborFailed(ctx, state, err)
+
 		return nil, true, result, err
 	}
 
@@ -619,6 +625,11 @@ func (r *HarborProjectRobotReconciler) replace(ctx context.Context, state *robot
 	}
 
 	if err := state.harbor.DeleteRobot(ctx, current.ID); err != nil && !harbor.IsNotFound(err) {
+		// Harbor refused the delete, so no create follows: the marker must not outlive the call it was set for.
+		if harbor.IsRefused(err) {
+			robot.Status.CreatePending = nil
+		}
+
 		return r.harborFailed(ctx, state, err)
 	}
 

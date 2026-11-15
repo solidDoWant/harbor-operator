@@ -163,3 +163,20 @@ func IsForbidden(err error) bool {
 	var harborErr *Error
 	return errors.As(err, &harborErr) && harborErr.StatusCode == http.StatusForbidden
 }
+
+// IsRefused reports whether Harbor answered with a 4xx: it understood the request and did not carry it out. A network
+// error, a timeout or a 5xx leaves the outcome unknown.
+func IsRefused(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	status := statusOf(err)
+
+	var harborErr *Error
+	if errors.As(err, &harborErr) {
+		status = harborErr.StatusCode
+	}
+
+	return status >= http.StatusBadRequest && status < http.StatusInternalServerError
+}
