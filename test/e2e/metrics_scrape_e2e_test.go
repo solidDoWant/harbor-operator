@@ -21,7 +21,6 @@ import (
 )
 
 const (
-	operatorNamespace = "harbor-operator-system"
 	// The metrics Service of the release test/e2e/up.sh installs.
 	metricsURL = "https://harbor-operator-metrics." + operatorNamespace + ".svc:8443/metrics"
 	// Pinned by digest; quay.io publishes the curl project's image.
