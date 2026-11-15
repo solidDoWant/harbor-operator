@@ -45,7 +45,8 @@ const (
 
 // Annotations the operator sets on resources while a multi-step Harbor change is in flight.
 const (
-	// AnnotationCreatePending holds an RFC 3339 time. It is set before a create call and cleared once the ID is in status.
+	// AnnotationCreatePending was the create marker of an earlier design. Users can write it, so it proves nothing: the
+	// operator ignores it and removes it. The marker is now status.createPending.
 	AnnotationCreatePending = "harbor.soliddowant.dev/create-pending"
 	// AnnotationSecretRefreshPending is set before a robot secret refresh and cleared once every enabled Secret is written.
 	AnnotationSecretRefreshPending = "harbor.soliddowant.dev/secret-refresh-pending"

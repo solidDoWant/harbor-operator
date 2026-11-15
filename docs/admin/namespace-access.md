@@ -48,3 +48,4 @@ The operator never deletes an object that it did not create or adopt.
 - Robot Secrets are written only to the namespace of the robot resource. The operator never overwrites a Secret that the robot does not own.
 - The operator never logs robot secrets or credentials, and never puts them in status, events or conditions.
 - A robot can only have permissions that the system robot of the connection holds. See [credentials](credentials.md).
+- Do not give namespace users write access to the `status` subresource of the operator's resources (for example `harborprojects/status`). The operator uses status as its own record. It is the proof that the operator created an object in Harbor. A user who can write status can take over Harbor projects and robots that the operator did not create. The chart gives this access only to the operator.

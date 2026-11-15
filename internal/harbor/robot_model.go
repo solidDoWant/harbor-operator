@@ -37,6 +37,8 @@ type Robot struct {
 	Duration    int64
 	Disabled    bool
 	Permissions []RobotAccess
+	// CreationTime is when Harbor created the robot. Zero when Harbor did not report it.
+	CreationTime time.Time
 }
 
 func (s RobotSpec) permissions(projectName string) []*models.RobotPermission {
@@ -50,11 +52,12 @@ func (s RobotSpec) permissions(projectName string) []*models.RobotPermission {
 
 func robotFromModel(model *models.Robot) *Robot {
 	robot := &Robot{
-		ID:          model.ID,
-		Name:        model.Name,
-		Secret:      model.Secret,
-		Description: model.Description,
-		Disabled:    model.Disable,
+		ID:           model.ID,
+		Name:         model.Name,
+		Secret:       model.Secret,
+		Description:  model.Description,
+		Disabled:     model.Disable,
+		CreationTime: time.Time(model.CreationTime).UTC(),
 	}
 
 	if model.Duration != nil {

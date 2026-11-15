@@ -90,6 +90,11 @@ type HarborProjectRobotStatus struct {
 	// HarborName is the robot's name as Harbor returned it, including Harbor's prefix.
 	// +optional
 	HarborName string `json:"harborName,omitempty"`
+	// CreatePending is set just before the operator asks Harbor to create the robot, and cleared once its Secrets hold
+	// the new secret. A robot found in Harbor counts as this resource's own interrupted create only when it was created
+	// no earlier than this time, less a clock-skew allowance.
+	// +optional
+	CreatePending *metav1.Time `json:"createPending,omitempty"`
 	// ObservedRotate is the last spec.secret.rotate value acted on.
 	// +optional
 	ObservedRotate string `json:"observedRotate,omitempty"`

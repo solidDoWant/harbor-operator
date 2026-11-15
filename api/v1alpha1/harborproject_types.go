@@ -82,6 +82,11 @@ type HarborProjectStatus struct {
 	// HarborKey is the Harbor identity, object type and Harbor name this resource claims.
 	// +optional
 	HarborKey string `json:"harborKey,omitempty"`
+	// CreatePending is set just before the operator asks Harbor to create the project, and cleared once the ID is
+	// recorded. A project found in Harbor counts as this resource's own interrupted create only when it was created no
+	// earlier than this time, less a clock-skew allowance.
+	// +optional
+	CreatePending *metav1.Time `json:"createPending,omitempty"`
 	// ObservedGeneration is the last generation reconciled.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
