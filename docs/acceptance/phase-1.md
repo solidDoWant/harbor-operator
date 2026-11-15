@@ -20,15 +20,15 @@ Approved for the owner by the operator on 2026-11-15. Only the owner adds scenar
 - **AC-1-06 Recreate.** A project deleted directly in Harbor is created again.
   Tests: `internal/controller: TestProjectDeletedInHarborIsRecreated`
 - **AC-1-07 Delete.** Deleting the resource deletes the empty project. With `deletionPolicy: Orphan` the project stays.
-  Tests:
+  Tests: `internal/controller: TestProjectDeletion/policy Delete deletes the empty Harbor project`, `internal/controller: TestProjectDeletion/policy Orphan leaves the Harbor project`
 - **AC-1-08 Delete blocked.** Deleting the resource of a project that holds an image leaves the project in place, and the resource reports `DeleteBlocked` until the image is removed, then finishes.
-  Tests:
+  Tests: `internal/controller: TestProjectDeletion/a project holding an image reports DeleteBlocked until the image is removed`, `internal/controller: TestProjectRetryBackoffIsCappedAtTenMinutes`
 - **AC-1-09 Already exists.** A resource naming an existing, unowned Harbor project reports `AlreadyExists` and changes nothing. With `adopt: true` (and the connection allowing adoption) it takes the project over and applies its settings.
   Tests: `internal/controller: TestProjectNamingAnExistingHarborProject/without adopt reports AlreadyExists and changes nothing`, `internal/controller: TestProjectNamingAnExistingHarborProject/adopt with allowAdoption takes the project over`
 - **AC-1-10 Adoption needs the connection's permission.** With `allowAdoption: false` on the connection, `adopt: true` reports `AdoptionNotAllowed`.
   Tests: `internal/controller: TestProjectNamingAnExistingHarborProject/adopt without allowAdoption reports AdoptionNotAllowed`
 - **AC-1-11 Conflict.** A second resource (any namespace, even through a second connection to the same Harbor) naming the same Harbor project reports `Conflict`, and the first keeps working. Deleting the second never deletes the project.
-  Tests: `internal/controller: TestSecondResourceForTheSameHarborProjectConflicts`
+  Tests: `internal/controller: TestSecondResourceForTheSameHarborProjectConflicts`, `internal/controller: TestProjectDeletion/a resource in Conflict never touches the project, even with an ID`
 
 ## Namespace access
 
@@ -56,7 +56,7 @@ Approved for the owner by the operator on 2026-11-15. Only the owner adds scenar
 - **AC-1-21 Robot adoption.** An existing robot is adopted only with `adopt: true` and gets a fresh secret written to its Secret.
   Tests:
 - **AC-1-22 Project deletion waits for robots.** Deleting a project while a robot resource references it waits (`DependentsExist`) until the robot is deleted, then completes.
-  Tests:
+  Tests: `internal/controller: TestProjectDeletion/deletion waits for robots in namespaces the project admits`
 
 ## Secrets and errors
 

@@ -50,7 +50,7 @@ type HarborConnectionReconciler struct {
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
 
-// IndexFields registers the field indexes the connection reconciler needs. Call it once per manager.
+// IndexFields registers the field indexes the connection and project reconcilers need. Call it once per manager.
 func IndexFields(ctx context.Context, indexer client.FieldIndexer) error {
 	if err := indexer.IndexField(ctx, &harborv1alpha1.HarborConnection{}, ConnectionCredentialsSecretIndex, func(object client.Object) []string {
 		connection := object.(*harborv1alpha1.HarborConnection)
@@ -59,8 +59,14 @@ func IndexFields(ctx context.Context, indexer client.FieldIndexer) error {
 		return err
 	}
 
-	return indexer.IndexField(ctx, &harborv1alpha1.HarborProject{}, ProjectConnectionIndex, func(object client.Object) []string {
+	if err := indexer.IndexField(ctx, &harborv1alpha1.HarborProject{}, ProjectConnectionIndex, func(object client.Object) []string {
 		return []string{connectionKey(object.(*harborv1alpha1.HarborProject)).String()}
+	}); err != nil {
+		return err
+	}
+
+	return indexer.IndexField(ctx, &harborv1alpha1.HarborProjectRobot{}, RobotProjectIndex, func(object client.Object) []string {
+		return []string{robotProjectKey(object.(*harborv1alpha1.HarborProjectRobot)).String()}
 	})
 }
 

@@ -2,6 +2,8 @@ package harborfixture
 
 import (
 	"context"
+	"strings"
+	"testing"
 
 	v2client "github.com/goharbor/go-client/pkg/sdk/v2.0/client"
 	"github.com/goharbor/go-client/pkg/sdk/v2.0/client/repository"
@@ -20,4 +22,24 @@ func deleteRepository(ctx context.Context, client *v2client.HarborAPI, projectNa
 	})
 
 	return err
+}
+
+// DeleteRepositories deletes every repository of the project, leaving the project itself.
+func (h *Harbor) DeleteRepositories(t testing.TB, projectName string) error {
+	t.Helper()
+	ctx := t.Context()
+	client := h.Client(t)
+
+	repositories, err := client.Repository.ListRepositories(ctx, repositoryParams(projectName))
+	if err != nil {
+		return err
+	}
+
+	for _, repository := range repositories.Payload {
+		if err := deleteRepository(ctx, client, projectName, strings.TrimPrefix(repository.Name, projectName+"/")); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

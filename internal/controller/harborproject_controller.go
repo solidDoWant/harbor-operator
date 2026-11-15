@@ -39,21 +39,25 @@ type HarborProjectReconciler struct {
 	Clients *harbor.ClientCache
 	// Recorder emits events on the resource.
 	Recorder events.EventRecorder
+	// MaxBackoff caps the retry delay of a failing reconcile. Zero means 10 minutes.
+	MaxBackoff time.Duration
 }
 
 // +kubebuilder:rbac:groups=harbor.soliddowant.dev,resources=harborprojects,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=harbor.soliddowant.dev,resources=harborprojects/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=harbor.soliddowant.dev,resources=harborprojects/finalizers,verbs=update
+// +kubebuilder:rbac:groups=harbor.soliddowant.dev,resources=harborprojectrobots,verbs=get;list;watch
 
-// SetupWithManager registers the reconciler with its watches: connections, namespaces and the other claimants of the
-// same Harbor project.
+// SetupWithManager registers the reconciler with its watches: connections, namespaces, the other claimants of the
+// same Harbor project and the robots that reference a project.
 func (r *HarborProjectReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&harborv1alpha1.HarborProject{}).
 		Watches(&harborv1alpha1.HarborConnection{}, handler.EnqueueRequestsFromMapFunc(r.projectsForConnection)).
 		Watches(&corev1.Namespace{}, handler.EnqueueRequestsFromMapFunc(r.projectsInNamespace)).
 		Watches(&harborv1alpha1.HarborProject{}, handler.EnqueueRequestsFromMapFunc(r.otherClaimants)).
-		WithOptions(controller.Options{MaxConcurrentReconciles: 4}).
+		Watches(&harborv1alpha1.HarborProjectRobot{}, handler.EnqueueRequestsFromMapFunc(r.projectForRobot)).
+		WithOptions(controller.Options{MaxConcurrentReconciles: 4, RateLimiter: r.rateLimiter()}).
 		Named("harborproject").
 		Complete(r)
 }
@@ -125,7 +129,7 @@ func (r *HarborProjectReconciler) Reconcile(ctx context.Context, request reconci
 	}
 
 	if !project.DeletionTimestamp.IsZero() {
-		return reconcile.Result{}, r.finalize(ctx, project)
+		return r.finalize(ctx, project)
 	}
 
 	if controllerutil.AddFinalizer(project, ProjectFinalizer) {
@@ -140,18 +144,6 @@ func (r *HarborProjectReconciler) Reconcile(ctx context.Context, request reconci
 	}
 
 	return r.sync(ctx, state)
-}
-
-// finalize removes the finalizer when the resource never recorded a Harbor project, which leaves nothing in Harbor to
-// deal with. With a project ID the finalizer stays, so the Harbor project is never left behind by surprise.
-func (r *HarborProjectReconciler) finalize(ctx context.Context, project *harborv1alpha1.HarborProject) error {
-	if project.Status.ProjectID != 0 || !controllerutil.ContainsFinalizer(project, ProjectFinalizer) {
-		return nil
-	}
-
-	controllerutil.RemoveFinalizer(project, ProjectFinalizer)
-
-	return client.IgnoreNotFound(r.Update(ctx, project))
 }
 
 // resolve finds and admits the connection, gets a Harbor client and checks ownership. It returns nil state when the
