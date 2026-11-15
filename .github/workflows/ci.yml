@@ -119,10 +119,12 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
-    # Harbor setup plus the tests' own budget in scripts/test-tagged.sh (go
-    # test -timeout 25m inside a 30-minute timeout). The tests run one at a
-    # time against one Harbor, so the suite grows with every reconciler.
-    timeout-minutes: 40
+    # About 4 minutes of setup (dev shell, kind, Harbor) plus the tests' own
+    # budget in scripts/test-tagged.sh (go test -timeout 6m). The controller
+    # tests run in parallel on one shared envtest and take about 2 minutes, so
+    # a test that brings back the slow serial pattern fails here instead of
+    # quietly growing the job.
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/nix-dev-shell
