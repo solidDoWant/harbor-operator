@@ -51,6 +51,7 @@ rules:
   - harborimmutabilitypolicies
   - harborprojectrobots
   - harborprojects
+  - harborsystemrobots
   verbs:
   - get
   - list
@@ -64,6 +65,7 @@ rules:
   - harborimmutabilitypolicies/finalizers
   - harborprojectrobots/finalizers
   - harborprojects/finalizers
+  - harborsystemrobots/finalizers
   verbs:
   - update
 - apiGroups:
@@ -73,15 +75,8 @@ rules:
   - harborimmutabilitypolicies/status
   - harborprojectrobots/status
   - harborprojects/status
+  - harborsystemrobots/status
   verbs:
   - get
   - patch
   - update
-- apiGroups:
-  - harbor.soliddowant.dev
-  resources:
-  - harborsystemrobots
-  verbs:
-  - get
-  - list
-  - watch

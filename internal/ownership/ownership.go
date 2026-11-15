@@ -63,6 +63,11 @@ func RobotKey(identity, projectName, robotName string) string {
 	return ProjectKey(identity, projectName) + "/robots/" + robotName
 }
 
+// SystemRobotKey is the status.harborKey of a system robot named robotName in the Harbor at identity.
+func SystemRobotKey(identity, robotName string) string {
+	return identity + "/system-robots/" + robotName
+}
+
 // ImmutabilityKey is the status.harborKey of the immutability rule set of project projectName in the Harbor at
 // identity. A project has exactly one rule set, so the key names the project and the object type.
 func ImmutabilityKey(identity, projectName string) string {

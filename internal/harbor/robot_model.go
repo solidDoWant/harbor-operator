@@ -21,9 +21,46 @@ type RobotSpec struct {
 	Duration    int64
 	Disabled    bool
 	Permissions []RobotAccess
+	// Grants, when set, are the robot's permissions per scope, for a system robot. Permissions is then unused.
+	Grants []RobotGrant
 }
 
-// Robot is a project robot as Harbor reports it.
+// Robot level names Harbor uses.
+const (
+	LevelProject = "project"
+	LevelSystem  = "system"
+)
+
+// RobotGrant is the access a robot has in one scope: kind "system" with namespace "/", or kind "project" with a
+// project name or "*" for every project.
+type RobotGrant struct {
+	Kind      string
+	Namespace string
+	Access    []RobotAccess
+}
+
+// ScopedAccess is one permission in one scope, the unit Harbor robot permissions are compared in.
+type ScopedAccess struct {
+	Kind      string
+	Namespace string
+	Resource  string
+	Action    string
+}
+
+// FlattenGrants returns every permission of the grants as a set.
+func FlattenGrants(grants []RobotGrant) map[ScopedAccess]struct{} {
+	set := map[ScopedAccess]struct{}{}
+
+	for _, grant := range grants {
+		for _, access := range grant.Access {
+			set[ScopedAccess{Kind: grant.Kind, Namespace: grant.Namespace, Resource: access.Resource, Action: access.Action}] = struct{}{}
+		}
+	}
+
+	return set
+}
+
+// Robot is a robot as Harbor reports it.
 type Robot struct {
 	ID int64
 	// Name is the full name Harbor assigned, with its prefix.
@@ -37,17 +74,35 @@ type Robot struct {
 	Duration    int64
 	Disabled    bool
 	Permissions []RobotAccess
+	// Level is "project" or "system".
+	Level string
+	// Grants are the robot's permissions per scope, as Harbor reports them.
+	Grants []RobotGrant
 	// CreationTime is when Harbor created the robot. Zero when Harbor did not report it.
 	CreationTime time.Time
 }
 
 func (s RobotSpec) permissions(projectName string) []*models.RobotPermission {
-	access := make([]*models.Access, 0, len(s.Permissions))
-	for _, permission := range s.Permissions {
+	if s.Grants != nil {
+		result := make([]*models.RobotPermission, 0, len(s.Grants))
+
+		for _, grant := range s.Grants {
+			result = append(result, &models.RobotPermission{Kind: grant.Kind, Namespace: grant.Namespace, Access: accessModels(grant.Access)})
+		}
+
+		return result
+	}
+
+	return []*models.RobotPermission{{Kind: LevelProject, Namespace: projectName, Access: accessModels(s.Permissions)}}
+}
+
+func accessModels(permissions []RobotAccess) []*models.Access {
+	access := make([]*models.Access, 0, len(permissions))
+	for _, permission := range permissions {
 		access = append(access, &models.Access{Resource: permission.Resource, Action: permission.Action, Effect: "allow"})
 	}
 
-	return []*models.RobotPermission{{Kind: "project", Namespace: projectName, Access: access}}
+	return access
 }
 
 func robotFromModel(model *models.Robot) *Robot {
@@ -57,6 +112,7 @@ func robotFromModel(model *models.Robot) *Robot {
 		Secret:       model.Secret,
 		Description:  model.Description,
 		Disabled:     model.Disable,
+		Level:        model.Level,
 		CreationTime: time.Time(model.CreationTime).UTC(),
 	}
 
@@ -80,11 +136,16 @@ func robotFromModel(model *models.Robot) *Robot {
 			robot.ProjectName = permission.Namespace
 		}
 
+		grant := RobotGrant{Kind: permission.Kind, Namespace: permission.Namespace, Access: []RobotAccess{}}
+
 		for _, access := range permission.Access {
 			if access != nil {
 				robot.Permissions = append(robot.Permissions, RobotAccess{Resource: access.Resource, Action: access.Action})
+				grant.Access = append(grant.Access, RobotAccess{Resource: access.Resource, Action: access.Action})
 			}
 		}
+
+		robot.Grants = append(robot.Grants, grant)
 	}
 
 	return robot

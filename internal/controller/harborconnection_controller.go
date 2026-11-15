@@ -49,6 +49,7 @@ type HarborConnectionReconciler struct {
 // +kubebuilder:rbac:groups=harbor.soliddowant.dev,resources=harborprojects,verbs=get;list;watch
 // +kubebuilder:rbac:groups=harbor.soliddowant.dev,resources=harborprojectrobots,verbs=get;list;watch
 // +kubebuilder:rbac:groups=harbor.soliddowant.dev,resources=harborimmutabilitypolicies,verbs=get;list;watch
+// +kubebuilder:rbac:groups=harbor.soliddowant.dev,resources=harborsystemrobots,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
 
@@ -69,6 +70,12 @@ func IndexFields(ctx context.Context, indexer client.FieldIndexer) error {
 
 	if err := indexer.IndexField(ctx, &harborv1alpha1.HarborProjectRobot{}, RobotProjectIndex, func(object client.Object) []string {
 		return []string{robotProjectKey(object.(*harborv1alpha1.HarborProjectRobot)).String()}
+	}); err != nil {
+		return err
+	}
+
+	if err := indexer.IndexField(ctx, &harborv1alpha1.HarborSystemRobot{}, SystemRobotConnectionIndex, func(object client.Object) []string {
+		return []string{systemRobotConnectionKey(object.(*harborv1alpha1.HarborSystemRobot)).String()}
 	}); err != nil {
 		return err
 	}
@@ -94,6 +101,9 @@ func (r *HarborConnectionReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.connectionsForSecret)).
 		Watches(&harborv1alpha1.HarborProject{}, handler.EnqueueRequestsFromMapFunc(func(_ context.Context, object client.Object) []reconcile.Request {
 			return []reconcile.Request{{NamespacedName: connectionKey(object.(*harborv1alpha1.HarborProject))}}
+		})).
+		Watches(&harborv1alpha1.HarborSystemRobot{}, handler.EnqueueRequestsFromMapFunc(func(_ context.Context, object client.Object) []reconcile.Request {
+			return []reconcile.Request{{NamespacedName: systemRobotConnectionKey(object.(*harborv1alpha1.HarborSystemRobot))}}
 		})).
 		Complete(r)
 }
@@ -253,7 +263,7 @@ func (r *HarborConnectionReconciler) finalize(ctx context.Context, connection *h
 			listed, suffix = listed[:maxListedDependents], fmt.Sprintf(" and %d more", len(dependents)-maxListedDependents)
 		}
 
-		message := "still used by HarborProject " + strings.Join(listed, ", ") + suffix
+		message := "still used by " + strings.Join(listed, ", ") + suffix
 
 		// A deleted dependent triggers a new reconcile through the project watch.
 		return reconcile.Result{}, r.setNotReady(ctx, connection, harborv1alpha1.ReasonDependentsExist, message)
@@ -265,7 +275,8 @@ func (r *HarborConnectionReconciler) finalize(ctx context.Context, connection *h
 	return reconcile.Result{}, client.IgnoreNotFound(r.Update(ctx, connection))
 }
 
-// dependents lists "namespace/name" of the projects that use the connection and are in a namespace it admits.
+// dependents lists the projects that use the connection and are in a namespace it admits, then the system robots that
+// use it and are in a namespace its systemAllowedNamespaces admits, each as "Kind namespace/name".
 func (r *HarborConnectionReconciler) dependents(ctx context.Context, connection *harborv1alpha1.HarborConnection) ([]string, error) {
 	var projects harborv1alpha1.HarborProjectList
 	if err := r.List(ctx, &projects, client.MatchingFields{ProjectConnectionIndex: client.ObjectKeyFromObject(connection).String()}); err != nil {
@@ -283,7 +294,25 @@ func (r *HarborConnectionReconciler) dependents(ctx context.Context, connection 
 		}
 
 		if admitted {
-			names = append(names, client.ObjectKeyFromObject(project).String())
+			names = append(names, "HarborProject "+client.ObjectKeyFromObject(project).String())
+		}
+	}
+
+	var robots harborv1alpha1.HarborSystemRobotList
+	if err := r.List(ctx, &robots, client.MatchingFields{SystemRobotConnectionIndex: client.ObjectKeyFromObject(connection).String()}); err != nil {
+		return nil, err
+	}
+
+	for index := range robots.Items {
+		robot := &robots.Items[index]
+
+		admitted, err := access.Admits(ctx, r.Client, connection.Spec.SystemAllowedNamespaces, connection.Namespace, robot.Namespace)
+		if err != nil {
+			return nil, err
+		}
+
+		if admitted {
+			names = append(names, "HarborSystemRobot "+client.ObjectKeyFromObject(robot).String())
 		}
 	}
 
