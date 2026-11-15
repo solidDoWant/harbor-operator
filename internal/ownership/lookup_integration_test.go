@@ -300,3 +300,63 @@ func TestDeletingProjectWithoutIDDoesNotOwn(t *testing.T) {
 	claimant.Finalizers = nil
 	require.NoError(t, env.client.Update(t.Context(), claimant))
 }
+
+func createSystemRobot(t *testing.T, kubeClient client.Client, namespace, name, key string, robotID int64) *v1alpha1.HarborSystemRobot {
+	t.Helper()
+
+	robot := &v1alpha1.HarborSystemRobot{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+		Spec: v1alpha1.HarborSystemRobotSpec{
+			ConnectionRef:     v1alpha1.ObjectReference{Name: "conn"},
+			Name:              "ci",
+			SystemPermissions: []v1alpha1.SystemRobotAccess{{Resource: "project", Action: "list"}},
+		},
+	}
+	require.NoError(t, kubeClient.Create(t.Context(), robot))
+	robot.Status.HarborKey = key
+	robot.Status.RobotID = robotID
+	require.NoError(t, kubeClient.Status().Update(t.Context(), robot))
+
+	return robot
+}
+
+func TestRobotOwnerPicksTheOwnerAmongSystemRobots(t *testing.T) {
+	env := startEnvironment(t)
+	informers := startCache(t, env, true)
+
+	createNamespace(t, env.client, "first")
+	createNamespace(t, env.client, "second")
+
+	key := "https://harbor.example.com/robots/ci"
+
+	first := createSystemRobot(t, env.client, "first", "ci", key, 0)
+	second := createSystemRobot(t, env.client, "second", "ci", key, 0)
+
+	// Give the robot that would lose on age the ID, so only the recorded ID can make it the owner.
+	younger := second
+	if second.CreationTimestamp.Before(&first.CreationTimestamp) ||
+		(second.CreationTimestamp.Equal(&first.CreationTimestamp) && second.UID < first.UID) {
+		younger = first
+	}
+
+	younger.Status.RobotID = 3
+	require.NoError(t, env.client.Status().Update(t.Context(), younger))
+	createSystemRobot(t, env.client, "first", "deploy", "https://harbor.example.com/robots/deploy", 4)
+	// A project robot with the same key is another kind and never a claimant of a system robot.
+	createRobot(t, env.client, "second", "ci", key, 5)
+
+	var seen []string
+
+	require.Eventually(t, func() bool {
+		seen = nil
+		owner, err := ownership.RobotOwner(t.Context(), informers, key, func(_ context.Context, robot *v1alpha1.HarborSystemRobot) (bool, error) {
+			seen = append(seen, robot.Namespace+"/"+robot.Name)
+			return true, nil
+		})
+		require.NoError(t, err)
+
+		return owner != nil && owner.UID == younger.UID && len(seen) == 2
+	}, 30*time.Second, 100*time.Millisecond)
+
+	assert.ElementsMatch(t, []string{"first/ci", "second/ci"}, seen)
+}
