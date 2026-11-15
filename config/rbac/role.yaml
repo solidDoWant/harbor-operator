@@ -77,3 +77,11 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - harbor.soliddowant.dev
+  resources:
+  - harborsystemrobots
+  verbs:
+  - get
+  - list
+  - watch

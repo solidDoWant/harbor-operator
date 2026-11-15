@@ -28,6 +28,12 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 		return fmt.Errorf("indexing HarborProjectRobot %s: %w", HarborKeyField, err)
 	}
 
+	if err := indexer.IndexField(ctx, &v1alpha1.HarborSystemRobot{}, HarborKeyField, func(object client.Object) []string {
+		return harborKeyValues(object.(*v1alpha1.HarborSystemRobot).Status.HarborKey)
+	}); err != nil {
+		return fmt.Errorf("indexing HarborSystemRobot %s: %w", HarborKeyField, err)
+	}
+
 	if err := indexer.IndexField(ctx, &v1alpha1.HarborImmutabilityPolicy{}, HarborKeyField, func(object client.Object) []string {
 		return harborKeyValues(object.(*v1alpha1.HarborImmutabilityPolicy).Status.HarborKey)
 	}); err != nil {
@@ -64,20 +70,54 @@ func ProjectOwner(ctx context.Context, reader client.Reader, key string, admitte
 	return owner(ctx, claimants, func(project *v1alpha1.HarborProject) bool { return project.Status.ProjectID != 0 }, admitted)
 }
 
-// RobotOwner returns the HarborProjectRobot that owns the Harbor robot with the given key, or nil when no claimant
-// counts. It reads only the claimants of key, through the status.harborKey index.
-func RobotOwner(ctx context.Context, reader client.Reader, key string, admitted AdmittedFunc[*v1alpha1.HarborProjectRobot]) (*v1alpha1.HarborProjectRobot, error) {
-	list := &v1alpha1.HarborProjectRobotList{}
-	if err := reader.List(ctx, list, client.MatchingFields{HarborKeyField: key}); err != nil {
-		return nil, fmt.Errorf("listing HarborProjectRobot claimants: %w", err)
+// RobotClaimant is a robot kind that claims Harbor robots: a project robot or a system robot.
+type RobotClaimant interface {
+	*v1alpha1.HarborProjectRobot | *v1alpha1.HarborSystemRobot
+	client.Object
+}
+
+// RobotOwner returns the robot resource of kind T that owns the Harbor robot with the given key, or nil when no
+// claimant counts. It reads only the claimants of key, through the status.harborKey index.
+func RobotOwner[T RobotClaimant](ctx context.Context, reader client.Reader, key string, admitted AdmittedFunc[T]) (T, error) {
+	var (
+		none      T
+		claimants []T
+	)
+
+	switch any(none).(type) {
+	case *v1alpha1.HarborProjectRobot:
+		list := &v1alpha1.HarborProjectRobotList{}
+		if err := reader.List(ctx, list, client.MatchingFields{HarborKeyField: key}); err != nil {
+			return none, fmt.Errorf("listing HarborProjectRobot claimants: %w", err)
+		}
+
+		for index := range list.Items {
+			claimants = append(claimants, any(&list.Items[index]).(T))
+		}
+	case *v1alpha1.HarborSystemRobot:
+		list := &v1alpha1.HarborSystemRobotList{}
+		if err := reader.List(ctx, list, client.MatchingFields{HarborKeyField: key}); err != nil {
+			return none, fmt.Errorf("listing HarborSystemRobot claimants: %w", err)
+		}
+
+		for index := range list.Items {
+			claimants = append(claimants, any(&list.Items[index]).(T))
+		}
 	}
 
-	claimants := make([]*v1alpha1.HarborProjectRobot, 0, len(list.Items))
-	for index := range list.Items {
-		claimants = append(claimants, &list.Items[index])
+	return owner(ctx, claimants, func(robot T) bool { return robotStatus(robot).RobotID != 0 }, admitted)
+}
+
+// robotStatus returns the status both robot kinds share.
+func robotStatus[T RobotClaimant](robot T) *v1alpha1.HarborProjectRobotStatus {
+	switch typed := any(robot).(type) {
+	case *v1alpha1.HarborProjectRobot:
+		return &typed.Status
+	case *v1alpha1.HarborSystemRobot:
+		return &typed.Status
 	}
 
-	return owner(ctx, claimants, func(robot *v1alpha1.HarborProjectRobot) bool { return robot.Status.RobotID != 0 }, admitted)
+	return &v1alpha1.HarborProjectRobotStatus{}
 }
 
 // ImmutabilityOwner returns the HarborImmutabilityPolicy that owns the immutability rule set with the given key, or
