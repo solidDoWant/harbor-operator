@@ -415,7 +415,9 @@ func (r *HarborProjectRobotReconciler) create(ctx context.Context, state *robotR
 		r.Recorder.Eventf(robot, nil, corev1.EventTypeNormal, harborv1alpha1.EventReasonRecreated, "Create", "Created Harbor robot %q again after it was deleted in Harbor", created.Name)
 	}
 
-	return r.update(ctx, state, created)
+	// The robot was created from the spec and its Secrets were just written with its secret, which the cache may not
+	// show yet; reading them back now would refresh the new secret for nothing.
+	return reconcile.Result{RequeueAfter: state.resync}, r.setReady(ctx, robot, metav1.ConditionTrue, harborv1alpha1.ReasonReady, "Harbor robot matches the spec")
 }
 
 // createRobot creates the robot, records it and writes its Secrets. done is true when the reconcile ends here.
@@ -480,40 +482,121 @@ func (r *HarborProjectRobotReconciler) update(ctx context.Context, state *robotR
 		}
 	}
 
-	_, createPending := robot.Annotations[harborv1alpha1.AnnotationCreatePending]
-	_, refreshPending := robot.Annotations[harborv1alpha1.AnnotationSecretRefreshPending]
+	// A foreign Secret on a target name stops the reconcile before a refresh would leave no Secret with the new secret.
+	if conflict, err := r.secretConflict(ctx, robot); conflict || err != nil {
+		return reconcile.Result{RequeueAfter: state.resync}, err
+	}
 
-	if createPending || refreshPending {
-		if err := r.markPending(ctx, robot, harborv1alpha1.AnnotationSecretRefreshPending); err != nil {
-			return reconcile.Result{}, err
-		}
+	secret, found, err := r.currentSecret(ctx, robot)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
 
-		secret, err := state.harbor.RefreshRobotSecret(ctx, current.ID)
+	if !found {
+		return r.refreshSecret(ctx, state, current)
+	}
 
-		switch {
-		case harbor.IsForbidden(err):
-			return r.replace(ctx, state, current)
-		case err != nil:
-			return r.harborFailed(ctx, state, err)
-		}
-
-		if conflict, err := r.writeSecrets(ctx, state, current.Name, secret); conflict || err != nil {
-			return reconcile.Result{RequeueAfter: state.resync}, err
-		}
-
-		now := metav1.Now()
-		robot.Status.LastRotated = &now
-
-		if err := r.updateStatus(ctx, robot); err != nil {
-			return reconcile.Result{}, err
-		}
-
-		if err := r.clearPending(ctx, robot, harborv1alpha1.AnnotationCreatePending, harborv1alpha1.AnnotationSecretRefreshPending); err != nil {
-			return reconcile.Result{}, err
-		}
+	if conflict, err := r.writeSecrets(ctx, state, current.Name, secret); conflict || err != nil {
+		return reconcile.Result{RequeueAfter: state.resync}, err
 	}
 
 	return reconcile.Result{RequeueAfter: state.resync}, r.setReady(ctx, robot, metav1.ConditionTrue, harborv1alpha1.ReasonReady, "Harbor robot matches the spec")
+}
+
+// currentSecret returns the robot secret held by a Secret this robot owns, preferring the Secrets the spec names.
+// found is false when the secret must be refreshed: an interrupted create or refresh, a changed secret.rotate, or no
+// owned Secret whose data matches its hash annotation.
+func (r *HarborProjectRobotReconciler) currentSecret(ctx context.Context, robot *harborv1alpha1.HarborProjectRobot) (string, bool, error) {
+	_, createPending := robot.Annotations[harborv1alpha1.AnnotationCreatePending]
+	_, refreshPending := robot.Annotations[harborv1alpha1.AnnotationSecretRefreshPending]
+
+	if createPending || refreshPending || robot.Spec.Secret.Rotate != robot.Status.ObservedRotate {
+		return "", false, nil
+	}
+
+	owned, err := r.ownedSecrets(ctx, robot)
+	if err != nil {
+		return "", false, err
+	}
+
+	wanted := make(map[string]bool)
+	for _, name := range secrets.Names(robot.Name, robot.Spec.Secret) {
+		wanted[name] = true
+	}
+
+	// Two passes: the Secrets the spec names first, then any other owned one, such as one just disabled or renamed.
+	for _, preferWanted := range []bool{true, false} {
+		for _, secret := range owned {
+			if wanted[secret.Name] != preferWanted {
+				continue
+			}
+
+			if value, ok := secrets.Recover(secret); ok {
+				return value, true, nil
+			}
+		}
+	}
+
+	return "", false, nil
+}
+
+// refreshSecret has Harbor generate a new secret for the robot, writes every enabled Secret with it and records the
+// rotation.
+func (r *HarborProjectRobotReconciler) refreshSecret(ctx context.Context, state *robotReconcile, current *harbor.Robot) (reconcile.Result, error) {
+	robot := state.robot
+
+	if err := r.markPending(ctx, robot, harborv1alpha1.AnnotationSecretRefreshPending); err != nil {
+		return reconcile.Result{}, err
+	}
+
+	secret, err := state.harbor.RefreshRobotSecret(ctx, current.ID)
+
+	switch {
+	case harbor.IsForbidden(err):
+		return r.replace(ctx, state, current)
+	case err != nil:
+		return r.harborFailed(ctx, state, err)
+	}
+
+	if conflict, err := r.writeSecrets(ctx, state, current.Name, secret); conflict || err != nil {
+		return reconcile.Result{RequeueAfter: state.resync}, err
+	}
+
+	now := metav1.Now()
+	robot.Status.LastRotated = &now
+	robot.Status.ObservedRotate = robot.Spec.Secret.Rotate
+
+	if err := r.updateStatus(ctx, robot); err != nil {
+		return reconcile.Result{}, err
+	}
+
+	if err := r.clearPending(ctx, robot, harborv1alpha1.AnnotationCreatePending, harborv1alpha1.AnnotationSecretRefreshPending); err != nil {
+		return reconcile.Result{}, err
+	}
+
+	return reconcile.Result{RequeueAfter: state.resync}, r.setReady(ctx, robot, metav1.ConditionTrue, harborv1alpha1.ReasonReady, "Harbor robot matches the spec")
+}
+
+// secretConflict reports, and records as SecretConflict, a target Secret name taken by a Secret this robot does not
+// own. That Secret is never changed.
+func (r *HarborProjectRobotReconciler) secretConflict(ctx context.Context, robot *harborv1alpha1.HarborProjectRobot) (bool, error) {
+	for _, name := range secrets.Names(robot.Name, robot.Spec.Secret) {
+		have := &corev1.Secret{}
+
+		err := r.Get(ctx, client.ObjectKey{Namespace: robot.Namespace, Name: name}, have)
+
+		switch {
+		case apierrors.IsNotFound(err):
+			continue
+		case err != nil:
+			return false, err
+		case !secrets.IsOwnedBy(have, robot):
+			return true, r.setReady(ctx, robot, metav1.ConditionFalse, harborv1alpha1.ReasonSecretConflict,
+				fmt.Sprintf("Secret %q exists and is not owned by this robot", name))
+		}
+	}
+
+	return false, nil
 }
 
 // replace deletes the robot and creates it again with the spec's fields, for connections whose credentials may create
@@ -540,10 +623,15 @@ func (r *HarborProjectRobotReconciler) replace(ctx context.Context, state *robot
 	return reconcile.Result{RequeueAfter: state.resync}, r.setReady(ctx, robot, metav1.ConditionTrue, harborv1alpha1.ReasonReady, "Harbor robot matches the spec")
 }
 
-// writeSecrets writes every enabled Secret with the robot's credentials. conflict is true, and nothing is written, when
-// a target name is taken by a Secret this robot does not own.
+// writeSecrets writes every enabled Secret with the robot's credentials, then deletes the Secrets this robot owns that
+// the spec no longer names. conflict is true, and nothing is written, when a target name is taken by a Secret this
+// robot does not own.
 func (r *HarborProjectRobotReconciler) writeSecrets(ctx context.Context, state *robotReconcile, harborName, secret string) (bool, error) {
 	robot := state.robot
+
+	if conflict, err := r.secretConflict(ctx, robot); conflict || err != nil {
+		return conflict, err
+	}
 
 	rendered, err := secrets.Render(secrets.Input{
 		Owner: robot, Namespace: robot.Namespace, Spec: robot.Spec.Secret,
@@ -554,59 +642,67 @@ func (r *HarborProjectRobotReconciler) writeSecrets(ctx context.Context, state *
 		return false, err
 	}
 
-	existing := make([]*corev1.Secret, len(rendered))
+	keep := make(map[string]bool, len(rendered))
 
-	for index, want := range rendered {
-		have := &corev1.Secret{}
+	for _, want := range rendered {
+		keep[want.Name] = true
 
-		err := r.Get(ctx, client.ObjectKeyFromObject(want), have)
-
-		switch {
-		case apierrors.IsNotFound(err):
-			continue
-		case err != nil:
-			return false, err
-		case !secrets.IsOwnedBy(have, robot):
-			return true, r.setReady(ctx, robot, metav1.ConditionFalse, harborv1alpha1.ReasonSecretConflict,
-				fmt.Sprintf("Secret %q exists and is not owned by this robot", want.Name))
-		}
-
-		existing[index] = have
-	}
-
-	for index, want := range rendered {
-		have := existing[index]
-		if have == nil {
-			if err := r.Create(ctx, want); err != nil {
-				return false, err
-			}
-
-			continue
-		}
-
-		have.Type = want.Type
-		have.Data = want.Data
-		have.Labels = mergeStrings(have.Labels, want.Labels)
-		have.Annotations = mergeStrings(have.Annotations, want.Annotations)
-
-		if err := r.Update(ctx, have); err != nil {
+		if err := r.writeSecret(ctx, want); err != nil {
 			return false, err
 		}
 	}
 
-	return false, nil
+	return false, r.deleteOwnedSecrets(ctx, robot, keep)
 }
 
+// writeSecret creates the Secret, or updates the robot's own Secret of that name when it differs. A Secret's type cannot
+// change, so one of another type is deleted and created again.
+func (r *HarborProjectRobotReconciler) writeSecret(ctx context.Context, want *corev1.Secret) error {
+	have := &corev1.Secret{}
+
+	err := r.Get(ctx, client.ObjectKeyFromObject(want), have)
+
+	switch {
+	case apierrors.IsNotFound(err):
+		return r.Create(ctx, want)
+	case err != nil:
+		return err
+	case have.Type != want.Type:
+		if err := r.Delete(ctx, have, client.Preconditions{UID: &have.UID}); client.IgnoreNotFound(err) != nil {
+			return err
+		}
+
+		return r.Create(ctx, want)
+	}
+
+	labels := mergeStrings(have.Labels, want.Labels)
+	annotations := mergeStrings(have.Annotations, want.Annotations)
+
+	if apiequality.Semantic.DeepEqual(have.Data, want.Data) && apiequality.Semantic.DeepEqual(have.Labels, labels) &&
+		apiequality.Semantic.DeepEqual(have.Annotations, annotations) {
+		return nil
+	}
+
+	have.Data = want.Data
+	have.Labels = labels
+	have.Annotations = annotations
+
+	return r.Update(ctx, have)
+}
+
+// mergeStrings returns a copy of into with the keys of from set.
 func mergeStrings(into, from map[string]string) map[string]string {
-	if into == nil {
-		into = make(map[string]string, len(from))
+	merged := make(map[string]string, len(into)+len(from))
+
+	for key, value := range into {
+		merged[key] = value
 	}
 
 	for key, value := range from {
-		into[key] = value
+		merged[key] = value
 	}
 
-	return into
+	return merged
 }
 
 // recordID writes the robot's ID, Harbor name and expiry to status.
@@ -660,7 +756,7 @@ func (r *HarborProjectRobotReconciler) finalize(ctx context.Context, robot *harb
 	}
 
 	release := func() (reconcile.Result, error) {
-		if err := r.deleteOwnedSecrets(ctx, robot); err != nil {
+		if err := r.deleteOwnedSecrets(ctx, robot, nil); err != nil {
 			return reconcile.Result{}, err
 		}
 
@@ -748,21 +844,38 @@ func (r *HarborProjectRobotReconciler) finalize(ctx context.Context, robot *harb
 	return release()
 }
 
-// deleteOwnedSecrets deletes the Secrets in the robot's namespace whose controller is this robot. Garbage collection
-// would also remove them; deleting them here makes them go with the resource.
-func (r *HarborProjectRobotReconciler) deleteOwnedSecrets(ctx context.Context, robot *harborv1alpha1.HarborProjectRobot) error {
+// ownedSecrets lists the Secrets in the robot's namespace whose controller is this robot.
+func (r *HarborProjectRobotReconciler) ownedSecrets(ctx context.Context, robot *harborv1alpha1.HarborProjectRobot) ([]*corev1.Secret, error) {
 	var list corev1.SecretList
 	if err := r.List(ctx, &list, client.InNamespace(robot.Namespace), client.MatchingLabels{secrets.LabelManagedBy: secrets.ManagedByValue}); err != nil {
+		return nil, err
+	}
+
+	var owned []*corev1.Secret
+
+	for index := range list.Items {
+		if secrets.IsOwnedBy(&list.Items[index], robot) {
+			owned = append(owned, &list.Items[index])
+		}
+	}
+
+	return owned, nil
+}
+
+// deleteOwnedSecrets deletes the Secrets whose controller is this robot, except those named in keep. When the
+// resource is deleted garbage collection would also remove them; deleting them here makes them go with the resource.
+func (r *HarborProjectRobotReconciler) deleteOwnedSecrets(ctx context.Context, robot *harborv1alpha1.HarborProjectRobot, keep map[string]bool) error {
+	owned, err := r.ownedSecrets(ctx, robot)
+	if err != nil {
 		return err
 	}
 
-	for index := range list.Items {
-		secret := &list.Items[index]
-		if !secrets.IsOwnedBy(secret, robot) {
+	for _, secret := range owned {
+		if keep[secret.Name] {
 			continue
 		}
 
-		if err := r.Delete(ctx, secret); client.IgnoreNotFound(err) != nil {
+		if err := r.Delete(ctx, secret, client.Preconditions{UID: &secret.UID}); client.IgnoreNotFound(err) != nil {
 			return err
 		}
 	}

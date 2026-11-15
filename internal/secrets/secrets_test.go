@@ -122,3 +122,46 @@ func TestIsOwnedByDistinguishesForeignSecrets(t *testing.T) {
 	assert.False(t, secrets.IsOwnedBy(rendered[0], other))
 	assert.False(t, secrets.IsOwnedBy(&corev1.Secret{}, input.Owner))
 }
+
+func TestRecoverReturnsTheSecretOnlyWhenTheDataMatchesItsHash(t *testing.T) {
+	spec := harborv1alpha1.RobotSecretSpec{Opaque: harborv1alpha1.SecretOutput{Enabled: ptr.To(true)}}
+
+	for _, test := range []struct {
+		name   string
+		change func(*corev1.Secret)
+		want   string
+		found  bool
+	}{
+		{name: "unchanged", want: "s3cret", found: true},
+		{name: "password changed by hand", change: func(secret *corev1.Secret) {
+			if secret.Type == corev1.SecretTypeOpaque {
+				secret.Data[secrets.KeyPassword] = []byte("other")
+				return
+			}
+
+			secret.Data[corev1.DockerConfigJsonKey] = []byte(`{"auths":{"harbor.example.com:8443":{"username":"u","password":"other"}}}`)
+		}},
+		{name: "hash annotation missing", change: func(secret *corev1.Secret) {
+			delete(secret.Annotations, secrets.AnnotationSecretHash)
+		}},
+		{name: "data not parseable", change: func(secret *corev1.Secret) {
+			secret.Data = map[string][]byte{corev1.DockerConfigJsonKey: []byte("{"), secrets.KeyPassword: nil}
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			rendered, err := secrets.Render(newInput(t, spec))
+			require.NoError(t, err)
+			require.Len(t, rendered, 2)
+
+			for _, secret := range rendered {
+				if test.change != nil {
+					test.change(secret)
+				}
+
+				got, found := secrets.Recover(secret)
+				assert.Equal(t, test.found, found, secret.Name)
+				assert.Equal(t, test.want, got, secret.Name)
+			}
+		})
+	}
+}

@@ -160,3 +160,53 @@ func IsOwnedBy(secret *corev1.Secret, owner client.Object) bool {
 	ref := metav1.GetControllerOf(secret)
 	return ref != nil && ref.UID != "" && ref.UID == owner.GetUID()
 }
+
+// Recover returns the robot secret a rendered Secret holds, and false when its data doesn't match its hash annotation
+// (it was changed by hand or isn't one of ours).
+func Recover(secret *corev1.Secret) (string, bool) {
+	want := secret.Annotations[AnnotationSecretHash]
+	if want == "" {
+		return "", false
+	}
+
+	var candidates []string
+
+	switch secret.Type {
+	case corev1.SecretTypeDockerConfigJson:
+		var config dockerConfig
+		if err := json.Unmarshal(secret.Data[corev1.DockerConfigJsonKey], &config); err != nil {
+			return "", false
+		}
+
+		for _, auth := range config.Auths {
+			candidates = append(candidates, auth.Password)
+		}
+	case corev1.SecretTypeOpaque:
+		if password, ok := secret.Data[KeyPassword]; ok {
+			candidates = append(candidates, string(password))
+		}
+	}
+
+	for _, candidate := range candidates {
+		if candidate != "" && Hash(candidate) == want {
+			return candidate, true
+		}
+	}
+
+	return "", false
+}
+
+// Names returns the names of the enabled Secrets, dockerconfigjson first.
+func Names(ownerName string, spec harborv1alpha1.RobotSecretSpec) []string {
+	var names []string
+
+	if DockerConfigJSONEnabled(spec) {
+		names = append(names, DockerConfigJSONName(ownerName, spec))
+	}
+
+	if OpaqueEnabled(spec) {
+		names = append(names, OpaqueName(ownerName, spec))
+	}
+
+	return names
+}
