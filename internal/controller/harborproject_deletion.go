@@ -27,6 +27,9 @@ const (
 	// RobotProjectIndex finds the robots that reference a project. Its value is "namespace/name", the namespace
 	// defaulting to the robot's own.
 	RobotProjectIndex = "spec.projectRef"
+	// ImmutabilityProjectIndex finds the immutability policies that reference a project. Its value is
+	// "namespace/name", the namespace defaulting to the policy's own.
+	ImmutabilityProjectIndex = "spec.projectRef"
 
 	// defaultMaxBackoff caps the retry delay of a failing reconcile, so a project whose deletion Harbor blocks is
 	// checked again at least this often.
@@ -67,6 +70,12 @@ func (r *HarborProjectReconciler) projectForRetention(_ context.Context, object 
 
 func (r *HarborProjectReconciler) projectForRobot(_ context.Context, object client.Object) []reconcile.Request {
 	return []reconcile.Request{{NamespacedName: robotProjectKey(object.(*harborv1alpha1.HarborProjectRobot))}}
+}
+
+// projectForImmutabilityPolicy re-queues the project an immutability policy references, so a project waiting for its
+// dependents sees the policy go.
+func (r *HarborProjectReconciler) projectForImmutabilityPolicy(_ context.Context, object client.Object) []reconcile.Request {
+	return []reconcile.Request{{NamespacedName: policyProjectKey(object.(*harborv1alpha1.HarborImmutabilityPolicy))}}
 }
 
 // finalize runs instead of the normal reconcile once the resource is being deleted. It deletes the Harbor project only
@@ -221,45 +230,58 @@ func deletionPolicy(project *harborv1alpha1.HarborProject, connection *harborv1a
 	return harborv1alpha1.DeletionPolicyDelete
 }
 
-// dependents lists "Kind namespace/name" of the robots and retention policies that reference the project from a
-// namespace it admits.
+// dependents lists the robots, retention policies and immutability policies that reference the project from a
+// namespace it admits, as "Kind namespace/name".
 func (r *HarborProjectReconciler) dependents(ctx context.Context, project *harborv1alpha1.HarborProject) ([]string, error) {
-	match := client.MatchingFields{RobotProjectIndex: client.ObjectKeyFromObject(project).String()}
+	projectKey := client.ObjectKeyFromObject(project).String()
 
 	var robots harborv1alpha1.HarborProjectRobotList
-	if err := r.List(ctx, &robots, match); err != nil {
+	if err := r.List(ctx, &robots, client.MatchingFields{RobotProjectIndex: projectKey}); err != nil {
 		return nil, err
 	}
 
 	var retentions harborv1alpha1.HarborRetentionPolicyList
-	if err := r.List(ctx, &retentions, client.MatchingFields{RetentionProjectIndex: client.ObjectKeyFromObject(project).String()}); err != nil {
+	if err := r.List(ctx, &retentions, client.MatchingFields{RetentionProjectIndex: projectKey}); err != nil {
 		return nil, err
 	}
 
-	candidates := make([]client.Object, 0, len(robots.Items)+len(retentions.Items))
+	var policies harborv1alpha1.HarborImmutabilityPolicyList
+	if err := r.List(ctx, &policies, client.MatchingFields{ImmutabilityProjectIndex: projectKey}); err != nil {
+		return nil, err
+	}
+
+	referrers := make([]client.Object, 0, len(robots.Items)+len(retentions.Items)+len(policies.Items))
 	for index := range robots.Items {
-		candidates = append(candidates, &robots.Items[index])
+		referrers = append(referrers, &robots.Items[index])
 	}
 
 	for index := range retentions.Items {
-		candidates = append(candidates, &retentions.Items[index])
+		referrers = append(referrers, &retentions.Items[index])
+	}
+
+	for index := range policies.Items {
+		referrers = append(referrers, &policies.Items[index])
 	}
 
 	var names []string
 
-	for _, candidate := range candidates {
-		admitted, err := access.Admits(ctx, r.Client, project.Spec.AllowedNamespaces, project.Namespace, candidate.GetNamespace())
+	for _, referrer := range referrers {
+		admitted, err := access.Admits(ctx, r.Client, project.Spec.AllowedNamespaces, project.Namespace, referrer.GetNamespace())
 		if err != nil {
 			return nil, err
 		}
 
 		if admitted {
 			kind := "HarborProjectRobot"
-			if _, ok := candidate.(*harborv1alpha1.HarborRetentionPolicy); ok {
+
+			switch referrer.(type) {
+			case *harborv1alpha1.HarborRetentionPolicy:
 				kind = "HarborRetentionPolicy"
+			case *harborv1alpha1.HarborImmutabilityPolicy:
+				kind = "HarborImmutabilityPolicy"
 			}
 
-			names = append(names, kind+" "+client.ObjectKeyFromObject(candidate).String())
+			names = append(names, kind+" "+client.ObjectKeyFromObject(referrer).String())
 		}
 	}
 

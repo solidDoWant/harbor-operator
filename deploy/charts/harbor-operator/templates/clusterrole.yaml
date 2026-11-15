@@ -50,6 +50,7 @@ rules:
   - harbor.soliddowant.dev
   resources:
   - harborconnections
+  - harborimmutabilitypolicies
   - harborprojectrobots
   - harborprojects
   - harborretentionpolicies
@@ -63,6 +64,7 @@ rules:
   - harbor.soliddowant.dev
   resources:
   - harborconnections/finalizers
+  - harborimmutabilitypolicies/finalizers
   - harborprojectrobots/finalizers
   - harborprojects/finalizers
   - harborretentionpolicies/finalizers
@@ -72,6 +74,7 @@ rules:
   - harbor.soliddowant.dev
   resources:
   - harborconnections/status
+  - harborimmutabilitypolicies/status
   - harborprojectrobots/status
   - harborprojects/status
   - harborretentionpolicies/status

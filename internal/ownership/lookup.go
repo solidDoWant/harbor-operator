@@ -34,6 +34,12 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 		return fmt.Errorf("indexing HarborRetentionPolicy %s: %w", HarborKeyField, err)
 	}
 
+	if err := indexer.IndexField(ctx, &v1alpha1.HarborImmutabilityPolicy{}, HarborKeyField, func(object client.Object) []string {
+		return harborKeyValues(object.(*v1alpha1.HarborImmutabilityPolicy).Status.HarborKey)
+	}); err != nil {
+		return fmt.Errorf("indexing HarborImmutabilityPolicy %s: %w", HarborKeyField, err)
+	}
+
 	return nil
 }
 
@@ -94,6 +100,22 @@ func RetentionOwner(ctx context.Context, reader client.Reader, key string, admit
 	}
 
 	return owner(ctx, claimants, func(policy *v1alpha1.HarborRetentionPolicy) bool { return policy.Status.RetentionID != 0 }, admitted)
+}
+
+// ImmutabilityOwner returns the HarborImmutabilityPolicy that owns the immutability rule set with the given key, or
+// nil when no claimant counts. The claimed ID is status.projectID.
+func ImmutabilityOwner(ctx context.Context, reader client.Reader, key string, admitted AdmittedFunc[*v1alpha1.HarborImmutabilityPolicy]) (*v1alpha1.HarborImmutabilityPolicy, error) {
+	list := &v1alpha1.HarborImmutabilityPolicyList{}
+	if err := reader.List(ctx, list, client.MatchingFields{HarborKeyField: key}); err != nil {
+		return nil, fmt.Errorf("listing HarborImmutabilityPolicy claimants: %w", err)
+	}
+
+	claimants := make([]*v1alpha1.HarborImmutabilityPolicy, 0, len(list.Items))
+	for index := range list.Items {
+		claimants = append(claimants, &list.Items[index])
+	}
+
+	return owner(ctx, claimants, func(policy *v1alpha1.HarborImmutabilityPolicy) bool { return policy.Status.ProjectID != 0 }, admitted)
 }
 
 func owner[T client.Object](ctx context.Context, objects []T, hasID func(T) bool, admitted AdmittedFunc[T]) (T, error) {

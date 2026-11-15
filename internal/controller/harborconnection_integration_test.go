@@ -49,7 +49,7 @@ func startOperatorLogging(t *testing.T, logger logr.Logger, withProjects ...bool
 type operatorOptions struct {
 	// logger receives the operator's log; the zero logger keeps the default.
 	logger logr.Logger
-	// withProjects also runs the project, robot and retention policy controllers.
+	// withProjects also runs the project, robot, retention policy and immutability policy controllers.
 	withProjects bool
 	// wrapRobotClient, when set, wraps the robot controller's client so a test can change what the controller reads.
 	wrapRobotClient func(client.Client) client.Client
@@ -92,6 +92,7 @@ func startOperatorWith(t *testing.T, options operatorOptions) client.Client {
 		require.NoError(t, (&controller.HarborProjectReconciler{Client: manager.GetClient(), Clients: clients, Recorder: manager.GetEventRecorder("harbor-operator"), MaxBackoff: 2 * time.Second}).SetupWithManager(manager))
 		require.NoError(t, (&controller.HarborProjectRobotReconciler{Client: robotClient, Clients: clients, Recorder: manager.GetEventRecorder("harbor-operator")}).SetupWithManager(manager))
 		require.NoError(t, (&controller.HarborRetentionPolicyReconciler{Client: manager.GetClient(), Clients: clients, Recorder: manager.GetEventRecorder("harbor-operator")}).SetupWithManager(manager))
+		require.NoError(t, (&controller.HarborImmutabilityPolicyReconciler{Client: manager.GetClient(), Clients: clients, Recorder: manager.GetEventRecorder("harbor-operator")}).SetupWithManager(manager))
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

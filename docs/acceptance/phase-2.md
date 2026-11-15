@@ -29,9 +29,9 @@ Same rules as phase 1. Approved for the owner by the operator on 2026-11-15.
 ## Tag immutability
 
 - **AC-2-10 Immutability.** A `HarborImmutabilityPolicy` with a rule for `v*` tags makes pushing over an existing `v1.0.0` fail, while `latest` can still be overwritten.
-  Tests:
+  Tests: `internal/controller: TestImmutabilityRuleStopsOverwritingMatchingTags`
 - **AC-2-11 Immutability drift.** Rules added, changed or removed in Harbor are put back to exactly the resource's list. Deleting the resource removes them (or keeps them with `Orphan`).
-  Tests:
+  Tests: `internal/controller: TestImmutabilityRulesChangedInHarborArePutBack`, `internal/controller: TestImmutabilityPolicyDeletion/Delete removes the project's rules`, `internal/controller: TestImmutabilityPolicyDeletion/Orphan leaves the project's rules`
 
 ## System robots
 

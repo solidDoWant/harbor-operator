@@ -68,6 +68,12 @@ func RetentionKey(identity, projectName string) string {
 	return ProjectKey(identity, projectName) + "/retention"
 }
 
+// ImmutabilityKey is the status.harborKey of the immutability rule set of project projectName in the Harbor at
+// identity. A project has exactly one rule set, so the key names the project and the object type.
+func ImmutabilityKey(identity, projectName string) string {
+	return ProjectKey(identity, projectName) + "/immutability"
+}
+
 // Claimant is what the ownership rule needs to know about a resource that claims a Harbor object.
 type Claimant struct {
 	UID               types.UID

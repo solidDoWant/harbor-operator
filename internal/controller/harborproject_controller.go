@@ -49,7 +49,7 @@ type HarborProjectReconciler struct {
 // +kubebuilder:rbac:groups=harbor.soliddowant.dev,resources=harborprojectrobots,verbs=get;list;watch
 
 // SetupWithManager registers the reconciler with its watches: connections, namespaces, the other claimants of the
-// same Harbor project and the robots that reference a project.
+// same Harbor project and the robots and immutability policies that reference a project.
 func (r *HarborProjectReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&harborv1alpha1.HarborProject{}).
@@ -58,6 +58,7 @@ func (r *HarborProjectReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&harborv1alpha1.HarborProject{}, handler.EnqueueRequestsFromMapFunc(r.otherClaimants)).
 		Watches(&harborv1alpha1.HarborProjectRobot{}, handler.EnqueueRequestsFromMapFunc(r.projectForRobot)).
 		Watches(&harborv1alpha1.HarborRetentionPolicy{}, handler.EnqueueRequestsFromMapFunc(r.projectForRetention)).
+		Watches(&harborv1alpha1.HarborImmutabilityPolicy{}, handler.EnqueueRequestsFromMapFunc(r.projectForImmutabilityPolicy)).
 		WithOptions(controller.Options{MaxConcurrentReconciles: 4, RateLimiter: r.rateLimiter()}).
 		Named("harborproject").
 		Complete(r)

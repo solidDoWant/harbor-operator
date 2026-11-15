@@ -39,6 +39,7 @@ docs/user/
   retention.md             A tag retention policy for a project and its status reasons.
   crd-reference.md         Every resource field (generated).
   robot-permissions.md     The resource and action pairs a project robot may be granted.
+  immutability.md          Tag immutability rules for a project.
 
 docs/admin/
   README.md                The pages for admins.
