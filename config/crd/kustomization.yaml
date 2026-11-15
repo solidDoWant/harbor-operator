@@ -1,0 +1,3 @@
+# The CRDs controller-gen writes to bases/ (`make generate`). List each new
+# bases/harbor.soliddowant.dev_<kind>.yaml file here.
+resources: []

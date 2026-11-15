@@ -1,0 +1,15 @@
+/bin/
+/build/
+/result
+/result-*
+.direnv/
+*.test
+*.out
+/cover.*
+
+# Planner and scheduler state, per-issue task scratch and agent worktrees (local only)
+/.pm/
+/.claude/tasks/
+/.claude/worktrees/
+
+__pycache__/

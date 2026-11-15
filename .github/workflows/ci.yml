@@ -1,0 +1,232 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read # dorny/paths-filter lists PR files via the API
+
+env:
+  # GitHub runners are discarded after each job, so testcontainers' reaper
+  # container (pulled from Docker Hub) isn't needed to clean up.
+  TESTCONTAINERS_RYUK_DISABLED: "true"
+
+# One group per branch. PRs: a newer push cancels the older run. master: the
+# running run always finishes, and of the commits merged meanwhile only the
+# newest waits. A cancelled *pending* master run is expected, not a failure.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # Decides whether anything that can affect build or test results changed.
+  # Docs-only and agent-playbook-only pull requests skip every test job; the
+  # required `checks` job below still runs and passes.
+  #
+  # Pushes to master always run everything. The concurrency group keeps only
+  # the newest pending master run, so a docs-only commit merged behind a code
+  # commit replaces the code commit's run, and a filter on the push diff
+  # would then skip the tests of the code commit too. Running the full suite
+  # on every master push means each master run tests everything merged so far.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/master') && 'true' || steps.filter.outputs.code }}
+      # The scoreboard's tests read the real checklist, so a checklist edit
+      # runs just those tests (the scoreboard-tests job) and the docs checks.
+      acceptance: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/master') && 'true' || steps.filter.outputs.acceptance }}
+      docs: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/master') && 'true' || steps.filter.outputs.docs }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - id: filter
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          predicate-quantifier: every
+          filters: |
+            code:
+              - '**'
+              - '!*.md'
+              - '!docs/**'
+              - '!.claude/**'
+              - '!LICENSE'
+              - '!.github/renovate.json5'
+              - '!.github/renovate/**'
+            acceptance:
+              - 'docs/acceptance/**'
+            docs:
+              - '{**/*.md,scripts/docs/**}'
+
+  # The test tiers run as parallel jobs, inside the flake's dev shell, so CI
+  # uses exactly the toolchain developers and agents use.
+  lint:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/nix-dev-shell
+      - name: Lint
+        run: nix develop -c make lint
+      - name: Save Go caches
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        uses: ./.github/actions/go-cache-save
+
+  unit:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The test guard's own tests run it against this repository's history.
+          fetch-depth: 0
+      - uses: ./.github/actions/nix-dev-shell
+      - name: Unit tests
+        env:
+          GO_TEST_JSON: build/acceptance/results/go-unit.json
+        run: nix develop -c make test
+      - name: Build
+        run: nix develop -c make build
+      - name: Save Go caches
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        uses: ./.github/actions/go-cache-save
+
+  # Committed generated code (CRDs, RBAC, deepcopy, generated docs) matches
+  # `make generate`.
+  generate:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/nix-dev-shell
+      - name: Generated code is current
+        run: nix develop -c make check-generate
+      - name: Save Go caches
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        uses: ./.github/actions/go-cache-save
+
+  # envtest (binaries from the dev shell) and a real Harbor on kind, which the
+  # integration harness starts on the runner's Docker.
+  integration:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/nix-dev-shell
+      - name: Integration tests
+        env:
+          GO_TEST_JSON: build/acceptance/results/go-integration.json
+        run: nix develop -c make test-integration
+      - name: Save Go caches
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        uses: ./.github/actions/go-cache-save
+
+  # kind on the runner's Docker (kind, kubectl and helm come from the dev
+  # shell): Harbor from its chart and the operator from this repo's chart.
+  e2e:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      E2E_CLUSTER: harbor-op-ci
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/nix-dev-shell
+      - name: e2e tests
+        env:
+          GO_TEST_JSON: build/acceptance/results/go-e2e.json
+        run: nix develop -c make test-e2e
+      - name: Save Go caches
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        uses: ./.github/actions/go-cache-save
+
+  # A checklist edit alone: only the scoreboard's tests read the checklist.
+  scoreboard-tests:
+    needs: changes
+    if: needs.changes.outputs.acceptance == 'true' && needs.changes.outputs.code != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Scoreboard tests
+        run: ./scripts/acceptance-scoreboard_test.py
+
+  # The human-facing Markdown: links and anchors, agent-prose tells, the page
+  # index and the generated reference pages fail the job; the plain-English
+  # style report is advisory and only goes to the job summary.
+  docs:
+    needs: changes
+    if: needs.changes.outputs.docs == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The merge base with the PR's base branch, for the style report.
+          fetch-depth: 0
+      - uses: ./.github/actions/nix-dev-shell
+        with:
+          go: 'false'
+      - name: Links, agent prose, page index and generated pages
+        run: nix develop -c make docs-check
+      - name: Style report (advisory)
+        if: always() && github.event_name == 'pull_request'
+        continue-on-error: true
+        env:
+          BASE: origin/${{ github.base_ref }}
+        run: nix develop -c ./scripts/docs/style_report.sh "$BASE" >> "$GITHUB_STEP_SUMMARY"
+
+  # Fails a pull request that deletes or skips a checklist scenario test
+  # (scripts/ci/test-guard.py), for every change, docs-only included. Plain
+  # runner Python, no Nix: it takes seconds. The labels are read when the job
+  # runs, so after the owner adds test-removal-approved, re-running this job
+  # picks it up.
+  test-guard:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The merge base with the PR's base branch.
+          fetch-depth: 0
+      - name: No scenario test removed or skipped
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE: origin/${{ github.base_ref }}
+        run: |
+          TEST_GUARD_PR_LABELS="$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json labels --jq '[.labels[].name] | join(",")')"
+          export TEST_GUARD_PR_LABELS
+          make test-guard
+
+  # The single required status check. It always runs, so docs-only changes
+  # still produce a passing `checks`; it fails if any job failed or was
+  # cancelled, and passes when each succeeded or was skipped.
+  checks:
+    needs: [changes, lint, unit, generate, integration, e2e, scoreboard-tests, docs, test-guard]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: All jobs passed or were skipped
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "results: $RESULTS"
+          for result in $RESULTS; do
+            case "$result" in
+              success|skipped) ;;
+              *) echo "a required job ended with: $result" >&2; exit 1 ;;
+            esac
+          done

@@ -1,0 +1,41 @@
+version: "2"
+
+run:
+  timeout: 5m
+  build-tags:
+    - integration
+    - e2e
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - forbidigo
+    - govet
+    - staticcheck
+    - wsl_v5
+  settings:
+    forbidigo:
+      analyze-types: true
+      forbid:
+        # Harbor is reached only through the generated goharbor/go-client
+        # (SPEC.md: no hand-written HTTP clients for Harbor). Tests may use
+        # net/http directly, for example to fake or probe Harbor.
+        - pattern: ^http\.(Get|Post|PostForm|Head|NewRequest|NewRequestWithContext)$
+          pkg: ^net/http$
+          msg: talk to Harbor through github.com/goharbor/go-client, not hand-written HTTP requests
+  exclusions:
+    rules:
+      - path: _test\.go$
+        linters: [forbidigo]
+      - path: ^test/
+        linters: [forbidigo]
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/solidDoWant/harbor-operator
