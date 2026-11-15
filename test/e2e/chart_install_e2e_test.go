@@ -14,6 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -26,6 +27,14 @@ import (
 func ptr[T any](value T) *T { return &value }
 
 func kubeClient(t *testing.T) client.Client {
+	t.Helper()
+
+	cl, _ := kubeClients(t)
+
+	return cl
+}
+
+func kubeClients(t *testing.T) (client.Client, *kubernetes.Clientset) {
 	t.Helper()
 
 	kubeContext := os.Getenv("E2E_KUBE_CONTEXT")
@@ -43,7 +52,10 @@ func kubeClient(t *testing.T) client.Client {
 	cl, err := client.New(restConfig, client.Options{Scheme: runtimeScheme})
 	require.NoError(t, err)
 
-	return cl
+	clientset, err := kubernetes.NewForConfig(restConfig)
+	require.NoError(t, err)
+
+	return cl, clientset
 }
 
 func TestProjectIsCreatedByTheOperatorInstalledFromTheChart(t *testing.T) {

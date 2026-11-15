@@ -33,6 +33,25 @@ metrics:
   port: 8443
   # -- Serve metrics over HTTPS with authentication and authorization.
   secure: true
+  reader:
+    # -- Create a ClusterRole that allows `get` on `/metrics`, and bind it to `subjects`. The secure metrics endpoint needs this for each scraper. Needs `metrics.secure`.
+    enabled: false
+    # -- Service accounts that may read the metrics. Each item has `namespace` and `name`.
+    subjects: []
+  vmServiceScrape:
+    # -- Create a VictoriaMetrics `VMServiceScrape` for the metrics Service. Needs `metrics.secure`.
+    enabled: false
+    # -- Scrape interval. Leave empty for the scraper's default.
+    interval: ""
+    # -- CA bundle file in the scraper pod that verifies the serving certificate. Leave empty to skip verification, because the certificate is self-signed.
+    caFile: ""
+  serviceMonitor:
+    # -- Create a Prometheus Operator `ServiceMonitor` for the metrics Service. Needs `metrics.secure`.
+    enabled: false
+    # -- Scrape interval. Leave empty for the scraper's default.
+    interval: ""
+    # -- CA bundle file in the scraper pod that verifies the serving certificate. Leave empty to skip verification, because the certificate is self-signed.
+    caFile: ""
 grafanaDashboard:
   configMap:
     # -- Render a ConfigMap with the dashboard for Grafana's dashboard sidecar.

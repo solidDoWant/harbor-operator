@@ -21,6 +21,14 @@ For: admins who install harbor-operator with its Helm chart.
 | `watchNamespaces` | `[]` | Namespaces that the operator watches. Empty means all namespaces. See docs/admin/install.md. |
 | `metrics.port` | `8443` | Port of the metrics endpoint. |
 | `metrics.secure` | `true` | Serve metrics over HTTPS with authentication and authorization. |
+| `metrics.reader.enabled` | `false` | Create a ClusterRole that allows `get` on `/metrics`, and bind it to `subjects`. The secure metrics endpoint needs this for each scraper. Needs `metrics.secure`. |
+| `metrics.reader.subjects` | `[]` | Service accounts that may read the metrics. Each item has `namespace` and `name`. |
+| `metrics.vmServiceScrape.enabled` | `false` | Create a VictoriaMetrics `VMServiceScrape` for the metrics Service. Needs `metrics.secure`. |
+| `metrics.vmServiceScrape.interval` | `""` | Scrape interval. Leave empty for the scraper's default. |
+| `metrics.vmServiceScrape.caFile` | `""` | CA bundle file in the scraper pod that verifies the serving certificate. Leave empty to skip verification, because the certificate is self-signed. |
+| `metrics.serviceMonitor.enabled` | `false` | Create a Prometheus Operator `ServiceMonitor` for the metrics Service. Needs `metrics.secure`. |
+| `metrics.serviceMonitor.interval` | `""` | Scrape interval. Leave empty for the scraper's default. |
+| `metrics.serviceMonitor.caFile` | `""` | CA bundle file in the scraper pod that verifies the serving certificate. Leave empty to skip verification, because the certificate is self-signed. |
 | `grafanaDashboard.configMap.enabled` | `false` | Render a ConfigMap with the dashboard for Grafana's dashboard sidecar. |
 | `grafanaDashboard.configMap.labels` | `""` | Labels on the dashboard ConfigMap. The sidecar selects ConfigMaps by this label. |
 | `grafanaDashboard.grafanaOperator.enabled` | `false` | Render a grafana-operator GrafanaDashboard with the dashboard inline. |

@@ -12,6 +12,21 @@ No label holds an object name, a namespace, a Harbor URL or a project name. Labe
 
 The operator also exports the standard controller-runtime metrics, such as `controller_runtime_reconcile_total`.
 
+## Scraping
+
+The metrics endpoint uses HTTPS and checks each request with the Kubernetes API. A scraper must send a service-account token, and its service account needs the right to `get` the `/metrics` path.
+
+To give that right, turn on `metrics.reader.enabled` and list the scraper's service accounts in `metrics.reader.subjects`. Each item has a `namespace` and a `name`. The chart then makes a ClusterRole that allows `get` on `/metrics`, and binds it to those service accounts. A service account that is not listed gets HTTP 403.
+
+The chart can also make the scrape object for you. Both objects scrape the metrics Service over HTTPS with the scraper's own service-account token:
+
+- `metrics.vmServiceScrape.enabled` makes a VictoriaMetrics `VMServiceScrape`.
+- `metrics.serviceMonitor.enabled` makes a Prometheus Operator `ServiceMonitor`.
+
+The operator makes its own serving certificate, so the objects skip certificate checks by default. To check it, set `caFile` on the object to a CA bundle file inside the scraper pod.
+
+All three options need `metrics.secure` to be `true`. The chart fails to render if it is not. The scrape objects need their CRDs in the cluster. The chart does not install them.
+
 ## Dashboard
 
 The chart ships a Grafana dashboard. It is off by default. Turn on one of two options:
