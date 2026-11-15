@@ -1,0 +1,242 @@
+package controller
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"time"
+
+	"golang.org/x/time/rate"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/workqueue"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	harborv1alpha1 "github.com/solidDoWant/harbor-operator/api/v1alpha1"
+	"github.com/solidDoWant/harbor-operator/internal/access"
+	"github.com/solidDoWant/harbor-operator/internal/harbor"
+	"github.com/solidDoWant/harbor-operator/internal/ownership"
+)
+
+const (
+	// RobotProjectIndex finds the robots that reference a project. Its value is "namespace/name", the namespace
+	// defaulting to the robot's own.
+	RobotProjectIndex = "spec.projectRef"
+
+	// defaultMaxBackoff caps the retry delay of a failing reconcile, so a project whose deletion Harbor blocks is
+	// checked again at least this often.
+	defaultMaxBackoff = 10 * time.Minute
+)
+
+// robotProjectKey is the project a robot references.
+func robotProjectKey(robot *harborv1alpha1.HarborProjectRobot) types.NamespacedName {
+	namespace := robot.Spec.ProjectRef.Namespace
+	if namespace == "" {
+		namespace = robot.Namespace
+	}
+
+	return types.NamespacedName{Namespace: namespace, Name: robot.Spec.ProjectRef.Name}
+}
+
+// backoffLimiter retries a failing item with exponential backoff up to maxDelay, with the same overall rate limit as
+// controller-runtime's default.
+func backoffLimiter(maxDelay time.Duration) workqueue.TypedRateLimiter[reconcile.Request] {
+	return workqueue.NewTypedMaxOfRateLimiter(
+		workqueue.NewTypedItemExponentialFailureRateLimiter[reconcile.Request](5*time.Millisecond, maxDelay),
+		&workqueue.TypedBucketRateLimiter[reconcile.Request]{Limiter: rate.NewLimiter(rate.Limit(10), 100)},
+	)
+}
+
+func (r *HarborProjectReconciler) rateLimiter() workqueue.TypedRateLimiter[reconcile.Request] {
+	maxDelay := r.MaxBackoff
+	if maxDelay <= 0 {
+		maxDelay = defaultMaxBackoff
+	}
+
+	return backoffLimiter(maxDelay)
+}
+
+func (r *HarborProjectReconciler) projectForRobot(_ context.Context, object client.Object) []reconcile.Request {
+	return []reconcile.Request{{NamespacedName: robotProjectKey(object.(*harborv1alpha1.HarborProjectRobot))}}
+}
+
+// finalize runs instead of the normal reconcile once the resource is being deleted. It deletes the Harbor project only
+// when the resource still owns it and its deletion policy is Delete; every other case releases the resource without
+// touching Harbor.
+func (r *HarborProjectReconciler) finalize(ctx context.Context, project *harborv1alpha1.HarborProject) (reconcile.Result, error) {
+	if !controllerutil.ContainsFinalizer(project, ProjectFinalizer) {
+		return reconcile.Result{}, nil
+	}
+
+	// Without an ID the resource never had a Harbor project to deal with.
+	if project.Status.ProjectID == 0 {
+		return reconcile.Result{}, r.release(ctx, project)
+	}
+
+	dependents, err := r.dependents(ctx, project)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
+
+	if len(dependents) > 0 {
+		listed, suffix := dependents, ""
+		if len(listed) > maxListedDependents {
+			listed, suffix = listed[:maxListedDependents], fmt.Sprintf(" and %d more", len(dependents)-maxListedDependents)
+		}
+
+		// A deleted robot triggers a new reconcile through the robot watch.
+		return reconcile.Result{}, r.setReady(ctx, project, metav1.ConditionFalse, harborv1alpha1.ReasonDependentsExist,
+			"still used by HarborProjectRobot "+strings.Join(listed, ", ")+suffix)
+	}
+
+	key := connectionKey(project)
+	connection := &harborv1alpha1.HarborConnection{}
+
+	if err := r.Get(ctx, key, connection); err != nil {
+		if !apierrors.IsNotFound(err) {
+			return reconcile.Result{}, err
+		}
+
+		connection = nil
+	}
+
+	if deletionPolicy(project, connection) == harborv1alpha1.DeletionPolicyOrphan {
+		return reconcile.Result{}, r.release(ctx, project)
+	}
+
+	if connection == nil {
+		// Like missing credentials: the deletion waits rather than leaving the Harbor project behind unnoticed.
+		return r.deleteFailed(ctx, project, harborv1alpha1.ReasonNotFound, fmt.Sprintf("HarborConnection %s not found", key))
+	}
+
+	admitted, err := access.Admits(ctx, r.Client, connection.Spec.AllowedNamespaces, connection.Namespace, project.Namespace)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
+
+	if !admitted {
+		r.Recorder.Eventf(project, nil, corev1.EventTypeWarning, harborv1alpha1.ReasonNotAllowed, "Delete",
+			"HarborConnection %s does not admit namespace %q; the Harbor project is left in place", key, project.Namespace)
+
+		return reconcile.Result{}, r.release(ctx, project)
+	}
+
+	identity := connection.Status.HarborIdentity
+	if ready := meta.FindStatusCondition(connection.Status.Conditions, harborv1alpha1.ConditionReady); ready == nil || ready.Status != metav1.ConditionTrue || identity == "" {
+		reason := harborv1alpha1.ReasonHarborUnavailable
+		if ready != nil && ready.Status == metav1.ConditionFalse {
+			reason = ready.Reason
+		}
+
+		return r.deleteFailed(ctx, project, reason, fmt.Sprintf("HarborConnection %s is not ready", key))
+	}
+
+	harborClient, reason, message := clientFor(ctx, r.Client, r.Clients, connection)
+	if harborClient == nil {
+		return r.deleteFailed(ctx, project, reason, message)
+	}
+
+	return r.deleteOwned(ctx, project, harborClient, identity)
+}
+
+// deleteOwned deletes the Harbor project by ID when the ID still names this resource's own project, and releases the
+// resource once it is gone.
+func (r *HarborProjectReconciler) deleteOwned(ctx context.Context, project *harborv1alpha1.HarborProject, harborClient *harbor.Client, identity string) (reconcile.Result, error) {
+	name := projectName(project)
+
+	harborKey := ownership.ProjectKey(identity, name)
+	if project.Status.HarborKey != harborKey {
+		// The ID was recorded in another Harbor; it names nothing of this resource's here.
+		return reconcile.Result{}, r.release(ctx, project)
+	}
+
+	owner, err := ownership.ProjectOwner(ctx, r.Client, harborKey, r.admitted)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
+
+	if owner == nil || owner.UID != project.UID {
+		return reconcile.Result{}, r.release(ctx, project)
+	}
+
+	id := int64(project.Status.ProjectID)
+
+	found, err := harborClient.GetProject(ctx, id)
+
+	switch {
+	case harbor.IsNotFound(err):
+		return reconcile.Result{}, r.release(ctx, project)
+	case err != nil:
+		reason, _ := harbor.MapError(err)
+		return r.deleteFailed(ctx, project, reason, err.Error())
+	case found.Name != name:
+		// The ID now names another project, which this resource never created or adopted.
+		return reconcile.Result{}, r.release(ctx, project)
+	}
+
+	if err := harborClient.DeleteProjectByID(ctx, id); err != nil && !harbor.IsNotFound(err) {
+		reason, _ := harbor.MapError(err)
+		return r.deleteFailed(ctx, project, reason, err.Error())
+	}
+
+	return reconcile.Result{}, r.release(ctx, project)
+}
+
+// deleteFailed keeps the finalizer, records why the deletion cannot finish yet and retries with backoff.
+func (r *HarborProjectReconciler) deleteFailed(ctx context.Context, project *harborv1alpha1.HarborProject, reason, message string) (reconcile.Result, error) {
+	if err := r.setReady(ctx, project, metav1.ConditionFalse, reason, message); err != nil {
+		return reconcile.Result{}, err
+	}
+
+	return reconcile.Result{}, fmt.Errorf("deleting Harbor project %q: %s", projectName(project), reason)
+}
+
+// release removes the finalizer, leaving Harbor as it is.
+func (r *HarborProjectReconciler) release(ctx context.Context, project *harborv1alpha1.HarborProject) error {
+	controllerutil.RemoveFinalizer(project, ProjectFinalizer)
+
+	return client.IgnoreNotFound(r.Update(ctx, project))
+}
+
+// deletionPolicy is the resource's policy, else the connection's default, else Delete.
+func deletionPolicy(project *harborv1alpha1.HarborProject, connection *harborv1alpha1.HarborConnection) harborv1alpha1.DeletionPolicy {
+	if project.Spec.DeletionPolicy != "" {
+		return project.Spec.DeletionPolicy
+	}
+
+	if connection != nil && connection.Spec.Defaults.DeletionPolicy != "" {
+		return connection.Spec.Defaults.DeletionPolicy
+	}
+
+	return harborv1alpha1.DeletionPolicyDelete
+}
+
+// dependents lists "namespace/name" of the robots that reference the project from a namespace it admits.
+func (r *HarborProjectReconciler) dependents(ctx context.Context, project *harborv1alpha1.HarborProject) ([]string, error) {
+	var robots harborv1alpha1.HarborProjectRobotList
+	if err := r.List(ctx, &robots, client.MatchingFields{RobotProjectIndex: client.ObjectKeyFromObject(project).String()}); err != nil {
+		return nil, err
+	}
+
+	var names []string
+
+	for index := range robots.Items {
+		robot := &robots.Items[index]
+
+		admitted, err := access.Admits(ctx, r.Client, project.Spec.AllowedNamespaces, project.Namespace, robot.Namespace)
+		if err != nil {
+			return nil, err
+		}
+
+		if admitted {
+			names = append(names, client.ObjectKeyFromObject(robot).String())
+		}
+	}
+
+	return names, nil
+}

@@ -161,6 +161,15 @@ func (c *Client) DeleteProject(ctx context.Context, name string) error {
 	return c.fail(err)
 }
 
+// DeleteProjectByID deletes the project with the ID; Harbor answers 412 while it holds content.
+func (c *Client) DeleteProjectByID(ctx context.Context, id int64) error {
+	resource := false
+
+	_, err := c.api.Project.DeleteProject(ctx, &project.DeleteProjectParams{ProjectNameOrID: strconv.FormatInt(id, 10), XIsResourceName: &resource})
+
+	return c.fail(err)
+}
+
 func (c *Client) projectQuota(ctx context.Context, projectID int64) (*models.Quota, error) {
 	reference, referenceID := "project", strconv.FormatInt(projectID, 10)
 
