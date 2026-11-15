@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/goharbor/go-client/pkg/sdk/v2.0/models"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -43,7 +44,7 @@ type robotSetup struct {
 func readyRobotProject(t *testing.T, changeConnection func(*harborv1alpha1.HarborConnection), changeProject func(*harborv1alpha1.HarborProject)) *robotSetup {
 	t.Helper()
 
-	return readyRobotProjectWithSystemRobot(t, false, changeConnection, changeProject)
+	return readyRobotProjectLogging(t, logr.Logger{}, false, changeConnection, changeProject)
 }
 
 // systemRobotPermissions are the permissions the admin docs list for the operator's system robot, with push and pull
@@ -69,6 +70,11 @@ func systemRobotPermissions() []*models.RobotPermission {
 // readyRobotProjectWithSystemRobot is readyRobotProject, with the connection signing in as a new system robot when
 // useSystemRobot is set.
 func readyRobotProjectWithSystemRobot(t *testing.T, useSystemRobot bool, changeConnection func(*harborv1alpha1.HarborConnection), changeProject func(*harborv1alpha1.HarborProject)) *robotSetup {
+	return readyRobotProjectLogging(t, logr.Logger{}, useSystemRobot, changeConnection, changeProject)
+}
+
+// readyRobotProjectLogging is readyRobotProjectWithSystemRobot with the operator's log sent to logger.
+func readyRobotProjectLogging(t *testing.T, logger logr.Logger, useSystemRobot bool, changeConnection func(*harborv1alpha1.HarborConnection), changeProject func(*harborv1alpha1.HarborProject)) *robotSetup {
 	t.Helper()
 
 	instance := harborfixture.FromEnv(t)
@@ -78,7 +84,7 @@ func readyRobotProjectWithSystemRobot(t *testing.T, useSystemRobot bool, changeC
 	projectName := harborfixture.UniqueName(t, "op")
 	t.Cleanup(func() { instance.DeleteProject(context.Background(), t, projectName) })
 
-	cl := startOperator(t, true)
+	cl := startOperatorLogging(t, logger, true)
 
 	connectionInstance := *instance
 	if useSystemRobot {

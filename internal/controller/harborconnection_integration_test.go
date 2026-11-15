@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-logr/logr"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
@@ -33,6 +35,13 @@ import (
 func startOperator(t *testing.T, withProjects ...bool) client.Client {
 	t.Helper()
 
+	return startOperatorLogging(t, logr.Logger{}, withProjects...)
+}
+
+// startOperatorLogging is startOperator with the operator's log sent to logger; the zero logger keeps the default.
+func startOperatorLogging(t *testing.T, logger logr.Logger, withProjects ...bool) client.Client {
+	t.Helper()
+
 	environment := &envtest.Environment{CRDDirectoryPaths: []string{filepath.Join("..", "..", "config", "crd", "bases")}, ErrorIfCRDPathMissing: true}
 
 	var (
@@ -50,7 +59,7 @@ func startOperator(t *testing.T, withProjects ...bool) client.Client {
 	runtimeScheme, err := scheme.New()
 	require.NoError(t, err)
 
-	manager, err := ctrl.NewManager(restConfig, ctrl.Options{Scheme: runtimeScheme, Metrics: metricsserver.Options{BindAddress: "0"}, Controller: config.Controller{SkipNameValidation: ptr(true)}})
+	manager, err := ctrl.NewManager(restConfig, ctrl.Options{Scheme: runtimeScheme, Logger: logger, Metrics: metricsserver.Options{BindAddress: "0"}, Controller: config.Controller{SkipNameValidation: ptr(true)}})
 	require.NoError(t, err)
 	require.NoError(t, controller.IndexFields(t.Context(), manager.GetFieldIndexer()))
 	clients := harbor.NewClientCache(manager.GetClient())
