@@ -50,7 +50,7 @@ Run `make help` for the full list, and keep it and this section current as targe
 - `make fmt` / `make lint` (`lint-fix`): format; run every linter and check, reporting all failures before exiting non-zero.
 - `make test`: unit tests with `-race`, plus the tests of the agent and CI scripts.
 - `make generate` / `make check-generate`: regenerate CRDs, RBAC, deepcopy and the generated docs references, or fail on drift.
-- `make test-integration`: `integration`-tagged tests: envtest plus a real Harbor. Prints "no tests yet" until there are any.
+- `make test-integration`: `integration`-tagged tests: envtest plus a real Harbor that `test/harbor/up.sh` starts on kind (`KEEP_CLUSTER=1` keeps it, `HARBOR_CLUSTER` names it).
 - `make test-e2e`: `e2e`-tagged tests on the kind cluster `E2E_CLUSTER` with Harbor and the chart. Agents set `E2E_CLUSTER=harbor-op-<issue>`.
 - `make acceptance`: run every test named on a checklist `Tests:` line and print the scoreboard for `PHASE` (default 1).
 - `make chart-lint`, `make docs-check`, `make release VERSION=x.y.z` (dry run only; releasing is the release-manager's job).
