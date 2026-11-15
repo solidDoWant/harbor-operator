@@ -10,7 +10,7 @@ Same rules as phase 1. Approved for the owner by the operator on 2026-11-15.
   Tests:
 - **AC-3-04 Harbor down.** With Harbor unreachable, resources report `HarborUnavailable`, the operator doesn't crash or spin (bounded backoff, no more than one Harbor call per resource per backoff step), and everything recovers by itself within one resync after Harbor returns.
   Tests:
-- **AC-3-05 Watch namespaces.** With the chart's `watchNamespaces` set, the operator ignores resources elsewhere and runs with namespaced RBAC only.
+- **AC-3-05 Watch namespaces.** With the chart's `watchNamespaces` set, the operator ignores resources elsewhere and can't read Secrets or custom resources outside the listed namespaces. The only cluster-wide grants left are reading Namespaces and the metrics endpoint's token and access reviews.
   Tests:
 - **AC-3-06 Chart hardening.** The chart supports a NetworkPolicy (egress to the Harbor URL and the API server only), a PodDisruptionBudget, resource values with memory request equal to limit and no CPU limit by default, and a non-root read-only-root-filesystem pod. `make chart-lint` passes.
   Tests:
