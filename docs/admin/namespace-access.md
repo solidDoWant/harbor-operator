@@ -30,6 +30,8 @@ By default, a resource whose Harbor object already exists shows `AlreadyExists`.
 
 After adoption the operator makes the object match the spec, including values that were set in Harbor. Adoption gives a namespace control over an existing object. Leave `allowAdoption` off unless you need it. When the operator adopts a robot, it refreshes the robot secret at once, because Harbor never shows the old one.
 
+Immutability policies have no `adopt` field. A `HarborImmutabilityPolicy` always takes over all the immutability rules of its project, and it removes rules that were made in Harbor. The project resource already owns the project, so a namespace that the project admits can change the rules of that project.
+
 ## Deletion
 
 The operator deletes a Harbor object only when the resource that owns it is deleted and its `deletionPolicy` is `Delete`. The default is `Delete`. You can change the default for a whole connection in `spec.defaults.deletionPolicy`. A resource can set its own value.
@@ -48,4 +50,4 @@ The operator never deletes an object that it did not create or adopt.
 - Robot Secrets are written only to the namespace of the robot resource. The operator never overwrites a Secret that the robot does not own.
 - The operator never logs robot secrets or credentials, and never puts them in status, events or conditions.
 - A robot can only have permissions that the system robot of the connection holds. See [credentials](credentials.md).
-- Do not give namespace users write access to the `status` subresource of the operator's resources (for example `harborprojects/status`). The operator uses status as its own record. It is the proof that the operator created an object in Harbor. A user who can write status can take over Harbor projects and robots that the operator did not create. The chart gives this access only to the operator.
+- Do not give namespace users write access to the `status` subresource of the operator's resources (for example `harborprojects/status`). The operator uses status as its own record. It is the proof that the operator created an object in Harbor. A user who can write status can take over Harbor projects, robots and immutability rules that the operator did not create. The chart gives this access only to the operator.
