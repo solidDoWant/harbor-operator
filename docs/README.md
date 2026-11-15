@@ -50,6 +50,7 @@ docs/acceptance/
 docs/design/
   phase-1.md               The design for phase 1: types, packages and the reconcile tables.
   phase-2.md               The design for phase 2: types, packages and the reconcile tables.
+  phase-3.md               The design for phase 3: operations and documentation.
 
 docs/agents/               Instructions for the agents (not for people).
   planner.md               The planner's playbook.
