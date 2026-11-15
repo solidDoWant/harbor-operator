@@ -33,6 +33,17 @@ type VulnerabilitySpec struct {
 	CVEAllowlist *CVEAllowlist `json:"cveAllowlist,omitempty"`
 }
 
+// ProxyCacheSpec makes the project a proxy cache of a HarborRegistry. Whether it is set, and its registry, cannot change
+// after creation.
+type ProxyCacheSpec struct {
+	// RegistryRef names the HarborRegistry. Its allowedNamespaces must admit this project's namespace.
+	RegistryRef ObjectReference `json:"registryRef"`
+	// SpeedLimitKbps limits the pull speed from the upstream. -1 means unlimited. Unset is not touched.
+	// +kubebuilder:validation:XValidation:rule="self == -1 || self > 0",message="speedLimitKbps must be -1 or greater than 0"
+	// +optional
+	SpeedLimitKbps *int32 `json:"speedLimitKbps,omitempty"`
+}
+
 // HarborProjectSpec is the desired state of a Harbor project. Unset fields are not touched in Harbor.
 // +kubebuilder:validation:XValidation:rule="!(has(self.storageQuota) && has(self.unlimitedStorage) && self.unlimitedStorage)",message="storageQuota and unlimitedStorage cannot both be set"
 type HarborProjectSpec struct {
@@ -53,6 +64,9 @@ type HarborProjectSpec struct {
 	UnlimitedStorage bool `json:"unlimitedStorage,omitempty"`
 	// +optional
 	Vulnerability *VulnerabilitySpec `json:"vulnerability,omitempty"`
+	// ProxyCache makes the project a proxy cache. Set it at creation or never.
+	// +optional
+	ProxyCache *ProxyCacheSpec `json:"proxyCache,omitempty"`
 	// AllowedNamespaces admits robots and policies that point at this project.
 	// +optional
 	AllowedNamespaces AllowedNamespaces `json:"allowedNamespaces,omitempty"`
@@ -100,6 +114,8 @@ type HarborProjectStatus struct {
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 // +kubebuilder:validation:XValidation:rule="(has(self.spec.name) ? self.spec.name : self.metadata.name) == (has(oldSelf.spec.name) ? oldSelf.spec.name : oldSelf.metadata.name)",message="spec.name is immutable"
 // +kubebuilder:validation:XValidation:rule="self.spec.connectionRef == oldSelf.spec.connectionRef",message="spec.connectionRef is immutable"
+// +kubebuilder:validation:XValidation:rule="has(self.spec.proxyCache) == has(oldSelf.spec.proxyCache)",message="spec.proxyCache cannot be added or removed after creation"
+// +kubebuilder:validation:XValidation:rule="!has(self.spec.proxyCache) || !has(oldSelf.spec.proxyCache) || self.spec.proxyCache.registryRef == oldSelf.spec.proxyCache.registryRef",message="spec.proxyCache.registryRef is immutable"
 
 // HarborProject is a project in Harbor.
 type HarborProject struct {

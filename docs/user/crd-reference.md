@@ -38,6 +38,34 @@ Every field of the `harbor.soliddowant.dev/v1alpha1` resources. A field marked `
 | `status.observedGeneration` | integer |  | ObservedGeneration is the last generation reconciled. |
 | `status.registryHost` | string |  | RegistryHost used in docker configs. |
 
+## HarborImmutabilityPolicy
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `spec.deletionPolicy` | string |  | DeletionPolicy empty means the connection's default. One of `Delete`, `Orphan`. |
+| `spec.projectRef` | object | yes | ProjectRef names the HarborProject. Its allowedNamespaces must admit this namespace. Immutable. |
+| `spec.projectRef.name` | string | yes | Name of the object. |
+| `spec.projectRef.namespace` | string |  | Namespace of the object. Empty means the namespace of the referring resource. |
+| `spec.resyncInterval` | string |  | ResyncInterval empty means the connection's default. |
+| `spec.rules` | list of object | yes |  |
+| `spec.rules[].disabled` | boolean |  |  |
+| `spec.rules[].repositories` | object | yes | RepositorySelector picks repositories by a doublestar pattern. |
+| `spec.rules[].repositories.decoration` | string | yes | Decoration says whether the pattern includes or excludes. One of `repoMatches`, `repoExcludes`. |
+| `spec.rules[].repositories.pattern` | string | yes | Pattern is a doublestar pattern, for example `**`. |
+| `spec.rules[].tags` | object | yes | ImmutabilityTagSelector picks tags by a doublestar pattern. It is used by immutability rules, which have no untagged option. |
+| `spec.rules[].tags.decoration` | string | yes | Decoration says whether the pattern includes or excludes. One of `matches`, `excludes`. |
+| `spec.rules[].tags.pattern` | string | yes | Pattern is a doublestar pattern, for example `**`. |
+| `status.conditions` | list of object |  |  |
+| `status.conditions[].lastTransitionTime` | time | yes | lastTransitionTime is the last time the condition transitioned from one status to another. This should be when the underlying condition changed. If that is not known, then using the time when the API field changed is acceptable. |
+| `status.conditions[].message` | string | yes | message is a human readable message indicating details about the transition. This may be an empty string. |
+| `status.conditions[].observedGeneration` | integer |  | observedGeneration represents the .metadata.generation that the condition was set based upon. For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date with respect to the current state of the instance. |
+| `status.conditions[].reason` | string | yes | reason contains a programmatic identifier indicating the reason for the condition's last transition. Producers of specific condition types may define expected values and meanings for this field, and whether the values are considered a guaranteed API. The value should be a CamelCase string. This field may not be empty. |
+| `status.conditions[].status` | string | yes | status of the condition, one of True, False, Unknown. One of `True`, `False`, `Unknown`. |
+| `status.conditions[].type` | string | yes | type of condition in CamelCase or in foo.example.com/CamelCase. |
+| `status.harborKey` | string |  | HarborKey is the Harbor identity, object type and project name this resource claims. |
+| `status.observedGeneration` | integer |  | ObservedGeneration is the last generation reconciled. |
+| `status.projectID` | integer |  | ProjectID in Harbor. Set only while this resource owns the project's immutability rules. |
+
 ## HarborProjectRobot
 
 | Field | Type | Required | Description |
@@ -92,6 +120,11 @@ Every field of the `harbor.soliddowant.dev/v1alpha1` resources. A field marked `
 | `spec.connectionRef.namespace` | string |  | Namespace of the object. Empty means the namespace of the referring resource. |
 | `spec.deletionPolicy` | string |  | DeletionPolicy empty means the connection's default. One of `Delete`, `Orphan`. |
 | `spec.name` | string |  | Name of the Harbor project. Defaults to metadata.name. Immutable. |
+| `spec.proxyCache` | object |  | ProxyCache makes the project a proxy cache. Set it at creation or never. |
+| `spec.proxyCache.registryRef` | object | yes | RegistryRef names the HarborRegistry. Its allowedNamespaces must admit this project's namespace. |
+| `spec.proxyCache.registryRef.name` | string | yes | Name of the object. |
+| `spec.proxyCache.registryRef.namespace` | string |  | Namespace of the object. Empty means the namespace of the referring resource. |
+| `spec.proxyCache.speedLimitKbps` | integer |  | SpeedLimitKbps limits the pull speed from the upstream. -1 means unlimited. Unset is not touched. |
 | `spec.public` | boolean |  |  |
 | `spec.resyncInterval` | string |  | ResyncInterval empty means the connection's default. |
 | `spec.storageQuota` | quantity |  | StorageQuota must be greater than zero. Use unlimitedStorage for no limit. |
@@ -116,3 +149,115 @@ Every field of the `harbor.soliddowant.dev/v1alpha1` resources. A field marked `
 | `status.harborName` | string |  | HarborName is the project's name in Harbor. |
 | `status.observedGeneration` | integer |  | ObservedGeneration is the last generation reconciled. |
 | `status.projectID` | integer |  | ProjectID in Harbor. |
+
+## HarborRegistry
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `spec.adopt` | boolean |  | Adopt lets this resource take over an existing registry of the same name. |
+| `spec.allowedNamespaces` | object |  | AllowedNamespaces admits the HarborProjects that may use this registry as a proxy-cache upstream. |
+| `spec.allowedNamespaces.names` | list of string |  | Names is an explicit list of namespace names. |
+| `spec.allowedNamespaces.selector` | object |  | Selector admits every namespace whose labels match. |
+| `spec.connectionRef` | object | yes | ConnectionRef names the HarborConnection. Its systemAllowedNamespaces must admit this namespace. |
+| `spec.connectionRef.name` | string | yes | Name of the object. |
+| `spec.connectionRef.namespace` | string |  | Namespace of the object. Empty means the namespace of the referring resource. |
+| `spec.credentialsSecretRef` | object |  | CredentialsSecretRef names a Secret in this namespace with the keys accessKey and accessSecret. |
+| `spec.credentialsSecretRef.name` | string | yes | Name of the Secret. |
+| `spec.deletionPolicy` | string |  | DeletionPolicy empty means the connection's default. One of `Delete`, `Orphan`. |
+| `spec.description` | string |  |  |
+| `spec.insecure` | boolean |  | Insecure skips certificate checks on the upstream. |
+| `spec.name` | string |  | Name of the registry in Harbor. Defaults to metadata.name. Immutable. |
+| `spec.resyncInterval` | string |  | ResyncInterval empty means the connection's default. |
+| `spec.type` | string | yes | Type is the Harbor adapter type, for example docker-hub or github-ghcr. Immutable. Harbor checks the value. |
+| `spec.url` | string | yes | URL of the upstream registry. No user information and no trailing slash. |
+| `status.conditions` | list of object |  |  |
+| `status.conditions[].lastTransitionTime` | time | yes | lastTransitionTime is the last time the condition transitioned from one status to another. This should be when the underlying condition changed. If that is not known, then using the time when the API field changed is acceptable. |
+| `status.conditions[].message` | string | yes | message is a human readable message indicating details about the transition. This may be an empty string. |
+| `status.conditions[].observedGeneration` | integer |  | observedGeneration represents the .metadata.generation that the condition was set based upon. For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date with respect to the current state of the instance. |
+| `status.conditions[].reason` | string | yes | reason contains a programmatic identifier indicating the reason for the condition's last transition. Producers of specific condition types may define expected values and meanings for this field, and whether the values are considered a guaranteed API. The value should be a CamelCase string. This field may not be empty. |
+| `status.conditions[].status` | string | yes | status of the condition, one of True, False, Unknown. One of `True`, `False`, `Unknown`. |
+| `status.conditions[].type` | string | yes | type of condition in CamelCase or in foo.example.com/CamelCase. |
+| `status.createPending` | time |  | CreatePending is set just before the operator asks Harbor to create the registry, and cleared once the ID is recorded or Harbor refuses the create. |
+| `status.harborKey` | string |  | HarborKey is the Harbor identity, object type and registry name this resource claims. |
+| `status.health` | string |  | Health is the result of the last ping of the upstream. It never changes Ready. One of `healthy`, `unhealthy`, `unknown`. |
+| `status.observedGeneration` | integer |  | ObservedGeneration is the last generation reconciled. |
+| `status.registryID` | integer |  | RegistryID in Harbor. |
+
+## HarborRetentionPolicy
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `spec.deletionPolicy` | string |  | DeletionPolicy empty means the connection's default. One of `Delete`, `Orphan`. |
+| `spec.projectRef` | object | yes | ProjectRef names the HarborProject. Its allowedNamespaces must admit this namespace. Immutable. |
+| `spec.projectRef.name` | string | yes | Name of the object. |
+| `spec.projectRef.namespace` | string |  | Namespace of the object. Empty means the namespace of the referring resource. |
+| `spec.resyncInterval` | string |  | ResyncInterval empty means the connection's default. |
+| `spec.rules` | list of object | yes |  |
+| `spec.rules[].count` | integer |  | Count is K, N or the number of days, depending on the template. |
+| `spec.rules[].disabled` | boolean |  |  |
+| `spec.rules[].repositories` | object | yes | RepositorySelector picks repositories by a doublestar pattern. |
+| `spec.rules[].repositories.decoration` | string | yes | Decoration says whether the pattern includes or excludes. One of `repoMatches`, `repoExcludes`. |
+| `spec.rules[].repositories.pattern` | string | yes | Pattern is a doublestar pattern, for example `**`. |
+| `spec.rules[].tags` | object | yes | TagSelector picks tags by a doublestar pattern. It is used by retention rules. |
+| `spec.rules[].tags.decoration` | string | yes | Decoration says whether the pattern includes or excludes. One of `matches`, `excludes`. |
+| `spec.rules[].tags.pattern` | string | yes | Pattern is a doublestar pattern, for example `**`. |
+| `spec.rules[].tags.untagged` | boolean |  | Untagged also selects artifacts that have no tag. |
+| `spec.rules[].template` | string | yes | Template is the retention template. One of `latestPushedK`, `latestPulledN`, `nDaysSinceLastPush`, `nDaysSinceLastPull`, `always`. |
+| `spec.schedule` | string |  | Schedule is a Harbor cron expression with six fields (seconds first). Empty means manual runs only. |
+| `status.conditions` | list of object |  |  |
+| `status.conditions[].lastTransitionTime` | time | yes | lastTransitionTime is the last time the condition transitioned from one status to another. This should be when the underlying condition changed. If that is not known, then using the time when the API field changed is acceptable. |
+| `status.conditions[].message` | string | yes | message is a human readable message indicating details about the transition. This may be an empty string. |
+| `status.conditions[].observedGeneration` | integer |  | observedGeneration represents the .metadata.generation that the condition was set based upon. For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date with respect to the current state of the instance. |
+| `status.conditions[].reason` | string | yes | reason contains a programmatic identifier indicating the reason for the condition's last transition. Producers of specific condition types may define expected values and meanings for this field, and whether the values are considered a guaranteed API. The value should be a CamelCase string. This field may not be empty. |
+| `status.conditions[].status` | string | yes | status of the condition, one of True, False, Unknown. One of `True`, `False`, `Unknown`. |
+| `status.conditions[].type` | string | yes | type of condition in CamelCase or in foo.example.com/CamelCase. |
+| `status.harborKey` | string |  | HarborKey is the Harbor identity, object type and project name this resource claims. |
+| `status.observedGeneration` | integer |  | ObservedGeneration is the last generation reconciled. |
+| `status.projectID` | integer |  | ProjectID in Harbor of the project this policy belongs to. |
+| `status.retentionID` | integer |  | RetentionID in Harbor. |
+
+## HarborSystemRobot
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `spec.adopt` | boolean |  |  |
+| `spec.connectionRef` | object | yes | ConnectionRef names the HarborConnection. Its systemAllowedNamespaces must admit this namespace. Immutable. |
+| `spec.connectionRef.name` | string | yes | Name of the object. |
+| `spec.connectionRef.namespace` | string |  | Namespace of the object. Empty means the namespace of the referring resource. |
+| `spec.deletionPolicy` | string |  | DeletionPolicy empty means the connection's default. One of `Delete`, `Orphan`. |
+| `spec.description` | string |  |  |
+| `spec.disabled` | boolean |  |  |
+| `spec.duration` | integer |  | Duration in days. -1 means the robot never expires. |
+| `spec.name` | string |  | Name of the robot. Defaults to metadata.name. Immutable. |
+| `spec.projectPermissions` | list of object |  | ProjectPermissions are permissions in projects. At most 10 entries keep the access rule inside the API server's cost budget. |
+| `spec.projectPermissions[].access` | list of object | yes |  |
+| `spec.projectPermissions[].access[].action` | string | yes | Action is a Harbor action, for example push. |
+| `spec.projectPermissions[].access[].resource` | string | yes | Resource is a Harbor resource, for example repository. |
+| `spec.projectPermissions[].projects` | list of string | yes | Projects are Harbor project names. "*" means every project. |
+| `spec.resyncInterval` | string |  | ResyncInterval empty means the connection's default. |
+| `spec.secret` | object |  | RobotSecretSpec says which Secrets hold the robot's credentials. They are written to the robot's own namespace. |
+| `spec.secret.dockerConfigJSON` | object |  | DockerConfigJSON is a kubernetes.io/dockerconfigjson Secret. Enabled by default. |
+| `spec.secret.dockerConfigJSON.enabled` | boolean |  | Enabled turns the Secret on. |
+| `spec.secret.dockerConfigJSON.name` | string |  | Name of the Secret. Defaults to <resource name>-dockerconfig or <resource name>-credentials. |
+| `spec.secret.opaque` | object |  | Opaque is a Secret with the keys username, password and registry. Disabled by default. |
+| `spec.secret.opaque.enabled` | boolean |  | Enabled turns the Secret on. |
+| `spec.secret.opaque.name` | string |  | Name of the Secret. Defaults to <resource name>-dockerconfig or <resource name>-credentials. |
+| `spec.secret.rotate` | string |  | Rotate is any string. Changing it refreshes the robot's secret. |
+| `spec.systemPermissions` | list of object |  | SystemPermissions are permissions on system resources. |
+| `spec.systemPermissions[].action` | string | yes | Action is a Harbor action, for example create. |
+| `spec.systemPermissions[].resource` | string | yes | Resource is a Harbor system resource, for example project. |
+| `status.conditions` | list of object |  |  |
+| `status.conditions[].lastTransitionTime` | time | yes | lastTransitionTime is the last time the condition transitioned from one status to another. This should be when the underlying condition changed. If that is not known, then using the time when the API field changed is acceptable. |
+| `status.conditions[].message` | string | yes | message is a human readable message indicating details about the transition. This may be an empty string. |
+| `status.conditions[].observedGeneration` | integer |  | observedGeneration represents the .metadata.generation that the condition was set based upon. For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date with respect to the current state of the instance. |
+| `status.conditions[].reason` | string | yes | reason contains a programmatic identifier indicating the reason for the condition's last transition. Producers of specific condition types may define expected values and meanings for this field, and whether the values are considered a guaranteed API. The value should be a CamelCase string. This field may not be empty. |
+| `status.conditions[].status` | string | yes | status of the condition, one of True, False, Unknown. One of `True`, `False`, `Unknown`. |
+| `status.conditions[].type` | string | yes | type of condition in CamelCase or in foo.example.com/CamelCase. |
+| `status.createPending` | time |  | CreatePending is set just before the operator asks Harbor to create the robot, and cleared once its Secrets hold the new secret or Harbor refuses the create. A robot found in Harbor counts as this resource's own interrupted create only when it was created no earlier than this time, less a clock-skew allowance. |
+| `status.expiresAt` | time |  | ExpiresAt is when the robot expires. Unset means never. |
+| `status.harborKey` | string |  | HarborKey is the Harbor identity, project name and robot name this resource claims. |
+| `status.harborName` | string |  | HarborName is the robot's name as Harbor returned it, including Harbor's prefix. |
+| `status.lastRotated` | time |  | LastRotated is when the secret was last refreshed. |
+| `status.observedGeneration` | integer |  | ObservedGeneration is the last generation reconciled. |
+| `status.observedRotate` | string |  | ObservedRotate is the last spec.secret.rotate value acted on. |
+| `status.robotID` | integer |  | RobotID in Harbor. |
