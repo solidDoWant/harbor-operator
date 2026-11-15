@@ -77,6 +77,14 @@ func readyRobotProjectWithSystemRobot(t *testing.T, useSystemRobot bool, changeC
 func readyRobotProjectLogging(t *testing.T, logger logr.Logger, useSystemRobot bool, changeConnection func(*harborv1alpha1.HarborConnection), changeProject func(*harborv1alpha1.HarborProject)) *robotSetup {
 	t.Helper()
 
+	return readyRobotProjectWith(t, operatorOptions{logger: logger}, useSystemRobot, changeConnection, changeProject)
+}
+
+// readyRobotProjectWith is readyRobotProjectWithSystemRobot with the operator started with options; the project and
+// robot controllers always run.
+func readyRobotProjectWith(t *testing.T, options operatorOptions, useSystemRobot bool, changeConnection func(*harborv1alpha1.HarborConnection), changeProject func(*harborv1alpha1.HarborProject)) *robotSetup {
+	t.Helper()
+
 	instance := harborfixture.FromEnv(t)
 	admin, err := harbor.NewClient(harbor.ConnectionConfig{URL: instance.URL, Username: instance.Username, Password: instance.Password})
 	require.NoError(t, err)
@@ -84,7 +92,8 @@ func readyRobotProjectLogging(t *testing.T, logger logr.Logger, useSystemRobot b
 	projectName := harborfixture.UniqueName(t, "op")
 	t.Cleanup(func() { instance.DeleteProject(context.Background(), t, projectName) })
 
-	cl := startOperatorLogging(t, logger, true)
+	options.withProjects = true
+	cl := startOperatorWith(t, options)
 
 	connectionInstance := *instance
 	if useSystemRobot {

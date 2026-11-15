@@ -44,7 +44,7 @@ Approved for the owner by the operator on 2026-11-15. Only the owner adds scenar
 - **AC-1-15 Secret options.** Disabling the dockerconfigjson Secret, enabling the opaque Secret and setting custom names produce exactly the requested Secrets with the documented keys; switching back removes the disabled ones.
   Tests: `internal/controller: TestRobotSecretOptionsWriteExactlyTheRequestedSecrets`
 - **AC-1-16 Lost secret.** Deleting the robot's Secret produces a new working secret; the old one no longer authenticates.
-  Tests: `internal/controller: TestRobotSecretDeletedGetsANewRobotSecret`, `internal/controller: TestRobotSecretRenewalReplacesTheRobotWithASystemRobotConnection/Secret deleted`
+  Tests: `internal/controller: TestRobotSecretDeletedGetsANewRobotSecret`, `internal/controller: TestRobotSecretDeletedDuringAReconcileGetsANewRobotSecret`, `internal/controller: TestRobotSecretRenewalReplacesTheRobotWithASystemRobotConnection/Secret deleted`
 - **AC-1-17 Rotate.** Changing `secret.rotate` gives the robot a new secret and rewrites the Secret.
   Tests: `internal/controller: TestRobotRotateGivesTheRobotANewSecret`, `internal/controller: TestRobotSecretRenewalReplacesTheRobotWithASystemRobotConnection/rotate changed`
 - **AC-1-18 Robot drift.** Permissions, description, expiry and disabled state changed in Harbor are put back, both with a system-robot connection (by replacing the robot and rewriting its Secret) and with an admin-user connection (in place).
