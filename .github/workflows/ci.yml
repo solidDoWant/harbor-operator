@@ -119,7 +119,10 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Harbor setup plus the tests' own budget in scripts/test-tagged.sh (go
+    # test -timeout 25m inside a 30-minute timeout). The tests run one at a
+    # time against one Harbor, so the suite grows with every reconciler.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/nix-dev-shell
