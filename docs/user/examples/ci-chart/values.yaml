@@ -1,0 +1,11 @@
+# The namespace the pipeline's resources live in.
+namespace: ci-my-app
+# The name of the project in Harbor. It must be unique in the Harbor instance.
+projectName: my-app
+# The HarborConnection your admin gave you.
+connection:
+  name: harbor
+  namespace: harbor-operator-system
+# The label that the connection's allowedNamespaces.selector matches.
+namespaceLabels:
+  harbor.example.com/ci: "true"

@@ -16,13 +16,14 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: {{ include "harbor-operator.fullname" . }}
+  {{- /* A binding's roleRef can't change, so each ClusterRole gets its own binding name; helm upgrade swaps them. */}}
+  name: {{ include "harbor-operator.fullname" . }}{{ if .Values.watchNamespaces }}-namespaces{{ end }}
   labels:
     {{- include "harbor-operator.labels" . | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: {{ include "harbor-operator.fullname" . }}
+  name: {{ include "harbor-operator.fullname" . }}{{ if .Values.watchNamespaces }}-namespaces{{ end }}
 subjects:
   - kind: ServiceAccount
     name: {{ include "harbor-operator.serviceAccountName" . }}

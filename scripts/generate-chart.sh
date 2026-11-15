@@ -2,7 +2,9 @@
 # Writes the chart's generated templates from the files controller-gen produced
 # (run by `make generate`; never edit the outputs by hand):
 #   - templates/crds/*.yaml from config/crd/bases, each behind the crds.install value;
-#   - templates/clusterrole.yaml from the rules in config/rbac/role.yaml.
+#   - templates/_manager-rules.tpl: the rules in config/rbac/role.yaml as the named
+#     template harbor-operator.managerRules, which the ClusterRole and the
+#     per-namespace Roles render.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
@@ -19,14 +21,8 @@ for crd in config/crd/bases/*.yaml; do
 done
 
 {
-	echo '# Generated from config/rbac/role.yaml by make generate; do not edit.'
-	cat <<'HEADER'
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: {{ include "harbor-operator.fullname" . }}
-  labels:
-    {{- include "harbor-operator.labels" . | nindent 4 }}
-HEADER
+	echo '{{/* Generated from config/rbac/role.yaml by make generate; do not edit. */}}'
+	echo '{{- define "harbor-operator.managerRules" -}}'
 	sed -n '/^rules:/,$p' config/rbac/role.yaml
-} >"$chart/templates/clusterrole.yaml"
+	echo '{{- end }}'
+} >"$chart/templates/_manager-rules.tpl"

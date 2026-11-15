@@ -12,3 +12,4 @@ cd "$(git rev-parse --show-toplevel)"
 echo "generate-reference: wrote docs/admin/chart-values.md"
 go run ./scripts/docs/crdref config/crd/bases >docs/user/crd-reference.md
 echo "generate-reference: wrote docs/user/crd-reference.md"
+./scripts/docs/include-examples.py

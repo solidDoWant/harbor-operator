@@ -1,0 +1,48 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.namespace }}
+  labels:
+    {{- toYaml .Values.namespaceLabels | nindent 4 }}
+---
+apiVersion: harbor.soliddowant.dev/v1alpha1
+kind: HarborProject
+metadata:
+  name: {{ .Values.projectName }}
+  namespace: {{ .Values.namespace }}
+spec:
+  connectionRef:
+    name: {{ .Values.connection.name }}
+    namespace: {{ .Values.connection.namespace }}
+  name: {{ .Values.projectName }}
+  public: false
+---
+apiVersion: harbor.soliddowant.dev/v1alpha1
+kind: HarborProjectRobot
+metadata:
+  name: push
+  namespace: {{ .Values.namespace }}
+spec:
+  projectRef:
+    name: {{ .Values.projectName }}
+  description: Pushes images from CI
+  permissions:
+    - resource: repository
+      action: push
+    - resource: repository
+      action: pull
+---
+apiVersion: harbor.soliddowant.dev/v1alpha1
+kind: HarborRetentionPolicy
+metadata:
+  name: {{ .Values.projectName }}
+  namespace: {{ .Values.namespace }}
+spec:
+  projectRef:
+    name: {{ .Values.projectName }}
+  schedule: "0 0 0 * * *"
+  rules:
+    - template: latestPushedK
+      count: 10
+      repositories: {decoration: repoMatches, pattern: "**"}
+      tags: {decoration: matches, pattern: "**"}
