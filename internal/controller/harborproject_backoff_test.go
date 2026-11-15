@@ -10,7 +10,7 @@ import (
 )
 
 func TestProjectRetryBackoffIsCappedAtTenMinutes(t *testing.T) {
-	limiter := (&HarborProjectReconciler{}).rateLimiter()
+	limiter := backoffLimiter((&HarborProjectReconciler{}).MaxBackoff)
 	request := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "default", Name: "project"}}
 
 	var delays []time.Duration
@@ -18,12 +18,12 @@ func TestProjectRetryBackoffIsCappedAtTenMinutes(t *testing.T) {
 		delays = append(delays, limiter.When(request))
 	}
 
-	assert.Less(t, delays[0], time.Second, "the first retry comes quickly")
-	assert.Less(t, delays[16], 10*time.Minute, "the delay still grows after 16 failures")
+	assert.Equal(t, 5*time.Second, delays[0], "the first retry waits 5 seconds, so a Harbor that is down is not asked in a tight loop")
+	assert.Equal(t, 10*time.Second, delays[1], "the delay doubles")
 
 	for index, delay := range delays {
 		assert.LessOrEqual(t, delay, 10*time.Minute, "retry %d", index)
 	}
 
-	assert.Equal(t, 10*time.Minute, delays[len(delays)-1], "a project that keeps failing is retried every 10 minutes")
+	assert.Equal(t, 5*time.Minute, delays[len(delays)-1], "a project that keeps failing is retried every 5 minutes")
 }

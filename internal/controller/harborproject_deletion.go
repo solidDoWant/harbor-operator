@@ -4,14 +4,11 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
-	"golang.org/x/time/rate"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -29,10 +26,6 @@ const (
 	// ImmutabilityProjectIndex finds the immutability policies that reference a project. Its value is
 	// "namespace/name", the namespace defaulting to the policy's own.
 	ImmutabilityProjectIndex = "spec.projectRef"
-
-	// defaultMaxBackoff caps the retry delay of a failing reconcile, so a project whose deletion Harbor blocks is
-	// checked again at least this often.
-	defaultMaxBackoff = 10 * time.Minute
 )
 
 // robotProjectKey is the project a robot references.
@@ -43,24 +36,6 @@ func robotProjectKey(robot *harborv1alpha1.HarborProjectRobot) types.NamespacedN
 	}
 
 	return types.NamespacedName{Namespace: namespace, Name: robot.Spec.ProjectRef.Name}
-}
-
-// backoffLimiter retries a failing item with exponential backoff up to maxDelay, with the same overall rate limit as
-// controller-runtime's default.
-func backoffLimiter(maxDelay time.Duration) workqueue.TypedRateLimiter[reconcile.Request] {
-	return workqueue.NewTypedMaxOfRateLimiter(
-		workqueue.NewTypedItemExponentialFailureRateLimiter[reconcile.Request](5*time.Millisecond, maxDelay),
-		&workqueue.TypedBucketRateLimiter[reconcile.Request]{Limiter: rate.NewLimiter(rate.Limit(10), 100)},
-	)
-}
-
-func (r *HarborProjectReconciler) rateLimiter() workqueue.TypedRateLimiter[reconcile.Request] {
-	maxDelay := r.MaxBackoff
-	if maxDelay <= 0 {
-		maxDelay = defaultMaxBackoff
-	}
-
-	return backoffLimiter(maxDelay)
 }
 
 func (r *HarborProjectReconciler) projectForRetention(_ context.Context, object client.Object) []reconcile.Request {

@@ -31,6 +31,8 @@ type HarborProjectRobotReconciler struct {
 	Clients *harbor.ClientCache
 	// Recorder emits events on the resource.
 	Recorder events.EventRecorder
+	// Wakeups receives the connection when a Harbor call fails as unavailable. Nil sends nothing.
+	Wakeups ConnectionWakeups
 }
 
 // +kubebuilder:rbac:groups=harbor.soliddowant.dev,resources=harborprojectrobots,verbs=get;list;watch;update;patch
@@ -47,7 +49,7 @@ func (r *HarborProjectRobotReconciler) SetupWithManager(mgr ctrl.Manager) error 
 		Watches(&harborv1alpha1.HarborProject{}, handler.EnqueueRequestsFromMapFunc(r.robotsForProject)).
 		Watches(&corev1.Namespace{}, handler.EnqueueRequestsFromMapFunc(r.robotsInNamespace)).
 		Watches(&harborv1alpha1.HarborProjectRobot{}, handler.EnqueueRequestsFromMapFunc(r.otherClaimants)).
-		WithOptions(controller.Options{MaxConcurrentReconciles: 4}).
+		WithOptions(controller.Options{MaxConcurrentReconciles: 4, RateLimiter: backoffLimiter(0)}).
 		Named("harborprojectrobot").
 		Complete(r)
 }
@@ -192,7 +194,7 @@ func newProjectRobotTarget(project *harborv1alpha1.HarborProject) projectRobotTa
 }
 
 func (r *HarborProjectRobotReconciler) lifecycle() *robotLifecycle {
-	return &robotLifecycle{Client: r.Client, Recorder: r.Recorder}
+	return &robotLifecycle{Client: r.Client, Recorder: r.Recorder, Wakeups: r.Wakeups}
 }
 
 // Reconcile makes the Harbor robot match the resource, writes its Secrets and records the result in status.

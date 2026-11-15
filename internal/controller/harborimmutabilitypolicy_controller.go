@@ -36,6 +36,8 @@ type HarborImmutabilityPolicyReconciler struct {
 	Clients *harbor.ClientCache
 	// Recorder emits events on the resource.
 	Recorder events.EventRecorder
+	// Wakeups receives the connection when a Harbor call fails as unavailable. Nil sends nothing.
+	Wakeups ConnectionWakeups
 }
 
 // +kubebuilder:rbac:groups=harbor.soliddowant.dev,resources=harborimmutabilitypolicies,verbs=get;list;watch;update;patch
@@ -50,7 +52,7 @@ func (r *HarborImmutabilityPolicyReconciler) SetupWithManager(mgr ctrl.Manager) 
 		Watches(&harborv1alpha1.HarborProject{}, handler.EnqueueRequestsFromMapFunc(r.policiesForProject)).
 		Watches(&corev1.Namespace{}, handler.EnqueueRequestsFromMapFunc(r.policiesInNamespace)).
 		Watches(&harborv1alpha1.HarborImmutabilityPolicy{}, handler.EnqueueRequestsFromMapFunc(r.otherClaimants)).
-		WithOptions(controller.Options{MaxConcurrentReconciles: 4}).
+		WithOptions(controller.Options{MaxConcurrentReconciles: 4, RateLimiter: backoffLimiter(0)}).
 		Named("harborimmutabilitypolicy").
 		Complete(r)
 }
@@ -122,10 +124,12 @@ func immutabilityResync(policy *harborv1alpha1.HarborImmutabilityPolicy, connect
 
 // immutabilityReconcile carries what one reconcile has resolved.
 type immutabilityReconcile struct {
-	policy  *harborv1alpha1.HarborImmutabilityPolicy
-	project *harborv1alpha1.HarborProject
-	harbor  *harbor.Client
-	resync  time.Duration
+	// connection is the HarborConnection the policy reaches Harbor through.
+	connection types.NamespacedName
+	policy     *harborv1alpha1.HarborImmutabilityPolicy
+	project    *harborv1alpha1.HarborProject
+	harbor     *harbor.Client
+	resync     time.Duration
 }
 
 // Reconcile makes the project's immutability rules match the resource and records the result in status.
@@ -254,7 +258,7 @@ func (r *HarborImmutabilityPolicyReconciler) resolve(ctx context.Context, policy
 		}
 	}
 
-	return &immutabilityReconcile{policy: policy, project: project, harbor: harborClient, resync: resync}, reconcile.Result{}, nil
+	return &immutabilityReconcile{connection: client.ObjectKeyFromObject(connection), policy: policy, project: project, harbor: harborClient, resync: resync}, reconcile.Result{}, nil
 }
 
 // admitted reports whether a claimant's project admits the claimant's namespace.
@@ -278,7 +282,7 @@ func (r *HarborImmutabilityPolicyReconciler) sync(ctx context.Context, state *im
 
 	have, err := state.harbor.ListImmutabilityRules(ctx, projectID)
 	if err != nil {
-		return r.harborFailed(ctx, state.policy, err)
+		return r.syncFailed(ctx, state, err)
 	}
 
 	want := desiredImmutabilityRules(state.policy)
@@ -292,14 +296,14 @@ func (r *HarborImmutabilityPolicyReconciler) sync(ctx context.Context, state *im
 
 	for _, rule := range plan.create {
 		if err := state.harbor.CreateImmutabilityRule(ctx, projectID, rule); err != nil {
-			return r.harborFailed(ctx, state.policy, err)
+			return r.syncFailed(ctx, state, err)
 		}
 	}
 
 	if len(plan.create) > 0 {
 		// Harbor creates every rule enabled, so a rule wanted disabled needs an update with the ID Harbor gave it.
 		if have, err = state.harbor.ListImmutabilityRules(ctx, projectID); err != nil {
-			return r.harborFailed(ctx, state.policy, err)
+			return r.syncFailed(ctx, state, err)
 		}
 
 		plan = planImmutabilityRules(want, have)
@@ -307,13 +311,13 @@ func (r *HarborImmutabilityPolicyReconciler) sync(ctx context.Context, state *im
 
 	for _, rule := range plan.update {
 		if err := state.harbor.UpdateImmutabilityRule(ctx, projectID, rule); err != nil {
-			return r.harborFailed(ctx, state.policy, err)
+			return r.syncFailed(ctx, state, err)
 		}
 	}
 
 	for _, rule := range plan.remove {
 		if err := state.harbor.DeleteImmutabilityRule(ctx, projectID, rule.ID); err != nil && !harbor.IsNotFound(err) {
-			return r.harborFailed(ctx, state.policy, err)
+			return r.syncFailed(ctx, state, err)
 		}
 	}
 
@@ -437,6 +441,15 @@ func (r *HarborImmutabilityPolicyReconciler) finalize(ctx context.Context, polic
 	recordDeleted(r.Recorder, policy, "immutability rules of project", policy.Name)
 
 	return release()
+}
+
+// syncFailed is harborFailed for a reconcile that reached Harbor through a ready connection: when Harbor is
+// unavailable, it also asks for the connection to be checked again.
+func (r *HarborImmutabilityPolicyReconciler) syncFailed(ctx context.Context, state *immutabilityReconcile, err error) (reconcile.Result, error) {
+	reason, _ := harbor.MapError(err)
+	r.Wakeups.wakeIfUnavailable(state.connection, reason)
+
+	return r.harborFailed(ctx, state.policy, err)
 }
 
 // harborFailed reports a Harbor error. A spec Harbor rejects waits for a spec change; anything else retries with

@@ -15,9 +15,11 @@ import (
 	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	harborv1alpha1 "github.com/solidDoWant/harbor-operator/api/v1alpha1"
 	"github.com/solidDoWant/harbor-operator/internal/access"
@@ -44,6 +46,9 @@ type HarborConnectionReconciler struct {
 	Clients *harbor.ClientCache
 	// Recorder emits events on the resource.
 	Recorder events.EventRecorder
+	// Wakeups carries connections to check again now because a resource using them found Harbor unavailable. Nil
+	// watches nothing.
+	Wakeups ConnectionWakeups
 }
 
 // +kubebuilder:rbac:groups=harbor.soliddowant.dev,resources=harborconnections,verbs=get;list;watch;update;patch
@@ -132,22 +137,44 @@ func connectionKey(project *harborv1alpha1.HarborProject) types.NamespacedName {
 	return types.NamespacedName{Namespace: namespace, Name: project.Spec.ConnectionRef.Name}
 }
 
-// SetupWithManager registers the reconciler with its watches: the credential Secret and the projects and registries
-// that use the connection.
+// SetupWithManager registers the reconciler with its watches: the credential Secret, the projects, registries and
+// system robots that use the connection while it is being deleted, and the wakeups from resources that found Harbor
+// unavailable.
 func (r *HarborConnectionReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
+	builder := ctrl.NewControllerManagedBy(mgr).
 		For(&harborv1alpha1.HarborConnection{}).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.connectionsForSecret)).
-		Watches(&harborv1alpha1.HarborProject{}, handler.EnqueueRequestsFromMapFunc(func(_ context.Context, object client.Object) []reconcile.Request {
-			return []reconcile.Request{{NamespacedName: connectionKey(object.(*harborv1alpha1.HarborProject))}}
+		Watches(&harborv1alpha1.HarborProject{}, handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
+			return r.ifTerminating(ctx, connectionKey(object.(*harborv1alpha1.HarborProject)))
 		})).
-		Watches(&harborv1alpha1.HarborRegistry{}, handler.EnqueueRequestsFromMapFunc(func(_ context.Context, object client.Object) []reconcile.Request {
-			return []reconcile.Request{{NamespacedName: registryConnectionKey(object.(*harborv1alpha1.HarborRegistry))}}
+		Watches(&harborv1alpha1.HarborRegistry{}, handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
+			return r.ifTerminating(ctx, registryConnectionKey(object.(*harborv1alpha1.HarborRegistry)))
 		})).
-		Watches(&harborv1alpha1.HarborSystemRobot{}, handler.EnqueueRequestsFromMapFunc(func(_ context.Context, object client.Object) []reconcile.Request {
-			return []reconcile.Request{{NamespacedName: systemRobotConnectionKey(object.(*harborv1alpha1.HarborSystemRobot))}}
+		Watches(&harborv1alpha1.HarborSystemRobot{}, handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
+			return r.ifTerminating(ctx, systemRobotConnectionKey(object.(*harborv1alpha1.HarborSystemRobot)))
 		})).
-		Complete(r)
+		// The probe of a Harbor that is down backs off like every other reconcile, so it is asked at most once per
+		// step.
+		WithOptions(controller.Options{RateLimiter: backoffLimiter(0)})
+
+	if r.Wakeups != nil {
+		builder = builder.WatchesRawSource(source.Channel(r.Wakeups, &handler.EnqueueRequestForObject{}))
+	}
+
+	return builder.Complete(r)
+}
+
+// ifTerminating returns the connection when it is being deleted. Its finalizer waits for the resources that use it,
+// so a change to one of them is checked then. A connection in use is not checked on their changes: that would ask a
+// Harbor that is down once per change instead of once per backoff step. A resource that finds Harbor unavailable asks
+// for a check through Wakeups instead.
+func (r *HarborConnectionReconciler) ifTerminating(ctx context.Context, key types.NamespacedName) []reconcile.Request {
+	var connection harborv1alpha1.HarborConnection
+	if err := r.Get(ctx, key, &connection); err != nil || connection.DeletionTimestamp.IsZero() {
+		return nil
+	}
+
+	return []reconcile.Request{{NamespacedName: key}}
 }
 
 func (r *HarborConnectionReconciler) connectionsForSecret(ctx context.Context, object client.Object) []reconcile.Request {
