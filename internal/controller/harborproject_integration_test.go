@@ -459,6 +459,7 @@ func TestProjectSpecHarborRejectsReportsInvalidSpec(t *testing.T) {
 
 	// The same on an update of an existing project.
 	setQuota(tooLarge)
+
 	rejected = awaitProject(t, cl, key, metav1.ConditionFalse, harborv1alpha1.ReasonInvalidSpec)
 	assert.Contains(t, readyMessage(rejected), "1024TB")
 
