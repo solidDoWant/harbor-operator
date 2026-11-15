@@ -29,6 +29,9 @@ log "installing the operator chart"
 helm upgrade --install harbor-operator deploy/charts/harbor-operator \
 	--kube-context "kind-${cluster}" --namespace harbor-operator-system --create-namespace \
 	--set "image.tag=${tag}" --set image.pullPolicy=Never \
+	--set metrics.reader.enabled=true \
+	--set metrics.reader.subjects[0].namespace=harbor-operator-system \
+	--set metrics.reader.subjects[0].name=metrics-reader-e2e \
 	--wait --timeout 5m >&2
 
 cat >>"$env_file" <<ENV

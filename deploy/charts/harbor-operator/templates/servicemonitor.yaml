@@ -1,0 +1,26 @@
+{{- if .Values.metrics.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "harbor-operator.fullname" . }}
+  labels:
+    {{- include "harbor-operator.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "harbor-operator.selectorLabels" . | nindent 6 }}
+  endpoints:
+    - port: metrics
+      path: /metrics
+      scheme: https
+      bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+      {{- with .Values.metrics.serviceMonitor.interval }}
+      interval: {{ . | quote }}
+      {{- end }}
+      tlsConfig:
+        {{- if .Values.metrics.serviceMonitor.caFile }}
+        caFile: {{ .Values.metrics.serviceMonitor.caFile | quote }}
+        {{- else }}
+        insecureSkipVerify: true
+        {{- end }}
+{{- end }}

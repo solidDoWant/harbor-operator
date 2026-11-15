@@ -1,0 +1,35 @@
+{{- if or .Values.metrics.reader.enabled .Values.metrics.vmServiceScrape.enabled .Values.metrics.serviceMonitor.enabled }}
+{{- if not .Values.metrics.secure }}
+{{- fail "metrics.reader, metrics.vmServiceScrape and metrics.serviceMonitor need metrics.secure to be true" }}
+{{- end }}
+{{- end }}
+{{- if .Values.metrics.reader.enabled }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "harbor-operator.fullname" . }}-metrics-reader
+  labels:
+    {{- include "harbor-operator.labels" . | nindent 4 }}
+rules:
+  - nonResourceURLs:
+      - /metrics
+    verbs:
+      - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "harbor-operator.fullname" . }}-metrics-reader
+  labels:
+    {{- include "harbor-operator.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "harbor-operator.fullname" . }}-metrics-reader
+subjects:
+  {{- range .Values.metrics.reader.subjects }}
+  - kind: ServiceAccount
+    namespace: {{ required "each metrics.reader.subjects item needs a namespace" .namespace }}
+    name: {{ required "each metrics.reader.subjects item needs a name" .name }}
+  {{- end }}
+{{- end }}

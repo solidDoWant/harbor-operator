@@ -19,8 +19,32 @@ import (
 
 const chartDir = "../../deploy/charts/harbor-operator"
 
-// render runs helm template and returns the manifest documents by kind.
+// render runs helm template and returns the manifest documents by kind. When
+// a kind appears more than once, the last document wins; use renderAll then.
 func render(t *testing.T, sets ...string) (map[string][]byte, error) {
+	t.Helper()
+
+	list, err := renderAll(t, sets...)
+	if err != nil {
+		return nil, err
+	}
+
+	docs := map[string][]byte{}
+
+	for _, doc := range list {
+		var meta struct {
+			Kind string `json:"kind"`
+		}
+
+		require.NoError(t, yaml.Unmarshal(doc, &meta))
+		docs[meta.Kind] = doc
+	}
+
+	return docs, nil
+}
+
+// renderAll runs helm template and returns every manifest document as JSON.
+func renderAll(t *testing.T, sets ...string) ([][]byte, error) {
 	t.Helper()
 
 	helm, err := exec.LookPath("helm")
@@ -42,13 +66,9 @@ func render(t *testing.T, sets ...string) (map[string][]byte, error) {
 		return nil, errors.New(stderr.String())
 	}
 
-	docs := map[string][]byte{}
+	var docs [][]byte
 
 	for _, doc := range strings.Split(stdout.String(), "\n---\n") {
-		var meta struct {
-			Kind string `json:"kind"`
-		}
-
 		jsonDoc, err := yaml.YAMLToJSON([]byte(doc))
 		require.NoError(t, err)
 
@@ -56,8 +76,7 @@ func render(t *testing.T, sets ...string) (map[string][]byte, error) {
 			continue
 		}
 
-		require.NoError(t, yaml.Unmarshal(jsonDoc, &meta))
-		docs[meta.Kind] = jsonDoc
+		docs = append(docs, jsonDoc)
 	}
 
 	return docs, nil
