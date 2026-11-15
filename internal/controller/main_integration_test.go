@@ -3,6 +3,7 @@
 package controller_test
 
 import (
+	"github.com/go-logr/logr"
 	"context"
 	"fmt"
 	"os"
@@ -76,6 +77,12 @@ func runOperator(restConfig *rest.Config, options operatorOptions) (func(), clie
 	runtimeScheme, err := scheme.New()
 	if err != nil {
 		return nil, nil, err
+	}
+
+	// Without a logger controller-runtime captures a stack trace on every log call, which slows reconciles badly
+	// under parallel load.
+	if options.logger.GetSink() == nil {
+		options.logger = logr.Discard()
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

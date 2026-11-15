@@ -31,7 +31,7 @@ var pullOnly = []harborv1alpha1.RobotAccess{{Resource: "repository", Action: "pu
 func newSystemRobot(t *testing.T, setup *robotSetup, namespace string, pushProjects ...string) *harborv1alpha1.HarborSystemRobot {
 	t.Helper()
 
-	robotName := harborfixture.UniqueName(t, "sysrobot")
+	robotName := runUniqueName(t, "sysrobot")
 	t.Cleanup(func() {
 		if found, err := setup.admin.FindSystemRobot(context.Background(), robotName); err == nil {
 			_ = setup.admin.DeleteRobot(context.Background(), found.ID)
@@ -93,16 +93,18 @@ func pull(t *testing.T, instance *harborfixture.Harbor, username, password, proj
 }
 
 func TestSystemRobotPullsFromEveryProjectAndPushesOnlyToNamedOnes(t *testing.T) {
+	t.Parallel()
+
 	setup := readyRobotProject(t, nil, nil)
 	second := setup.instance.CreateProject(t)
 	// The fixture names projects after the test, so the third project is made here under another name.
-	other := harborfixture.UniqueName(t, "other")
+	other := runUniqueName(t, "other")
 	t.Cleanup(func() { setup.instance.DeleteProject(context.Background(), t, other) })
 	_, err := setup.admin.CreateProject(t.Context(), other, harbor.ProjectSettings{}, nil)
 	require.NoError(t, err)
 	setup.instance.PushImage(t, other, "base", "latest")
 
-	robot := newSystemRobot(t, setup, "default", setup.project.Spec.Name, second)
+	robot := newSystemRobot(t, setup, setup.project.Namespace, setup.project.Spec.Name, second)
 	require.NoError(t, setup.cl.Create(t.Context(), robot))
 
 	ready := awaitSystemRobot(t, setup.cl, client.ObjectKeyFromObject(robot), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
@@ -113,7 +115,7 @@ func TestSystemRobotPullsFromEveryProjectAndPushesOnlyToNamedOnes(t *testing.T) 
 	assert.Equal(t, harbor.LevelSystem, found.Level)
 	assert.Equal(t, found.Name, ready.Status.HarborName)
 
-	username, password := dockerCredentials(t, setup.cl, "default", "deployer-dockerconfig", setup.instance.Registry(t))
+	username, password := dockerCredentials(t, setup.cl, setup.project.Namespace, "deployer-dockerconfig", setup.instance.Registry(t))
 	assert.Equal(t, found.Name, username)
 
 	require.NoError(t, push(t, setup.instance, username, password, setup.project.Spec.Name, "app"), "the robot pushes to the first named project")
@@ -123,11 +125,12 @@ func TestSystemRobotPullsFromEveryProjectAndPushesOnlyToNamedOnes(t *testing.T) 
 }
 
 func TestSystemRobotInANamespaceOnlyAllowedNamespacesAdmits(t *testing.T) {
-	namespace := harborfixture.UniqueName(t, "apps")
+	t.Parallel()
+
+	namespace := newNamespace(t, startOperator(t), "apps")
 	setup := readyRobotProject(t, func(connection *harborv1alpha1.HarborConnection) {
 		connection.Spec.AllowedNamespaces.Names = []string{namespace}
 	}, nil)
-	require.NoError(t, setup.cl.Create(t.Context(), &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}))
 
 	robot := newSystemRobot(t, setup, namespace)
 	require.NoError(t, setup.cl.Create(t.Context(), robot))
@@ -154,9 +157,12 @@ func TestSystemRobotInANamespaceOnlyAllowedNamespacesAdmits(t *testing.T) {
 }
 
 func TestSystemRobotLifecycle(t *testing.T) {
+	t.Parallel()
+
 	t.Run("drift in Harbor is put back", func(t *testing.T) {
+		t.Parallel()
 		setup := readyRobotProject(t, nil, nil)
-		robot := newSystemRobot(t, setup, "default", setup.project.Spec.Name)
+		robot := newSystemRobot(t, setup, setup.project.Namespace, setup.project.Spec.Name)
 		require.NoError(t, setup.cl.Create(t.Context(), robot))
 		ready := awaitSystemRobot(t, setup.cl, client.ObjectKeyFromObject(robot), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
 
@@ -196,13 +202,14 @@ func TestSystemRobotLifecycle(t *testing.T) {
 	})
 
 	t.Run("a lost Secret gets a new secret", func(t *testing.T) {
+		t.Parallel()
 		setup := readyRobotProject(t, nil, nil)
-		robot := newSystemRobot(t, setup, "default", setup.project.Spec.Name)
+		robot := newSystemRobot(t, setup, setup.project.Namespace, setup.project.Spec.Name)
 		require.NoError(t, setup.cl.Create(t.Context(), robot))
 		awaitSystemRobot(t, setup.cl, client.ObjectKeyFromObject(robot), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
 
-		_, oldPassword := dockerCredentials(t, setup.cl, "default", "deployer-dockerconfig", setup.instance.Registry(t))
-		require.NoError(t, setup.cl.Delete(t.Context(), &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "deployer-dockerconfig"}}))
+		_, oldPassword := dockerCredentials(t, setup.cl, setup.project.Namespace, "deployer-dockerconfig", setup.instance.Registry(t))
+		require.NoError(t, setup.cl.Delete(t.Context(), &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: setup.project.Namespace, Name: "deployer-dockerconfig"}}))
 
 		username, password := awaitNewDockerSecret(t, setup, "deployer-dockerconfig", oldPassword)
 		require.NoError(t, push(t, setup.instance, username, password, setup.project.Spec.Name, "app"), "the new secret works")
@@ -210,13 +217,14 @@ func TestSystemRobotLifecycle(t *testing.T) {
 	})
 
 	t.Run("changing rotate refreshes the secret", func(t *testing.T) {
+		t.Parallel()
 		setup := readyRobotProject(t, nil, nil)
-		robot := newSystemRobot(t, setup, "default", setup.project.Spec.Name)
+		robot := newSystemRobot(t, setup, setup.project.Namespace, setup.project.Spec.Name)
 		require.NoError(t, setup.cl.Create(t.Context(), robot))
 		key := client.ObjectKeyFromObject(robot)
 		awaitSystemRobot(t, setup.cl, key, metav1.ConditionTrue, harborv1alpha1.ReasonReady)
 
-		_, oldPassword := dockerCredentials(t, setup.cl, "default", "deployer-dockerconfig", setup.instance.Registry(t))
+		_, oldPassword := dockerCredentials(t, setup.cl, setup.project.Namespace, "deployer-dockerconfig", setup.instance.Registry(t))
 
 		require.Eventually(t, func() bool {
 			current := &harborv1alpha1.HarborSystemRobot{}
@@ -238,8 +246,9 @@ func TestSystemRobotLifecycle(t *testing.T) {
 	})
 
 	t.Run("an existing Harbor robot is adopted only when asked", func(t *testing.T) {
+		t.Parallel()
 		setup := readyRobotProject(t, func(connection *harborv1alpha1.HarborConnection) { connection.Spec.AllowAdoption = true }, nil)
-		robot := newSystemRobot(t, setup, "default", setup.project.Spec.Name)
+		robot := newSystemRobot(t, setup, setup.project.Namespace, setup.project.Spec.Name)
 
 		existing, err := setup.admin.CreateSystemRobot(t.Context(), harbor.RobotSpec{
 			Name: robot.Spec.Name, Description: "made by hand", Duration: -1,
@@ -265,7 +274,7 @@ func TestSystemRobotLifecycle(t *testing.T) {
 		adopted := awaitSystemRobot(t, setup.cl, key, metav1.ConditionTrue, harborv1alpha1.ReasonReady)
 		assert.Equal(t, existing.ID, adopted.Status.RobotID, "the existing robot is adopted, not re-created")
 
-		username, password := dockerCredentials(t, setup.cl, "default", "deployer-dockerconfig", setup.instance.Registry(t))
+		username, password := dockerCredentials(t, setup.cl, setup.project.Namespace, "deployer-dockerconfig", setup.instance.Registry(t))
 		assert.NotEqual(t, existing.Secret, password, "the adopted robot's unknown secret is refreshed")
 		require.NoError(t, push(t, setup.instance, username, password, setup.project.Spec.Name, "app"))
 	})
@@ -279,11 +288,11 @@ func awaitNewDockerSecret(t *testing.T, setup *robotSetup, secretName, old strin
 
 	require.Eventually(t, func() bool {
 		secret := &corev1.Secret{}
-		if err := setup.cl.Get(t.Context(), client.ObjectKey{Namespace: "default", Name: secretName}, secret); err != nil {
+		if err := setup.cl.Get(t.Context(), client.ObjectKey{Namespace: setup.project.Namespace, Name: secretName}, secret); err != nil {
 			return false
 		}
 
-		username, password = dockerCredentials(t, setup.cl, "default", secretName, setup.instance.Registry(t))
+		username, password = dockerCredentials(t, setup.cl, setup.project.Namespace, secretName, setup.instance.Registry(t))
 
 		return password != old
 	}, projectWait, 200*time.Millisecond, "waiting for a new secret in %s", secretName)
@@ -292,6 +301,8 @@ func awaitNewDockerSecret(t *testing.T, setup *robotSetup, secretName, old strin
 }
 
 func TestSystemRobotDeletion(t *testing.T) {
+	t.Parallel()
+
 	for _, test := range []struct {
 		name        string
 		policy      harborv1alpha1.DeletionPolicy
@@ -301,9 +312,10 @@ func TestSystemRobotDeletion(t *testing.T) {
 		{name: "Orphan leaves the Harbor robot", policy: harborv1alpha1.DeletionPolicyOrphan, harborStays: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			setup := readyRobotProject(t, nil, nil)
 
-			robot := newSystemRobot(t, setup, "default", setup.project.Spec.Name)
+			robot := newSystemRobot(t, setup, setup.project.Namespace, setup.project.Spec.Name)
 			robot.Spec.DeletionPolicy = test.policy
 			robot.Spec.Secret.Opaque.Enabled = ptr(true)
 			require.NoError(t, setup.cl.Create(t.Context(), robot))
@@ -317,7 +329,7 @@ func TestSystemRobotDeletion(t *testing.T) {
 			}, projectWait, 200*time.Millisecond, "waiting for the robot resource to go")
 
 			for _, secretName := range []string{"deployer-dockerconfig", "deployer-credentials"} {
-				err := setup.cl.Get(t.Context(), client.ObjectKey{Namespace: "default", Name: secretName}, &corev1.Secret{})
+				err := setup.cl.Get(t.Context(), client.ObjectKey{Namespace: setup.project.Namespace, Name: secretName}, &corev1.Secret{})
 				assert.True(t, apierrors.IsNotFound(err), "Secret %s is deleted with the robot: %v", secretName, err)
 			}
 
@@ -332,16 +344,18 @@ func TestSystemRobotDeletion(t *testing.T) {
 }
 
 func TestSystemRobotNamedAsTheOperatorsCredentialIsNeverManaged(t *testing.T) {
+	t.Parallel()
+
 	setup := readyRobotProjectWithSystemRobot(t, true, func(connection *harborv1alpha1.HarborConnection) { connection.Spec.AllowAdoption = true }, nil)
 
 	secret := &corev1.Secret{}
-	require.NoError(t, setup.cl.Get(t.Context(), client.ObjectKey{Namespace: "default", Name: "harbor-creds"}, secret))
+	require.NoError(t, setup.cl.Get(t.Context(), client.ObjectKey{Namespace: setup.project.Namespace, Name: "harbor-creds"}, secret))
 	operatorName := string(secret.Data["username"])
 
 	before, err := setup.admin.FindSystemRobot(t.Context(), operatorName[len("robot$"):])
 	require.NoError(t, err)
 
-	robot := newSystemRobot(t, setup, "default", setup.project.Spec.Name)
+	robot := newSystemRobot(t, setup, setup.project.Namespace, setup.project.Spec.Name)
 	robot.Spec.Name = before.Name[len("robot$"):]
 	robot.Spec.Adopt = true
 	require.NoError(t, setup.cl.Create(t.Context(), robot))
@@ -364,11 +378,13 @@ func TestSystemRobotNamedAsTheOperatorsCredentialIsNeverManaged(t *testing.T) {
 }
 
 func TestSystemRobotWaitsForAMissingProject(t *testing.T) {
+	t.Parallel()
+
 	setup := readyRobotProject(t, nil, nil)
-	missing := harborfixture.UniqueName(t, "later")
+	missing := runUniqueName(t, "later")
 	t.Cleanup(func() { setup.instance.DeleteProject(context.Background(), t, missing) })
 
-	robot := newSystemRobot(t, setup, "default", missing)
+	robot := newSystemRobot(t, setup, setup.project.Namespace, missing)
 	require.NoError(t, setup.cl.Create(t.Context(), robot))
 	key := client.ObjectKeyFromObject(robot)
 
@@ -385,18 +401,19 @@ func TestSystemRobotWaitsForAMissingProject(t *testing.T) {
 }
 
 func TestConnectionDeletionWaitsForAdmittedSystemRobots(t *testing.T) {
+	t.Parallel()
+
 	instance := harborfixture.FromEnv(t)
 	cl := startOperator(t)
 
-	for _, namespace := range []string{"system-admitted", "system-outsider"} {
-		require.NoError(t, cl.Create(t.Context(), &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}))
-	}
+	connectionNamespace := newNamespace(t, cl, "system-conn")
+	systemAdmitted, systemOutsider := newNamespace(t, cl, "system-admitted"), newNamespace(t, cl, "system-outsider")
 
-	require.NoError(t, cl.Create(t.Context(), credentials("default", "harbor-creds", instance.Username, instance.Password)))
+	require.NoError(t, cl.Create(t.Context(), credentials(connectionNamespace, "harbor-creds", instance.Username, instance.Password)))
 
-	connection := newConnection("default", "harbor", instance.URL, "harbor-creds")
-	connection.Spec.AllowedNamespaces.Names = []string{"system-outsider"}
-	connection.Spec.SystemAllowedNamespaces.Names = []string{"system-admitted"}
+	connection := newConnection(connectionNamespace, "harbor", instance.URL, "harbor-creds")
+	connection.Spec.AllowedNamespaces.Names = []string{systemOutsider}
+	connection.Spec.SystemAllowedNamespaces.Names = []string{systemAdmitted}
 	require.NoError(t, cl.Create(t.Context(), connection))
 	awaitReady(t, cl, client.ObjectKeyFromObject(connection), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
 
@@ -404,28 +421,35 @@ func TestConnectionDeletionWaitsForAdmittedSystemRobots(t *testing.T) {
 		return &harborv1alpha1.HarborSystemRobot{
 			ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "robot", Finalizers: []string{"test/hold"}},
 			Spec: harborv1alpha1.HarborSystemRobotSpec{
-				ConnectionRef:      harborv1alpha1.ObjectReference{Namespace: "default", Name: "harbor"},
+				ConnectionRef:      harborv1alpha1.ObjectReference{Namespace: connectionNamespace, Name: "harbor"},
 				ProjectPermissions: []harborv1alpha1.ProjectPermission{{Projects: []string{"*"}, Access: pullOnly}},
 			},
 		}
 	}
 
-	admitted, outsider := newRobot("system-admitted"), newRobot("system-outsider")
+	admitted, outsider := newRobot(systemAdmitted), newRobot(systemOutsider)
 	require.NoError(t, cl.Create(t.Context(), admitted))
 	require.NoError(t, cl.Create(t.Context(), outsider))
 
 	require.NoError(t, cl.Delete(t.Context(), connection))
 
 	held := awaitReady(t, cl, client.ObjectKeyFromObject(connection), metav1.ConditionFalse, harborv1alpha1.ReasonDependentsExist)
-	assert.Contains(t, held.Status.Conditions[0].Message, "system-admitted/robot")
-	assert.NotContains(t, held.Status.Conditions[0].Message, "system-outsider/robot",
+	assert.Contains(t, held.Status.Conditions[0].Message, systemAdmitted+"/robot")
+	assert.NotContains(t, held.Status.Conditions[0].Message, systemOutsider+"/robot",
 		"system robots in namespaces that only allowedNamespaces admits are ignored")
 	assert.Contains(t, held.Finalizers, controller.ConnectionFinalizer)
 
 	// Removing the robot lets the connection go, with no other trigger.
-	require.NoError(t, cl.Get(t.Context(), client.ObjectKeyFromObject(admitted), admitted))
-	admitted.Finalizers = nil
-	require.NoError(t, cl.Update(t.Context(), admitted))
+	// The robot controller also writes to this object, so the update is retried on a conflict.
+	require.Eventually(t, func() bool {
+		if err := cl.Get(t.Context(), client.ObjectKeyFromObject(admitted), admitted); err != nil {
+			return false
+		}
+
+		admitted.Finalizers = nil
+
+		return cl.Update(t.Context(), admitted) == nil
+	}, 10*time.Second, 100*time.Millisecond)
 	require.NoError(t, cl.Delete(t.Context(), admitted))
 
 	require.Eventually(t, func() bool {

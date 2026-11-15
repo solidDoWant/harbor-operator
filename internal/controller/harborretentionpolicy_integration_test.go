@@ -86,9 +86,10 @@ func projectRetention(t *testing.T, admin *harbor.Client, projectID int32) *harb
 }
 
 func TestRetentionPolicyCreatesExactlyTheSpecsPolicy(t *testing.T) {
+	t.Parallel()
 	setup := readyRobotProject(t, nil, nil)
 
-	policy := keepVersionsAndRecentPulls("default", "retention", setup.project)
+	policy := keepVersionsAndRecentPulls(setup.project.Namespace, "retention", setup.project)
 	require.NoError(t, setup.cl.Create(t.Context(), policy))
 
 	ready := awaitRetention(t, setup.cl, client.ObjectKeyFromObject(policy), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
@@ -128,6 +129,7 @@ func repositoryTags(t *testing.T, instance *harborfixture.Harbor, projectName, r
 }
 
 func TestRetentionPolicyRunKeepsTheFiveNewestVersionTags(t *testing.T) {
+	t.Parallel()
 	setup := readyRobotProject(t, nil, nil)
 
 	versions := []string{"v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8"}
@@ -137,7 +139,7 @@ func TestRetentionPolicyRunKeepsTheFiveNewestVersionTags(t *testing.T) {
 
 	require.Equal(t, versions, repositoryTags(t, setup.instance, setup.project.Spec.Name, "app"))
 
-	policy := keepVersionsAndRecentPulls("default", "retention", setup.project)
+	policy := keepVersionsAndRecentPulls(setup.project.Namespace, "retention", setup.project)
 	require.NoError(t, setup.cl.Create(t.Context(), policy))
 	ready := awaitRetention(t, setup.cl, client.ObjectKeyFromObject(policy), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
 
@@ -158,9 +160,10 @@ func TestRetentionPolicyRunKeepsTheFiveNewestVersionTags(t *testing.T) {
 }
 
 func TestRetentionPolicyRulesChangedInHarborArePutBack(t *testing.T) {
+	t.Parallel()
 	setup := readyRobotProject(t, nil, nil)
 
-	policy := keepVersionsAndRecentPulls("default", "retention", setup.project)
+	policy := keepVersionsAndRecentPulls(setup.project.Namespace, "retention", setup.project)
 	require.NoError(t, setup.cl.Create(t.Context(), policy))
 	ready := awaitRetention(t, setup.cl, client.ObjectKeyFromObject(policy), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
 
@@ -182,13 +185,14 @@ func TestRetentionPolicyRulesChangedInHarborArePutBack(t *testing.T) {
 }
 
 func TestSecondRetentionPolicyForTheSameProjectReportsConflict(t *testing.T) {
+	t.Parallel()
 	setup := readyRobotProject(t, nil, nil)
 
-	first := keepVersionsAndRecentPulls("default", "retention", setup.project)
+	first := keepVersionsAndRecentPulls(setup.project.Namespace, "retention", setup.project)
 	require.NoError(t, setup.cl.Create(t.Context(), first))
 	awaitRetention(t, setup.cl, client.ObjectKeyFromObject(first), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
 
-	second := keepVersionsAndRecentPulls("default", "retention-two", setup.project)
+	second := keepVersionsAndRecentPulls(setup.project.Namespace, "retention-two", setup.project)
 	second.Spec.Rules = second.Spec.Rules[:1]
 	second.Spec.Rules[0].Count = ptr(int32(1))
 	require.NoError(t, setup.cl.Create(t.Context(), second))
@@ -212,6 +216,7 @@ func TestSecondRetentionPolicyForTheSameProjectReportsConflict(t *testing.T) {
 }
 
 func TestDeletingRetentionPolicyFollowsItsDeletionPolicy(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		policy   harborv1alpha1.DeletionPolicy
@@ -223,9 +228,10 @@ func TestDeletingRetentionPolicyFollowsItsDeletionPolicy(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			setup := readyRobotProject(t, nil, nil)
 
-			policy := keepVersionsAndRecentPulls("default", "retention", setup.project)
+			policy := keepVersionsAndRecentPulls(setup.project.Namespace, "retention", setup.project)
 			policy.Spec.DeletionPolicy = test.policy
 			require.NoError(t, setup.cl.Create(t.Context(), policy))
 			awaitRetention(t, setup.cl, client.ObjectKeyFromObject(policy), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
@@ -252,6 +258,7 @@ func TestDeletingRetentionPolicyFollowsItsDeletionPolicy(t *testing.T) {
 }
 
 func TestRetentionPolicyInANamespaceTheProjectDoesNotAdmit(t *testing.T) {
+	t.Parallel()
 	setup := readyRobotProject(t, nil, nil)
 
 	namespace := harborfixture.UniqueName(t, "policies")
@@ -266,12 +273,13 @@ func TestRetentionPolicyInANamespaceTheProjectDoesNotAdmit(t *testing.T) {
 }
 
 func TestRetentionPolicyWithoutItsProjectWaits(t *testing.T) {
+	t.Parallel()
 	setup := readyRobotProject(t, nil, nil)
 
 	missing := setup.project.DeepCopy()
 	missing.Name = "missing"
 
-	policy := keepVersionsAndRecentPulls("default", "retention", missing)
+	policy := keepVersionsAndRecentPulls(setup.project.Namespace, "retention", missing)
 	require.NoError(t, setup.cl.Create(t.Context(), policy))
 
 	awaitRetention(t, setup.cl, client.ObjectKeyFromObject(policy), metav1.ConditionFalse, harborv1alpha1.ReasonProjectNotReady)

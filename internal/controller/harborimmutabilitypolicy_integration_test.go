@@ -98,9 +98,10 @@ func pushTag(t *testing.T, instance *harborfixture.Harbor, project, repository, 
 }
 
 func TestImmutabilityRuleStopsOverwritingMatchingTags(t *testing.T) {
+	t.Parallel()
 	setup := readyRobotProject(t, nil, nil)
 
-	policy := immutabilityPolicy("default", setup.project, immutabilityRule("v*", false))
+	policy := immutabilityPolicy(setup.project.Namespace, setup.project, immutabilityRule("v*", false))
 	require.NoError(t, setup.cl.Create(t.Context(), policy))
 	// Harbor refuses to delete an immutable tag, so the project's cleanup can remove its repositories only once the
 	// policy and its rules are gone. Cleanups run in reverse order, so this runs while the operator still runs.
@@ -125,10 +126,11 @@ func TestImmutabilityRuleStopsOverwritingMatchingTags(t *testing.T) {
 }
 
 func TestImmutabilityRulesChangedInHarborArePutBack(t *testing.T) {
+	t.Parallel()
 	setup := readyRobotProject(t, nil, nil)
 	ctx := t.Context()
 
-	policy := immutabilityPolicy("default", setup.project, immutabilityRule("v*", false), immutabilityRule("release-*", true))
+	policy := immutabilityPolicy(setup.project.Namespace, setup.project, immutabilityRule("v*", false), immutabilityRule("release-*", true))
 	require.NoError(t, setup.cl.Create(ctx, policy))
 	ready := awaitImmutabilityPolicy(t, setup.cl, client.ObjectKeyFromObject(policy), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
 
@@ -167,6 +169,7 @@ func TestImmutabilityRulesChangedInHarborArePutBack(t *testing.T) {
 }
 
 func TestImmutabilityPolicyDeletion(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		name        string
 		policy      harborv1alpha1.DeletionPolicy
@@ -176,9 +179,10 @@ func TestImmutabilityPolicyDeletion(t *testing.T) {
 		{name: "Orphan leaves the project's rules", policy: harborv1alpha1.DeletionPolicyOrphan, harborStays: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			setup := readyRobotProject(t, nil, nil)
 
-			policy := immutabilityPolicy("default", setup.project, immutabilityRule("v*", false))
+			policy := immutabilityPolicy(setup.project.Namespace, setup.project, immutabilityRule("v*", false))
 			policy.Spec.DeletionPolicy = test.policy
 			require.NoError(t, setup.cl.Create(t.Context(), policy))
 			key := client.ObjectKeyFromObject(policy)
@@ -204,6 +208,7 @@ func TestImmutabilityPolicyDeletion(t *testing.T) {
 }
 
 func TestImmutabilityPolicyInANamespaceTheProjectDoesNotAdmit(t *testing.T) {
+	t.Parallel()
 	setup := readyRobotProject(t, nil, nil)
 
 	namespace := harborfixture.UniqueName(t, "policies")
@@ -218,13 +223,14 @@ func TestImmutabilityPolicyInANamespaceTheProjectDoesNotAdmit(t *testing.T) {
 }
 
 func TestSecondImmutabilityPolicyForAProjectIsInConflict(t *testing.T) {
+	t.Parallel()
 	setup := readyRobotProject(t, nil, nil)
 
-	first := immutabilityPolicy("default", setup.project, immutabilityRule("v*", false))
+	first := immutabilityPolicy(setup.project.Namespace, setup.project, immutabilityRule("v*", false))
 	require.NoError(t, setup.cl.Create(t.Context(), first))
 	awaitImmutabilityPolicy(t, setup.cl, client.ObjectKeyFromObject(first), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
 
-	second := immutabilityPolicy("default", setup.project, immutabilityRule("release-*", false))
+	second := immutabilityPolicy(setup.project.Namespace, setup.project, immutabilityRule("release-*", false))
 	second.Name = "other-rules"
 	second.Spec.DeletionPolicy = harborv1alpha1.DeletionPolicyDelete
 	require.NoError(t, setup.cl.Create(t.Context(), second))
@@ -242,9 +248,10 @@ func TestSecondImmutabilityPolicyForAProjectIsInConflict(t *testing.T) {
 }
 
 func TestProjectDeletionWaitsForItsImmutabilityPolicy(t *testing.T) {
+	t.Parallel()
 	setup := readyRobotProject(t, nil, nil)
 
-	policy := immutabilityPolicy("default", setup.project, immutabilityRule("v*", false))
+	policy := immutabilityPolicy(setup.project.Namespace, setup.project, immutabilityRule("v*", false))
 	require.NoError(t, setup.cl.Create(t.Context(), policy))
 	awaitImmutabilityPolicy(t, setup.cl, client.ObjectKeyFromObject(policy), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
 

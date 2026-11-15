@@ -19,22 +19,23 @@ import (
 var scannedKinds = []client.ObjectList{&harborv1alpha1.HarborConnectionList{}, &harborv1alpha1.HarborProjectList{}, &harborv1alpha1.HarborProjectRobotList{}}
 
 func TestNoSecretAppearsInStatusEventsOrLogsDuringTheRobotLifecycle(t *testing.T) {
+	t.Parallel()
 	log := &leakscan.Log{}
 	setup := readyRobotProjectLogging(t, log.Logger(), false, func(connection *harborv1alpha1.HarborConnection) { connection.Spec.AllowAdoption = true }, nil)
 	registry := setup.instance.Registry(t)
 	secrets := map[string]string{"connection password": setup.instance.Password}
 
 	// Create, then lose the Secret, then rotate.
-	robot := ciRobot("default", setup.project)
+	robot := ciRobot(setup.project.Namespace, setup.project)
 	robot.Spec.Secret.Rotate = "first"
 	require.NoError(t, setup.cl.Create(t.Context(), robot))
 	key := client.ObjectKeyFromObject(robot)
 	awaitRobot(t, setup.cl, key, metav1.ConditionTrue, harborv1alpha1.ReasonReady)
 
-	_, created := dockerCredentials(t, setup.cl, "default", "ci-dockerconfig", registry)
+	_, created := dockerCredentials(t, setup.cl, setup.project.Namespace, "ci-dockerconfig", registry)
 	secrets["created robot secret"] = created
 
-	require.NoError(t, setup.cl.Delete(t.Context(), &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "ci-dockerconfig"}}))
+	require.NoError(t, setup.cl.Delete(t.Context(), &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: setup.project.Namespace, Name: "ci-dockerconfig"}}))
 	_, replaced := awaitNewDockerPassword(t, setup, "ci-dockerconfig", created)
 	secrets["replacement robot secret"] = replaced
 
@@ -50,7 +51,7 @@ func TestNoSecretAppearsInStatusEventsOrLogsDuringTheRobotLifecycle(t *testing.T
 
 	secrets["adopted robot's original secret"] = existing.Secret
 
-	adopted := ciRobot("default", setup.project)
+	adopted := ciRobot(setup.project.Namespace, setup.project)
 	adopted.Name = "legacy"
 	adopted.Spec.Adopt = true
 	adopted.Spec.Secret.DockerConfigJSON.Name = "legacy-dockerconfig"
@@ -59,7 +60,7 @@ func TestNoSecretAppearsInStatusEventsOrLogsDuringTheRobotLifecycle(t *testing.T
 	ready := awaitRobot(t, setup.cl, client.ObjectKeyFromObject(adopted), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
 	awaitEvent(t, setup.cl, ready, harborv1alpha1.EventReasonAdopted)
 
-	_, refreshed := dockerCredentials(t, setup.cl, "default", "legacy-dockerconfig", registry)
+	_, refreshed := dockerCredentials(t, setup.cl, setup.project.Namespace, "legacy-dockerconfig", registry)
 	secrets["adopted robot's refreshed secret"] = refreshed
 
 	for label, value := range secrets {
@@ -73,14 +74,15 @@ func TestNoSecretAppearsInStatusEventsOrLogsDuringTheRobotLifecycle(t *testing.T
 }
 
 func TestScanFailsWhenTheOperatorLogsARobotSecret(t *testing.T) {
+	t.Parallel()
 	log := &leakscan.Log{}
 	setup := readyRobotProjectLogging(t, log.Logger(), false, nil, nil)
 
-	robot := ciRobot("default", setup.project)
+	robot := ciRobot(setup.project.Namespace, setup.project)
 	require.NoError(t, setup.cl.Create(t.Context(), robot))
 	awaitRobot(t, setup.cl, client.ObjectKeyFromObject(robot), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
 
-	_, password := dockerCredentials(t, setup.cl, "default", "ci-dockerconfig", setup.instance.Registry(t))
+	_, password := dockerCredentials(t, setup.cl, setup.project.Namespace, "ci-dockerconfig", setup.instance.Registry(t))
 	log.Logger().Info("deliberate leak", "password", password)
 
 	found, err := leakscan.Scan(t.Context(), setup.cl, log, scannedKinds, map[string]string{"robot secret": password})

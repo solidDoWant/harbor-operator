@@ -42,14 +42,21 @@ func startOperator(t *testing.T, _ ...bool) client.Client {
 func newNamespace(t *testing.T, cl client.Client, prefix string) string {
 	t.Helper()
 
-	suffix := make([]byte, 5)
-	_, err := rand.Read(suffix)
-	require.NoError(t, err)
-
-	name := strings.ToLower(prefix) + "-" + hex.EncodeToString(suffix)
+	name := strings.ToLower(prefix) + "-" + randomHex(t, 5)
 	require.NoError(t, cl.Create(t.Context(), &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: name}}))
 
 	return name
+}
+
+// randomHex returns 2*length random hex characters.
+func randomHex(t *testing.T, length int) string {
+	t.Helper()
+
+	raw := make([]byte, length)
+	_, err := rand.Read(raw)
+	require.NoError(t, err)
+
+	return hex.EncodeToString(raw)
 }
 
 // operatorOptions change how startIsolatedOperator runs the operator.
@@ -123,11 +130,13 @@ func awaitReady(t *testing.T, cl client.Client, key client.ObjectKey, status met
 }
 
 func TestConnectionBecomesReadyWithValidCredentials(t *testing.T) {
+	t.Parallel()
 	instance := harborfixture.FromEnv(t)
 	cl := startOperator(t)
+	namespace := newNamespace(t, cl, "conn")
 
-	require.NoError(t, cl.Create(t.Context(), credentials("default", "harbor-creds", instance.Username, instance.Password)))
-	connection := newConnection("default", "harbor", instance.URL, "harbor-creds")
+	require.NoError(t, cl.Create(t.Context(), credentials(namespace, "harbor-creds", instance.Username, instance.Password)))
+	connection := newConnection(namespace, "harbor", instance.URL, "harbor-creds")
 	require.NoError(t, cl.Create(t.Context(), connection))
 
 	ready := awaitReady(t, cl, client.ObjectKeyFromObject(connection), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
@@ -139,11 +148,13 @@ func TestConnectionBecomesReadyWithValidCredentials(t *testing.T) {
 }
 
 func TestConnectionReportsBadCredentials(t *testing.T) {
+	t.Parallel()
 	instance := harborfixture.FromEnv(t)
 	cl := startOperator(t)
+	namespace := newNamespace(t, cl, "conn")
 
-	require.NoError(t, cl.Create(t.Context(), credentials("default", "wrong-password", instance.Username, "not-the-password")))
-	require.NoError(t, cl.Create(t.Context(), &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "no-password"}, StringData: map[string]string{"username": "admin"}}))
+	require.NoError(t, cl.Create(t.Context(), credentials(namespace, "wrong-password", instance.Username, "not-the-password")))
+	require.NoError(t, cl.Create(t.Context(), &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "no-password"}, StringData: map[string]string{"username": "admin"}}))
 
 	for name, test := range map[string]struct {
 		secret string
@@ -154,7 +165,8 @@ func TestConnectionReportsBadCredentials(t *testing.T) {
 		"missing Secret": {secret: "absent", reason: harborv1alpha1.ReasonCredentialsInvalid},
 	} {
 		t.Run(name, func(t *testing.T) {
-			connection := newConnection("default", "conn-"+test.secret, instance.URL, test.secret)
+			t.Parallel()
+			connection := newConnection(namespace, "conn-"+test.secret, instance.URL, test.secret)
 			require.NoError(t, cl.Create(t.Context(), connection))
 			awaitReady(t, cl, client.ObjectKeyFromObject(connection), metav1.ConditionFalse, test.reason)
 		})
@@ -162,13 +174,15 @@ func TestConnectionReportsBadCredentials(t *testing.T) {
 }
 
 func TestConnectionRevalidatesWhenCredentialsSecretChanges(t *testing.T) {
+	t.Parallel()
 	instance := harborfixture.FromEnv(t)
 	cl := startOperator(t)
+	namespace := newNamespace(t, cl, "conn")
 
-	secret := credentials("default", "harbor-creds", instance.Username, "not-the-password")
+	secret := credentials(namespace, "harbor-creds", instance.Username, "not-the-password")
 	require.NoError(t, cl.Create(t.Context(), secret))
 
-	connection := newConnection("default", "harbor", instance.URL, "harbor-creds")
+	connection := newConnection(namespace, "harbor", instance.URL, "harbor-creds")
 	require.NoError(t, cl.Create(t.Context(), connection))
 	awaitReady(t, cl, client.ObjectKeyFromObject(connection), metav1.ConditionFalse, harborv1alpha1.ReasonUnauthorized)
 
@@ -186,36 +200,36 @@ func TestConnectionRevalidatesWhenCredentialsSecretChanges(t *testing.T) {
 }
 
 func TestConnectionDeletionWaitsForAdmittedProjects(t *testing.T) {
+	t.Parallel()
 	instance := harborfixture.FromEnv(t)
 	cl := startOperator(t)
+	namespace := newNamespace(t, cl, "conn")
 
-	for _, name := range []string{"admitted", "outsider"} {
-		require.NoError(t, cl.Create(t.Context(), &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: name}}))
-	}
+	admittedNamespace, outsiderNamespace := newNamespace(t, cl, "admitted"), newNamespace(t, cl, "outsider")
 
-	require.NoError(t, cl.Create(t.Context(), credentials("default", "harbor-creds", instance.Username, instance.Password)))
+	require.NoError(t, cl.Create(t.Context(), credentials(namespace, "harbor-creds", instance.Username, instance.Password)))
 
-	connection := newConnection("default", "harbor", instance.URL, "harbor-creds")
-	connection.Spec.AllowedNamespaces.Names = []string{"admitted"}
+	connection := newConnection(namespace, "harbor", instance.URL, "harbor-creds")
+	connection.Spec.AllowedNamespaces.Names = []string{admittedNamespace}
 	require.NoError(t, cl.Create(t.Context(), connection))
 	awaitReady(t, cl, client.ObjectKeyFromObject(connection), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
 
-	newProject := func(namespace string) *harborv1alpha1.HarborProject {
+	newProject := func(projectNamespace string) *harborv1alpha1.HarborProject {
 		return &harborv1alpha1.HarborProject{
-			ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "project", Finalizers: []string{"test/hold"}},
-			Spec:       harborv1alpha1.HarborProjectSpec{ConnectionRef: harborv1alpha1.ObjectReference{Namespace: "default", Name: "harbor"}},
+			ObjectMeta: metav1.ObjectMeta{Namespace: projectNamespace, Name: "project", Finalizers: []string{"test/hold"}},
+			Spec:       harborv1alpha1.HarborProjectSpec{ConnectionRef: harborv1alpha1.ObjectReference{Namespace: namespace, Name: "harbor"}},
 		}
 	}
 
-	admitted, outsider := newProject("admitted"), newProject("outsider")
+	admitted, outsider := newProject(admittedNamespace), newProject(outsiderNamespace)
 	require.NoError(t, cl.Create(t.Context(), admitted))
 	require.NoError(t, cl.Create(t.Context(), outsider))
 
 	require.NoError(t, cl.Delete(t.Context(), connection))
 
 	held := awaitReady(t, cl, client.ObjectKeyFromObject(connection), metav1.ConditionFalse, harborv1alpha1.ReasonDependentsExist)
-	assert.Contains(t, held.Status.Conditions[0].Message, "admitted/project")
-	assert.NotContains(t, held.Status.Conditions[0].Message, "outsider/project", "references from namespaces the connection does not admit are ignored")
+	assert.Contains(t, held.Status.Conditions[0].Message, admittedNamespace+"/project")
+	assert.NotContains(t, held.Status.Conditions[0].Message, outsiderNamespace+"/project", "references from namespaces the connection does not admit are ignored")
 	assert.Contains(t, held.Finalizers, controller.ConnectionFinalizer)
 
 	// Removing the project lets the connection go, with no other trigger.

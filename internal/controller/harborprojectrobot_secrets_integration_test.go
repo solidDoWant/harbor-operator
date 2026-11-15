@@ -51,11 +51,11 @@ func awaitNewDockerPassword(t *testing.T, setup *robotSetup, secretName, old str
 
 	require.Eventually(t, func() bool {
 		secret := &corev1.Secret{}
-		if err := setup.cl.Get(t.Context(), client.ObjectKey{Namespace: "default", Name: secretName}, secret); err != nil {
+		if err := setup.cl.Get(t.Context(), client.ObjectKey{Namespace: setup.project.Namespace, Name: secretName}, secret); err != nil {
 			return false
 		}
 
-		username, password = dockerCredentials(t, setup.cl, "default", secretName, setup.instance.Registry(t))
+		username, password = dockerCredentials(t, setup.cl, setup.project.Namespace, secretName, setup.instance.Registry(t))
 
 		return password != "" && password != old
 	}, projectWait, 200*time.Millisecond, "waiting for Secret %s to hold a new robot secret", secretName)
@@ -64,9 +64,11 @@ func awaitNewDockerPassword(t *testing.T, setup *robotSetup, secretName, old str
 }
 
 func TestRobotSecretOptionsWriteExactlyTheRequestedSecrets(t *testing.T) {
+	t.Parallel()
+
 	setup := readyRobotProject(t, nil, nil)
 
-	robot := ciRobot("default", setup.project)
+	robot := ciRobot(setup.project.Namespace, setup.project)
 	robot.Spec.Secret.DockerConfigJSON.Enabled = ptr(false)
 	robot.Spec.Secret.Opaque = harborv1alpha1.SecretOutput{Enabled: ptr(true), Name: "ci-login"}
 	require.NoError(t, setup.cl.Create(t.Context(), robot))
@@ -75,7 +77,7 @@ func TestRobotSecretOptionsWriteExactlyTheRequestedSecrets(t *testing.T) {
 	ready := awaitRobot(t, setup.cl, key, metav1.ConditionTrue, harborv1alpha1.ReasonReady)
 
 	opaque := &corev1.Secret{}
-	require.NoError(t, setup.cl.Get(t.Context(), client.ObjectKey{Namespace: "default", Name: "ci-login"}, opaque))
+	require.NoError(t, setup.cl.Get(t.Context(), client.ObjectKey{Namespace: setup.project.Namespace, Name: "ci-login"}, opaque))
 	assert.Equal(t, corev1.SecretTypeOpaque, opaque.Type)
 	assert.Equal(t, ready.Status.HarborName, string(opaque.Data["username"]))
 	assert.Equal(t, setup.instance.Registry(t), string(opaque.Data["registry"]))
@@ -85,7 +87,7 @@ func TestRobotSecretOptionsWriteExactlyTheRequestedSecrets(t *testing.T) {
 	require.NoError(t, push(t, setup.instance, ready.Status.HarborName, password, setup.project.Spec.Name, "app"), "the opaque Secret's credentials work")
 
 	for _, name := range []string{"ci-dockerconfig", "ci-credentials"} {
-		assert.True(t, secretGone(t, setup.cl, "default", name), "no Secret %s is written for a disabled or renamed type", name)
+		assert.True(t, secretGone(t, setup.cl, setup.project.Namespace, name), "no Secret %s is written for a disabled or renamed type", name)
 	}
 
 	updateRobot(t, setup.cl, key, func(robot *harborv1alpha1.HarborProjectRobot) {
@@ -94,24 +96,26 @@ func TestRobotSecretOptionsWriteExactlyTheRequestedSecrets(t *testing.T) {
 	})
 
 	require.Eventually(t, func() bool {
-		return secretGone(t, setup.cl, "default", "ci-login") && !secretGone(t, setup.cl, "default", "ci-pull")
+		return secretGone(t, setup.cl, setup.project.Namespace, "ci-login") && !secretGone(t, setup.cl, setup.project.Namespace, "ci-pull")
 	}, projectWait, 200*time.Millisecond, "waiting for the disabled opaque Secret to go and the dockerconfigjson Secret to be written")
 
-	username, dockerPassword := dockerCredentials(t, setup.cl, "default", "ci-pull", setup.instance.Registry(t))
+	username, dockerPassword := dockerCredentials(t, setup.cl, setup.project.Namespace, "ci-pull", setup.instance.Registry(t))
 	assert.Equal(t, ready.Status.HarborName, username)
 	assert.Equal(t, password, dockerPassword, "switching Secret types copies the credentials without a refresh")
-	assert.True(t, secretGone(t, setup.cl, "default", "ci-dockerconfig"), "only the requested name is written")
+	assert.True(t, secretGone(t, setup.cl, setup.project.Namespace, "ci-dockerconfig"), "only the requested name is written")
 }
 
 func TestRobotSecretDeletedGetsANewRobotSecret(t *testing.T) {
+	t.Parallel()
+
 	setup := readyRobotProject(t, nil, nil)
 
-	robot := ciRobot("default", setup.project)
+	robot := ciRobot(setup.project.Namespace, setup.project)
 	require.NoError(t, setup.cl.Create(t.Context(), robot))
 	awaitRobot(t, setup.cl, client.ObjectKeyFromObject(robot), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
 
-	username, old := dockerCredentials(t, setup.cl, "default", "ci-dockerconfig", setup.instance.Registry(t))
-	require.NoError(t, setup.cl.Delete(t.Context(), &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "ci-dockerconfig"}}))
+	username, old := dockerCredentials(t, setup.cl, setup.project.Namespace, "ci-dockerconfig", setup.instance.Registry(t))
+	require.NoError(t, setup.cl.Delete(t.Context(), &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: setup.project.Namespace, Name: "ci-dockerconfig"}}))
 
 	newUsername, password := awaitNewDockerPassword(t, setup, "ci-dockerconfig", old)
 	assert.Equal(t, username, newUsername)
@@ -169,6 +173,8 @@ func (lagging *laggingSecretList) List(ctx context.Context, list client.ObjectLi
 }
 
 func TestRobotSecretDeletedDuringAReconcileGetsANewRobotSecret(t *testing.T) {
+	t.Parallel()
+
 	lagging := &laggingSecretList{}
 	setup := readyRobotProjectWith(t, operatorOptions{wrapRobotClient: func(cached client.Client) client.Client {
 		lagging.Client = cached
@@ -176,14 +182,14 @@ func TestRobotSecretDeletedDuringAReconcileGetsANewRobotSecret(t *testing.T) {
 		return lagging
 	}}, false, nil, nil)
 
-	robot := ciRobot("default", setup.project)
+	robot := ciRobot(setup.project.Namespace, setup.project)
 	require.NoError(t, setup.cl.Create(t.Context(), robot))
 	awaitRobot(t, setup.cl, client.ObjectKeyFromObject(robot), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
 
-	username, old := dockerCredentials(t, setup.cl, "default", "ci-dockerconfig", setup.instance.Registry(t))
+	username, old := dockerCredentials(t, setup.cl, setup.project.Namespace, "ci-dockerconfig", setup.instance.Registry(t))
 
 	secret := &corev1.Secret{}
-	require.NoError(t, setup.cl.Get(t.Context(), client.ObjectKey{Namespace: "default", Name: "ci-dockerconfig"}, secret))
+	require.NoError(t, setup.cl.Get(t.Context(), client.ObjectKey{Namespace: setup.project.Namespace, Name: "ci-dockerconfig"}, secret))
 	lagging.lag(secret)
 	require.NoError(t, setup.cl.Delete(t.Context(), secret))
 
@@ -194,9 +200,11 @@ func TestRobotSecretDeletedDuringAReconcileGetsANewRobotSecret(t *testing.T) {
 }
 
 func TestRobotRotateGivesTheRobotANewSecret(t *testing.T) {
+	t.Parallel()
+
 	setup := readyRobotProject(t, nil, nil)
 
-	robot := ciRobot("default", setup.project)
+	robot := ciRobot(setup.project.Namespace, setup.project)
 	robot.Spec.Secret.Rotate = "first"
 	require.NoError(t, setup.cl.Create(t.Context(), robot))
 	key := client.ObjectKeyFromObject(robot)
@@ -204,7 +212,7 @@ func TestRobotRotateGivesTheRobotANewSecret(t *testing.T) {
 	created := awaitRobot(t, setup.cl, key, metav1.ConditionTrue, harborv1alpha1.ReasonReady)
 	assert.Equal(t, "first", created.Status.ObservedRotate, "the rotate value is recorded on create")
 
-	username, old := dockerCredentials(t, setup.cl, "default", "ci-dockerconfig", setup.instance.Registry(t))
+	username, old := dockerCredentials(t, setup.cl, setup.project.Namespace, "ci-dockerconfig", setup.instance.Registry(t))
 
 	updateRobot(t, setup.cl, key, func(robot *harborv1alpha1.HarborProjectRobot) { robot.Spec.Secret.Rotate = "second" })
 
@@ -222,16 +230,18 @@ func TestRobotRotateGivesTheRobotANewSecret(t *testing.T) {
 }
 
 func TestRobotSecretNameTakenByAForeignSecret(t *testing.T) {
+	t.Parallel()
+
 	setup := readyRobotProject(t, nil, nil)
 
 	foreign := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "ci-dockerconfig"},
+		ObjectMeta: metav1.ObjectMeta{Namespace: setup.project.Namespace, Name: "ci-dockerconfig"},
 		Type:       corev1.SecretTypeOpaque,
 		Data:       map[string][]byte{"token": []byte("not the robot's")},
 	}
 	require.NoError(t, setup.cl.Create(t.Context(), foreign))
 
-	robot := ciRobot("default", setup.project)
+	robot := ciRobot(setup.project.Namespace, setup.project)
 	require.NoError(t, setup.cl.Create(t.Context(), robot))
 	key := client.ObjectKeyFromObject(robot)
 
@@ -255,11 +265,13 @@ func TestRobotSecretNameTakenByAForeignSecret(t *testing.T) {
 	require.NoError(t, setup.cl.Delete(t.Context(), have))
 	awaitRobot(t, setup.cl, key, metav1.ConditionTrue, harborv1alpha1.ReasonReady)
 
-	username, password := dockerCredentials(t, setup.cl, "default", "ci-dockerconfig", setup.instance.Registry(t))
+	username, password := dockerCredentials(t, setup.cl, setup.project.Namespace, "ci-dockerconfig", setup.instance.Registry(t))
 	require.NoError(t, push(t, setup.instance, username, password, setup.project.Spec.Name, "app"), "once the name is free the robot's Secret is written")
 }
 
 func TestRobotRejectsTwoEnabledSecretsWithTheSameName(t *testing.T) {
+	t.Parallel()
+
 	setup := readyRobotProject(t, nil, nil)
 
 	tests := []struct {
@@ -293,7 +305,9 @@ func TestRobotRejectsTwoEnabledSecretsWithTheSameName(t *testing.T) {
 
 	for index, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			robot := ciRobot("default", setup.project)
+			t.Parallel()
+
+			robot := ciRobot(setup.project.Namespace, setup.project)
 			// Rejected specs are never stored, so they can share a name; accepted ones are reconciled and need their own.
 			if index >= 3 {
 				robot.Name = fmt.Sprintf("ci-accepted-%d", index)
