@@ -53,6 +53,8 @@ The operator writes the robot credentials into a Secret in the same namespace as
 
 To get a Secret with the keys `username`, `password` and `registry`, set `spec.secret.opaque.enabled: true`. Its default name is `ci-credentials`.
 
+When both Secrets are on, they must have different names. The API server refuses a robot whose two Secrets would share a name, including a default name.
+
 To renew the password, change `spec.secret.rotate` to any new string. The operator makes a new password and rewrites the Secrets.
 
 If a Secret with the same name already exists and the robot does not own it, the operator does not touch it. The robot shows `SecretConflict`.

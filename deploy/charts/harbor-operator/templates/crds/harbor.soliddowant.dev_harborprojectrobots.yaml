@@ -261,6 +261,16 @@ spec:
         - message: spec.name is immutable
           rule: '(has(self.spec.name) ? self.spec.name : self.metadata.name) == (has(oldSelf.spec.name)
             ? oldSelf.spec.name : oldSelf.metadata.name)'
+        - message: the dockerConfigJSON and opaque Secrets must have different names
+            when both are enabled
+          rule: '!(has(self.spec.secret.opaque) && has(self.spec.secret.opaque.enabled)
+            && self.spec.secret.opaque.enabled) || (has(self.spec.secret.dockerConfigJSON)
+            && has(self.spec.secret.dockerConfigJSON.enabled) && !self.spec.secret.dockerConfigJSON.enabled)
+            || (has(self.spec.secret.dockerConfigJSON) && has(self.spec.secret.dockerConfigJSON.name)
+            && self.spec.secret.dockerConfigJSON.name != '''' ? self.spec.secret.dockerConfigJSON.name
+            : self.metadata.name + ''-dockerconfig'') != (has(self.spec.secret.opaque.name)
+            && self.spec.secret.opaque.name != '''' ? self.spec.secret.opaque.name
+            : self.metadata.name + ''-credentials'')'
         - message: spec.projectRef is immutable
           rule: self.spec.projectRef == oldSelf.spec.projectRef
     served: true
