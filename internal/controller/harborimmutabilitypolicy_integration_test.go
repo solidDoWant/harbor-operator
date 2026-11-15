@@ -3,6 +3,7 @@
 package controller_test
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -101,6 +102,17 @@ func TestImmutabilityRuleStopsOverwritingMatchingTags(t *testing.T) {
 
 	policy := immutabilityPolicy("default", setup.project, immutabilityRule("v*", false))
 	require.NoError(t, setup.cl.Create(t.Context(), policy))
+	// Harbor refuses to delete an immutable tag, so the project's cleanup can remove its repositories only once the
+	// policy and its rules are gone. Cleanups run in reverse order, so this runs while the operator still runs.
+	t.Cleanup(func() {
+		ctx := context.Background()
+		_ = setup.cl.Delete(ctx, policy)
+
+		assert.Eventually(t, func() bool {
+			return apierrors.IsNotFound(setup.cl.Get(ctx, client.ObjectKeyFromObject(policy), &harborv1alpha1.HarborImmutabilityPolicy{}))
+		}, projectWait, 200*time.Millisecond, "waiting for the policy to remove its rules")
+	})
+
 	ready := awaitImmutabilityPolicy(t, setup.cl, client.ObjectKeyFromObject(policy), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
 	assert.Equal(t, setup.project.Status.ProjectID, ready.Status.ProjectID)
 
