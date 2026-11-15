@@ -3,6 +3,7 @@
 package e2e_test
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"testing"
@@ -28,10 +29,11 @@ const (
 	operatorServiceAccount = "system:serviceaccount:" + operatorNamespace + ":harbor-operator"
 )
 
+// helm runs with its own context because it also runs from cleanups, after t.Context() is canceled.
 func helm(t *testing.T, args ...string) {
 	t.Helper()
 
-	command := exec.CommandContext(t.Context(), "helm", append(args,
+	command := exec.CommandContext(context.Background(), "helm", append(args,
 		"--kube-context", os.Getenv("E2E_KUBE_CONTEXT"), "--namespace", operatorNamespace, "--wait", "--timeout", "5m")...)
 	output, err := command.CombinedOutput()
 	require.NoError(t, err, string(output))
@@ -81,14 +83,17 @@ func TestOperatorWithWatchNamespacesIgnoresAndCannotReadOtherNamespaces(t *testi
 	// resources it never saw are gone, so it can't act on them.
 	t.Cleanup(func() { helm(t, "rollback", operatorRelease) })
 	t.Cleanup(func() {
-		_ = cl.DeleteAllOf(t.Context(), &harborv1alpha1.HarborProject{}, client.InNamespace(unwatched))
-		_ = cl.DeleteAllOf(t.Context(), &harborv1alpha1.HarborProject{}, client.InNamespace(watched))
-		_ = admin.DeleteProject(t.Context(), watched)
-		_ = admin.DeleteProject(t.Context(), unwatched)
+		// t.Context() is canceled before cleanups run.
+		cleanupCtx := context.Background()
+
+		_ = cl.DeleteAllOf(cleanupCtx, &harborv1alpha1.HarborProject{}, client.InNamespace(unwatched))
+		_ = cl.DeleteAllOf(cleanupCtx, &harborv1alpha1.HarborProject{}, client.InNamespace(watched))
+		_ = admin.DeleteProject(cleanupCtx, watched)
+		_ = admin.DeleteProject(cleanupCtx, unwatched)
 
 		assert.Eventually(t, func() bool {
 			list := &harborv1alpha1.HarborProjectList{}
-			if err := cl.List(t.Context(), list); err != nil {
+			if err := cl.List(cleanupCtx, list); err != nil {
 				return false
 			}
 
@@ -102,7 +107,7 @@ func TestOperatorWithWatchNamespacesIgnoresAndCannotReadOtherNamespaces(t *testi
 		}, 2*time.Minute, time.Second, "waiting for the test's projects to be deleted")
 
 		for _, namespace := range []string{watched, unwatched} {
-			_ = cl.Delete(t.Context(), &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}})
+			_ = cl.Delete(cleanupCtx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}})
 		}
 	})
 
