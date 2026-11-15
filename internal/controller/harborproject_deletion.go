@@ -27,6 +27,9 @@ const (
 	// RobotProjectIndex finds the robots that reference a project. Its value is "namespace/name", the namespace
 	// defaulting to the robot's own.
 	RobotProjectIndex = "spec.projectRef"
+	// ImmutabilityProjectIndex finds the immutability policies that reference a project. Its value is
+	// "namespace/name", the namespace defaulting to the policy's own.
+	ImmutabilityProjectIndex = "spec.projectRef"
 
 	// defaultMaxBackoff caps the retry delay of a failing reconcile, so a project whose deletion Harbor blocks is
 	// checked again at least this often.
@@ -65,6 +68,12 @@ func (r *HarborProjectReconciler) projectForRobot(_ context.Context, object clie
 	return []reconcile.Request{{NamespacedName: robotProjectKey(object.(*harborv1alpha1.HarborProjectRobot))}}
 }
 
+// projectForImmutabilityPolicy re-queues the project an immutability policy references, so a project waiting for its
+// dependents sees the policy go.
+func (r *HarborProjectReconciler) projectForImmutabilityPolicy(_ context.Context, object client.Object) []reconcile.Request {
+	return []reconcile.Request{{NamespacedName: policyProjectKey(object.(*harborv1alpha1.HarborImmutabilityPolicy))}}
+}
+
 // finalize runs instead of the normal reconcile once the resource is being deleted. It deletes the Harbor project only
 // when the resource still owns it and its deletion policy is Delete; every other case releases the resource without
 // touching Harbor.
@@ -91,7 +100,7 @@ func (r *HarborProjectReconciler) finalize(ctx context.Context, project *harborv
 
 		// A deleted robot triggers a new reconcile through the robot watch.
 		return reconcile.Result{}, r.setReady(ctx, project, metav1.ConditionFalse, harborv1alpha1.ReasonDependentsExist,
-			"still used by HarborProjectRobot "+strings.Join(listed, ", ")+suffix)
+			"still used by "+strings.Join(listed, ", ")+suffix)
 	}
 
 	key := connectionKey(project)
@@ -217,25 +226,45 @@ func deletionPolicy(project *harborv1alpha1.HarborProject, connection *harborv1a
 	return harborv1alpha1.DeletionPolicyDelete
 }
 
-// dependents lists "namespace/name" of the robots that reference the project from a namespace it admits.
+// dependents lists the robots and immutability policies that reference the project from a namespace it admits, as
+// "Kind namespace/name".
 func (r *HarborProjectReconciler) dependents(ctx context.Context, project *harborv1alpha1.HarborProject) ([]string, error) {
+	projectKey := client.MatchingFields{RobotProjectIndex: client.ObjectKeyFromObject(project).String()}
+
 	var robots harborv1alpha1.HarborProjectRobotList
-	if err := r.List(ctx, &robots, client.MatchingFields{RobotProjectIndex: client.ObjectKeyFromObject(project).String()}); err != nil {
+	if err := r.List(ctx, &robots, projectKey); err != nil {
 		return nil, err
+	}
+
+	var policies harborv1alpha1.HarborImmutabilityPolicyList
+	if err := r.List(ctx, &policies, client.MatchingFields{ImmutabilityProjectIndex: client.ObjectKeyFromObject(project).String()}); err != nil {
+		return nil, err
+	}
+
+	referrers := make([]client.Object, 0, len(robots.Items)+len(policies.Items))
+	for index := range robots.Items {
+		referrers = append(referrers, &robots.Items[index])
+	}
+
+	for index := range policies.Items {
+		referrers = append(referrers, &policies.Items[index])
 	}
 
 	var names []string
 
-	for index := range robots.Items {
-		robot := &robots.Items[index]
-
-		admitted, err := access.Admits(ctx, r.Client, project.Spec.AllowedNamespaces, project.Namespace, robot.Namespace)
+	for _, referrer := range referrers {
+		admitted, err := access.Admits(ctx, r.Client, project.Spec.AllowedNamespaces, project.Namespace, referrer.GetNamespace())
 		if err != nil {
 			return nil, err
 		}
 
 		if admitted {
-			names = append(names, client.ObjectKeyFromObject(robot).String())
+			kind := "HarborProjectRobot"
+			if _, ok := referrer.(*harborv1alpha1.HarborImmutabilityPolicy); ok {
+				kind = "HarborImmutabilityPolicy"
+			}
+
+			names = append(names, kind+" "+client.ObjectKeyFromObject(referrer).String())
 		}
 	}
 

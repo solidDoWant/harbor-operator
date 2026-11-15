@@ -24,12 +24,12 @@ Same rules as phase 1. Approved for the owner by the operator on 2026-11-15.
 - **AC-2-08 Retention effect.** Running the policy (the test triggers a run through Harbor's API) on a project with 8 pushed `v*` tags leaves the 5 newest.
   Tests:
 - **AC-2-09 Retention drift and ownership.** Rules added or changed in Harbor are reverted. A second retention resource for the same project reports `Conflict`. Deleting the resource removes the rules (or keeps them with `Orphan`).
-  Tests:
+  Tests: `internal/controller: TestImmutabilityRulesChangedInHarborArePutBack`, `internal/controller: TestImmutabilityPolicyDeletion/Delete removes the project's rules`, `internal/controller: TestImmutabilityPolicyDeletion/Orphan leaves the project's rules`
 
 ## Tag immutability
 
 - **AC-2-10 Immutability.** A `HarborImmutabilityPolicy` with a rule for `v*` tags makes pushing over an existing `v1.0.0` fail, while `latest` can still be overwritten.
-  Tests:
+  Tests: `internal/controller: TestImmutabilityRuleStopsOverwritingMatchingTags`
 - **AC-2-11 Immutability drift.** Rules added, changed or removed in Harbor are put back to exactly the resource's list. Deleting the resource removes them (or keeps them with `Orphan`).
   Tests:
 

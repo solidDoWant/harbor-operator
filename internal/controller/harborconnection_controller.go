@@ -48,6 +48,7 @@ type HarborConnectionReconciler struct {
 // +kubebuilder:rbac:groups=harbor.soliddowant.dev,resources=harborconnections/finalizers,verbs=update
 // +kubebuilder:rbac:groups=harbor.soliddowant.dev,resources=harborprojects,verbs=get;list;watch
 // +kubebuilder:rbac:groups=harbor.soliddowant.dev,resources=harborprojectrobots,verbs=get;list;watch
+// +kubebuilder:rbac:groups=harbor.soliddowant.dev,resources=harborimmutabilitypolicies,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
 
@@ -66,8 +67,14 @@ func IndexFields(ctx context.Context, indexer client.FieldIndexer) error {
 		return err
 	}
 
-	return indexer.IndexField(ctx, &harborv1alpha1.HarborProjectRobot{}, RobotProjectIndex, func(object client.Object) []string {
+	if err := indexer.IndexField(ctx, &harborv1alpha1.HarborProjectRobot{}, RobotProjectIndex, func(object client.Object) []string {
 		return []string{robotProjectKey(object.(*harborv1alpha1.HarborProjectRobot)).String()}
+	}); err != nil {
+		return err
+	}
+
+	return indexer.IndexField(ctx, &harborv1alpha1.HarborImmutabilityPolicy{}, ImmutabilityProjectIndex, func(object client.Object) []string {
+		return []string{policyProjectKey(object.(*harborv1alpha1.HarborImmutabilityPolicy)).String()}
 	})
 }
 
