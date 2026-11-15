@@ -16,6 +16,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
+	"github.com/solidDoWant/harbor-operator/internal/controller"
+	"github.com/solidDoWant/harbor-operator/internal/harbor"
 	"github.com/solidDoWant/harbor-operator/internal/scheme"
 )
 
@@ -74,6 +76,8 @@ func main() {
 		metricsServerOptions.FilterProvider = filters.WithAuthenticationAndAuthorization
 	}
 
+	ctx := ctrl.SetupSignalHandler()
+
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                        runtimeScheme,
 		Metrics:                       metricsServerOptions,
@@ -84,6 +88,16 @@ func main() {
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to create the manager")
+		os.Exit(1)
+	}
+
+	if err := controller.IndexFields(ctx, mgr.GetFieldIndexer()); err != nil {
+		setupLog.Error(err, "unable to register field indexes")
+		os.Exit(1)
+	}
+
+	if err := (&controller.HarborConnectionReconciler{Client: mgr.GetClient(), Clients: harbor.NewClientCache(mgr.GetClient())}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to set up the HarborConnection controller")
 		os.Exit(1)
 	}
 
@@ -99,7 +113,7 @@ func main() {
 
 	setupLog.Info("starting manager", "version", version)
 
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+	if err := mgr.Start(ctx); err != nil {
 		setupLog.Error(err, "problem running the manager")
 		os.Exit(1)
 	}

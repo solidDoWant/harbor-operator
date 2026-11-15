@@ -5,9 +5,9 @@ Approved for the owner by the operator on 2026-11-15. Only the owner adds scenar
 ## Connection
 
 - **AC-1-01 Connect.** A `HarborConnection` with valid system-robot credentials becomes `Ready` and shows Harbor's version. With a wrong password it shows `Unauthorized`.
-  Tests:
+  Tests: `internal/controller: TestConnectionBecomesReadyWithValidCredentials`, `internal/controller: TestConnectionReportsBadCredentials/wrong password`
 - **AC-1-02 Credential change.** After the credential Secret is updated to new valid credentials, dependent resources keep reconciling without restarting the operator.
-  Tests:
+  Tests: `internal/controller: TestConnectionRevalidatesWhenCredentialsSecretChanges`
 
 ## Projects
 
