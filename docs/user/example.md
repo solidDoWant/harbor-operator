@@ -76,6 +76,7 @@ Run `kubectl get harborproject,harborprojectrobot`. The `Ready` column is `True`
 | `DeleteBlocked` | Harbor refuses to delete a project that still has repositories. | Delete the repositories in Harbor. The operator tries again. |
 | `ProjectNotReady` | A robot waits for its project to exist in Harbor. | Check the project status. |
 | `SecretConflict` | A Secret with the robot's Secret name exists and the robot does not own it. | Rename the Secret in `spec.secret`, or delete the old one. |
+| `Forbidden` | The robot must change, and the connection can only change it by deleting it and creating it again. The connection does not have some permissions you asked for, so Harbor would refuse the new robot. The message lists those permissions. The operator does not delete the robot. | Remove those permissions from the spec, or ask the admin to give them to the connection. |
 | `Expired` | The robot passed its end date. | Create the robot again with a new name, or change `duration`. |
 
 ## Delete the resources

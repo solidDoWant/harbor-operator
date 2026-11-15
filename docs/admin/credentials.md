@@ -15,6 +15,8 @@ Give the robot:
 
 Harbor doesn't let a robot change another robot or refresh its secret. When a robot resource changes, or its secret must be renewed, the operator deletes the Harbor robot and creates it again, then rewrites the robot's Secret. Pods that read the Secret get the new password; anything that copied the old one needs the new one.
 
+Before it deletes a Harbor robot, the operator asks Harbor which permissions the connection has in the project. If the robot resource asks for a permission that the connection does not have, the operator does not delete the robot. The robot resource shows `Forbidden` and lists the missing permissions.
+
 ## Or use a local admin user
 
 A Harbor local user with the system administrator role can do everything, and the operator changes robots in place instead of replacing them. Use it if replacing robots is a problem for you.
