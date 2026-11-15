@@ -837,9 +837,37 @@ func (r *HarborProjectRobotReconciler) finalize(ctx context.Context, robot *harb
 
 	resync = robotResync(robot, connection)
 
+	identity := connection.Status.HarborIdentity
+	if ready := meta.FindStatusCondition(connection.Status.Conditions, harborv1alpha1.ConditionReady); ready == nil || ready.Status != metav1.ConditionTrue || identity == "" {
+		reason := harborv1alpha1.ReasonHarborUnavailable
+		if ready != nil && ready.Status == metav1.ConditionFalse {
+			reason = ready.Reason
+		}
+
+		return reconcile.Result{RequeueAfter: resync}, r.setReady(ctx, robot, metav1.ConditionFalse, reason,
+			fmt.Sprintf("HarborConnection %s is not ready", client.ObjectKeyFromObject(connection)))
+	}
+
 	harborClient, reason, message := clientFor(ctx, r.Client, r.Clients, connection)
 	if harborClient == nil {
 		return reconcile.Result{RequeueAfter: resync}, r.setReady(ctx, robot, metav1.ConditionFalse, reason, message)
+	}
+
+	harborKey := ownership.RobotKey(identity, projectName(project), robotName(robot))
+	if robot.Status.HarborKey != harborKey {
+		// The ID was recorded for another Harbor identity or project; it names nothing of this resource's here.
+		return release()
+	}
+
+	// Another claimant may own the robot this ID names, for example when this resource is in Conflict after adopting
+	// it; only the owner deletes it.
+	owner, err := ownership.RobotOwner(ctx, r.Client, harborKey, r.admitted)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
+
+	if owner == nil || owner.UID != robot.UID {
+		return release()
 	}
 
 	state := &robotReconcile{robot: robot, project: project, connection: connection, harbor: harborClient, projectName: projectName(project), resync: resync}
