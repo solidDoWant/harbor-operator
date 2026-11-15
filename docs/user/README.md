@@ -4,6 +4,7 @@ For: people who write the Kubernetes resources for a project, for example in a H
 
 - [Write a project and a CI robot](example.md): a complete example, the robot Secret and what each status reason means.
 - [Make a pull-through cache](proxy-cache.md): a registry and a proxy-cache project, and their status reasons.
+- [Keep only the tags you need](retention.md): a tag retention policy for a project.
 - [Field reference](crd-reference.md): every field of every resource (generated).
 - [Protect tags from being overwritten](immutability.md): the immutability rules of a project.
 - [Robot permissions](robot-permissions.md): the resource and action pairs a robot can have.

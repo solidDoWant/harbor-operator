@@ -28,6 +28,12 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 		return fmt.Errorf("indexing HarborProjectRobot %s: %w", HarborKeyField, err)
 	}
 
+	if err := indexer.IndexField(ctx, &v1alpha1.HarborRetentionPolicy{}, HarborKeyField, func(object client.Object) []string {
+		return harborKeyValues(object.(*v1alpha1.HarborRetentionPolicy).Status.HarborKey)
+	}); err != nil {
+		return fmt.Errorf("indexing HarborRetentionPolicy %s: %w", HarborKeyField, err)
+	}
+
 	if err := indexer.IndexField(ctx, &v1alpha1.HarborSystemRobot{}, HarborKeyField, func(object client.Object) []string {
 		return harborKeyValues(object.(*v1alpha1.HarborSystemRobot).Status.HarborKey)
 	}); err != nil {
@@ -124,6 +130,22 @@ func robotStatus[T RobotClaimant](robot T) *v1alpha1.HarborProjectRobotStatus {
 	}
 
 	return &v1alpha1.HarborProjectRobotStatus{}
+}
+
+// RetentionOwner returns the HarborRetentionPolicy that owns the retention policy with the given key, or nil when no
+// claimant counts. It reads only the claimants of key, through the status.harborKey index.
+func RetentionOwner(ctx context.Context, reader client.Reader, key string, admitted AdmittedFunc[*v1alpha1.HarborRetentionPolicy]) (*v1alpha1.HarborRetentionPolicy, error) {
+	list := &v1alpha1.HarborRetentionPolicyList{}
+	if err := reader.List(ctx, list, client.MatchingFields{HarborKeyField: key}); err != nil {
+		return nil, fmt.Errorf("listing HarborRetentionPolicy claimants: %w", err)
+	}
+
+	claimants := make([]*v1alpha1.HarborRetentionPolicy, 0, len(list.Items))
+	for index := range list.Items {
+		claimants = append(claimants, &list.Items[index])
+	}
+
+	return owner(ctx, claimants, func(policy *v1alpha1.HarborRetentionPolicy) bool { return policy.Status.RetentionID != 0 }, admitted)
 }
 
 // ImmutabilityOwner returns the HarborImmutabilityPolicy that owns the immutability rule set with the given key, or

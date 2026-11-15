@@ -144,6 +144,25 @@ func TestProjectDeletion(t *testing.T) {
 		assert.True(t, harbor.IsNotFound(err), "the Harbor project is deleted, got %v", err)
 	})
 
+	t.Run("deletion waits for retention policies the project admits", func(t *testing.T) {
+		connection, name := deletionSetup(t, cl, instance, "delete-retention")
+
+		project := newProject("delete-retention", name, connection)
+		require.NoError(t, cl.Create(t.Context(), project))
+		key := client.ObjectKeyFromObject(project)
+		awaitProject(t, cl, key, metav1.ConditionTrue, harborv1alpha1.ReasonReady)
+
+		policy := keepVersionsAndRecentPulls("delete-retention", "retention", project)
+		require.NoError(t, cl.Create(t.Context(), policy))
+
+		require.NoError(t, cl.Delete(t.Context(), project))
+		waiting := awaitProject(t, cl, key, metav1.ConditionFalse, harborv1alpha1.ReasonDependentsExist)
+		assert.Contains(t, readyMessage(waiting), "HarborRetentionPolicy delete-retention/retention")
+
+		require.NoError(t, cl.Delete(t.Context(), policy))
+		awaitGone(t, cl, key, "the deletion finishes once the retention policy is gone")
+	})
+
 	t.Run("a resource in Conflict never touches the project, even with an ID", func(t *testing.T) {
 		connection, name := deletionSetup(t, cl, instance, "delete-conflict")
 
