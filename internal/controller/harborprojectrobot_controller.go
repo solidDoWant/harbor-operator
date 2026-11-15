@@ -378,6 +378,8 @@ func (r *HarborProjectRobotReconciler) finalize(ctx context.Context, robot *harb
 	}
 
 	if robotDeletionPolicy(resource, knownConnection) == harborv1alpha1.DeletionPolicyOrphan {
+		recordOrphaned(lifecycle.Recorder, robot, "robot", resource.shortName())
+
 		return lifecycle.release(ctx, resource)
 	}
 

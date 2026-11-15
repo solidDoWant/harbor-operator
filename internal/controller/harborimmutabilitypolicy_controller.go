@@ -284,6 +284,12 @@ func (r *HarborImmutabilityPolicyReconciler) sync(ctx context.Context, state *im
 	want := desiredImmutabilityRules(state.policy)
 	plan := planImmutabilityRules(want, have)
 
+	if len(have) == 0 && len(plan.create) > 0 {
+		defer recordCreated(r.Recorder, state.policy, "immutability rules of project", projectName(state.project))
+	} else if len(plan.create)+len(plan.update)+len(plan.remove) > 0 {
+		defer recordUpdated(r.Recorder, state.policy, "immutability rules of project", projectName(state.project), "rules")
+	}
+
 	for _, rule := range plan.create {
 		if err := state.harbor.CreateImmutabilityRule(ctx, projectID, rule); err != nil {
 			return r.harborFailed(ctx, state.policy, err)
@@ -358,6 +364,8 @@ func (r *HarborImmutabilityPolicyReconciler) finalize(ctx context.Context, polic
 	}
 
 	if deletion == harborv1alpha1.DeletionPolicyOrphan {
+		recordOrphaned(r.Recorder, policy, "immutability rules of project", policy.Name)
+
 		return release()
 	}
 
@@ -425,6 +433,8 @@ func (r *HarborImmutabilityPolicyReconciler) finalize(ctx context.Context, polic
 			return r.harborFailed(ctx, policy, err)
 		}
 	}
+
+	recordDeleted(r.Recorder, policy, "immutability rules of project", policy.Name)
 
 	return release()
 }

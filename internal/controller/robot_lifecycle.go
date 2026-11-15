@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"strings"
 	"time"
 
@@ -105,35 +106,38 @@ func robotDeletionPolicy(robot robotResource, connection *harborv1alpha1.HarborC
 // robotDiffers reports whether the Harbor robot's managed fields differ from the spec. Permissions are compared as a
 // set of resource and action pairs, or of kind, namespace, resource and action when the spec has grants.
 func robotDiffers(want harbor.RobotSpec, have *harbor.Robot) bool {
-	if want.Description != have.Description || want.Duration != have.Duration || want.Disabled != have.Disabled {
-		return true
+	return len(robotDriftFields(want, have)) > 0
+}
+
+// robotDriftFields names the spec fields whose Harbor value differs from the spec.
+func robotDriftFields(want harbor.RobotSpec, have *harbor.Robot) []string {
+	fields := []string{
+		fieldIf(want.Description != have.Description, "description"),
+		fieldIf(want.Duration != have.Duration, "duration"),
+		fieldIf(want.Disabled != have.Disabled, "disabled"),
 	}
 
 	if want.Grants != nil {
-		return !maps.Equal(harbor.FlattenGrants(want.Grants), harbor.FlattenGrants(have.Grants))
+		fields = append(fields, fieldIf(!maps.Equal(harbor.FlattenGrants(want.Grants), harbor.FlattenGrants(have.Grants)), "permissions"))
+	} else {
+		fields = append(fields, fieldIf(!samePermissions(want.Permissions, have.Permissions), "permissions"))
 	}
 
-	wantSet := make(map[harbor.RobotAccess]struct{}, len(want.Permissions))
-	for _, permission := range want.Permissions {
+	return slices.DeleteFunc(fields, func(field string) bool { return field == "" })
+}
+
+func samePermissions(want, have []harbor.RobotAccess) bool {
+	wantSet := make(map[harbor.RobotAccess]struct{}, len(want))
+	for _, permission := range want {
 		wantSet[permission] = struct{}{}
 	}
 
-	haveSet := make(map[harbor.RobotAccess]struct{}, len(have.Permissions))
-	for _, permission := range have.Permissions {
+	haveSet := make(map[harbor.RobotAccess]struct{}, len(have))
+	for _, permission := range have {
 		haveSet[permission] = struct{}{}
 	}
 
-	if len(wantSet) != len(haveSet) {
-		return true
-	}
-
-	for permission := range wantSet {
-		if _, ok := haveSet[permission]; !ok {
-			return true
-		}
-	}
-
-	return false
+	return maps.Equal(wantSet, haveSet)
 }
 
 // connectionNotReady returns the reason and message when the connection is not ready to reach Harbor, or an empty
@@ -246,6 +250,8 @@ func (r *robotLifecycle) create(ctx context.Context, state *robotReconcile, recr
 
 	if recreate {
 		r.Recorder.Eventf(robot.object(), nil, corev1.EventTypeNormal, harborv1alpha1.EventReasonRecreated, "Create", "Created Harbor robot %q again after it was deleted in Harbor", created.Name)
+	} else {
+		recordCreated(r.Recorder, robot.object(), "robot", created.Name)
 	}
 
 	// The robot was created from the spec and its Secrets were just written with its secret, which the cache may not
@@ -315,6 +321,8 @@ func (r *robotLifecycle) update(ctx context.Context, state *robotReconcile, curr
 		if err != nil {
 			return r.harborFailed(ctx, state, err)
 		}
+
+		recordUpdated(r.Recorder, robot.object(), "robot", current.Name, robotDriftFields(want, current)...)
 
 		current = updated
 		if err := r.recordID(ctx, robot, current); err != nil {
@@ -694,6 +702,8 @@ func (r *robotLifecycle) deleteHarborRobot(ctx context.Context, state *robotReco
 	if err := state.harbor.DeleteRobot(ctx, found.ID); err != nil && !harbor.IsNotFound(err) {
 		return r.harborFailed(ctx, state, err)
 	}
+
+	recordDeleted(r.Recorder, robot.object(), "robot", found.Name)
 
 	return r.release(ctx, robot)
 }

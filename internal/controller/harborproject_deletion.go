@@ -118,6 +118,8 @@ func (r *HarborProjectReconciler) finalize(ctx context.Context, project *harborv
 	}
 
 	if deletionPolicy(project, connection) == harborv1alpha1.DeletionPolicyOrphan {
+		recordOrphaned(r.Recorder, project, "project", projectName(project))
+
 		return reconcile.Result{}, r.release(ctx, project)
 	}
 
@@ -191,6 +193,8 @@ func (r *HarborProjectReconciler) deleteOwned(ctx context.Context, project *harb
 		reason, _ := harbor.MapError(err)
 		return r.deleteFailed(ctx, project, reason, err.Error())
 	}
+
+	recordDeleted(r.Recorder, project, "project", name)
 
 	return reconcile.Result{}, r.release(ctx, project)
 }

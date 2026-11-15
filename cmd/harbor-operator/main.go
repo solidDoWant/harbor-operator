@@ -104,7 +104,7 @@ func main() {
 
 	clients := harbor.NewClientCache(mgr.GetClient())
 
-	if err := (&controller.HarborConnectionReconciler{Client: mgr.GetClient(), Clients: clients}).SetupWithManager(mgr); err != nil {
+	if err := (&controller.HarborConnectionReconciler{Client: mgr.GetClient(), Clients: clients, Recorder: mgr.GetEventRecorder("harbor-operator")}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to set up the HarborConnection controller")
 		os.Exit(1)
 	}

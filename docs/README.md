@@ -41,6 +41,7 @@ docs/user/
   robot-permissions.md     The resource and action pairs a project robot may be granted.
   immutability.md          Tag immutability rules for a project.
   proxy-cache.md           A pull-through cache: a registry, a proxy-cache project and their status reasons.
+  events.md                The Kubernetes events the operator writes and when.
 
 docs/admin/
   README.md                The pages for admins.

@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/robfig/cron/v3"
@@ -334,6 +335,8 @@ func (r *HarborRetentionPolicyReconciler) sync(ctx context.Context, state *reten
 			return r.harborFailed(ctx, policy, err)
 		}
 
+		recordCreated(r.Recorder, policy, "retention policy", policy.Name)
+
 		return r.synced(ctx, state, id)
 	}
 
@@ -351,6 +354,9 @@ func (r *HarborRetentionPolicyReconciler) sync(ctx context.Context, state *reten
 		if err := state.harbor.UpdateRetention(ctx, have.ID, state.projectID, want); err != nil {
 			return r.harborFailed(ctx, policy, err)
 		}
+
+		recordUpdated(r.Recorder, policy, "retention policy", policy.Name,
+			fieldIf(want.Schedule != have.Schedule, "schedule"), fieldIf(!slices.Equal(want.Rules, have.Rules), "rules"))
 	}
 
 	return r.synced(ctx, state, have.ID)
@@ -406,6 +412,8 @@ func (r *HarborRetentionPolicyReconciler) finalize(ctx context.Context, policy *
 	}
 
 	if deletion == harborv1alpha1.DeletionPolicyOrphan {
+		recordOrphaned(r.Recorder, policy, "retention policy", policy.Name)
+
 		return release()
 	}
 
@@ -483,6 +491,8 @@ func (r *HarborRetentionPolicyReconciler) clearRetention(ctx context.Context, po
 	if err != nil && !harbor.IsNotFound(err) {
 		return r.harborFailed(ctx, policy, err)
 	}
+
+	recordDeleted(r.Recorder, policy, "retention policy", policy.Name)
 
 	return release()
 }
