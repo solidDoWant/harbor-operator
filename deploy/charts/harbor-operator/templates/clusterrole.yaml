@@ -39,6 +39,7 @@ rules:
   - harbor.soliddowant.dev
   resources:
   - harborconnections
+  - harborprojects
   verbs:
   - get
   - list
@@ -49,21 +50,15 @@ rules:
   - harbor.soliddowant.dev
   resources:
   - harborconnections/finalizers
+  - harborprojects/finalizers
   verbs:
   - update
 - apiGroups:
   - harbor.soliddowant.dev
   resources:
   - harborconnections/status
+  - harborprojects/status
   verbs:
   - get
   - patch
   - update
-- apiGroups:
-  - harbor.soliddowant.dev
-  resources:
-  - harborprojects
-  verbs:
-  - get
-  - list
-  - watch

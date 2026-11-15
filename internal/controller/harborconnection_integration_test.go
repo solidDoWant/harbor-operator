@@ -23,12 +23,14 @@ import (
 	harborv1alpha1 "github.com/solidDoWant/harbor-operator/api/v1alpha1"
 	"github.com/solidDoWant/harbor-operator/internal/controller"
 	"github.com/solidDoWant/harbor-operator/internal/harbor"
+	"github.com/solidDoWant/harbor-operator/internal/ownership"
 	"github.com/solidDoWant/harbor-operator/internal/scheme"
 	"github.com/solidDoWant/harbor-operator/test/harborfixture"
 )
 
-// startOperator runs an API server and the connection controller in-process and returns a client for it.
-func startOperator(t *testing.T) client.Client {
+// startOperator runs an API server and the connection controller in-process and returns a client for it. withProjects
+// also runs the project controller.
+func startOperator(t *testing.T, withProjects ...bool) client.Client {
 	t.Helper()
 
 	environment := &envtest.Environment{CRDDirectoryPaths: []string{filepath.Join("..", "..", "config", "crd", "bases")}, ErrorIfCRDPathMissing: true}
@@ -51,7 +53,13 @@ func startOperator(t *testing.T) client.Client {
 	manager, err := ctrl.NewManager(restConfig, ctrl.Options{Scheme: runtimeScheme, Metrics: metricsserver.Options{BindAddress: "0"}, Controller: config.Controller{SkipNameValidation: ptr(true)}})
 	require.NoError(t, err)
 	require.NoError(t, controller.IndexFields(t.Context(), manager.GetFieldIndexer()))
-	require.NoError(t, (&controller.HarborConnectionReconciler{Client: manager.GetClient(), Clients: harbor.NewClientCache(manager.GetClient())}).SetupWithManager(manager))
+	clients := harbor.NewClientCache(manager.GetClient())
+	require.NoError(t, (&controller.HarborConnectionReconciler{Client: manager.GetClient(), Clients: clients}).SetupWithManager(manager))
+
+	if len(withProjects) > 0 && withProjects[0] {
+		require.NoError(t, ownership.SetupIndexes(t.Context(), manager.GetFieldIndexer()))
+		require.NoError(t, (&controller.HarborProjectReconciler{Client: manager.GetClient(), Clients: clients, Recorder: manager.GetEventRecorder("harbor-operator")}).SetupWithManager(manager))
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})

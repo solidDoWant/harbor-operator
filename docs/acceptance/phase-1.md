@@ -12,28 +12,28 @@ Approved for the owner by the operator on 2026-11-15. Only the owner adds scenar
 ## Projects
 
 - **AC-1-03 Create project.** A `HarborProject` with `public`, `storageQuota: 5Gi`, prevent-vulnerable-images (severity high), scan-on-push and a CVE allowlist creates a Harbor project with exactly those settings, and the resource becomes `Ready` with the project ID.
-  Tests:
+  Tests: `internal/controller: TestProjectIsCreatedWithTheSpecSettings`
 - **AC-1-04 Update project.** Changing each of those fields in the resource changes it in Harbor.
-  Tests:
+  Tests: `internal/controller: TestProjectFollowsSpecChanges`
 - **AC-1-05 Drift.** Changing those settings in Harbor's API (as the UI would) is reverted within one resync interval. Settings the resource leaves unset keep their Harbor value.
-  Tests:
+  Tests: `internal/controller: TestProjectDriftInHarborIsReverted`, `internal/controller: TestProjectSettingsDiffWritesOnlySetFieldsThatDiffer`
 - **AC-1-06 Recreate.** A project deleted directly in Harbor is created again.
-  Tests:
+  Tests: `internal/controller: TestProjectDeletedInHarborIsRecreated`
 - **AC-1-07 Delete.** Deleting the resource deletes the empty project. With `deletionPolicy: Orphan` the project stays.
   Tests:
 - **AC-1-08 Delete blocked.** Deleting the resource of a project that holds an image leaves the project in place, and the resource reports `DeleteBlocked` until the image is removed, then finishes.
   Tests:
 - **AC-1-09 Already exists.** A resource naming an existing, unowned Harbor project reports `AlreadyExists` and changes nothing. With `adopt: true` (and the connection allowing adoption) it takes the project over and applies its settings.
-  Tests:
+  Tests: `internal/controller: TestProjectNamingAnExistingHarborProject/without adopt reports AlreadyExists and changes nothing`, `internal/controller: TestProjectNamingAnExistingHarborProject/adopt with allowAdoption takes the project over`
 - **AC-1-10 Adoption needs the connection's permission.** With `allowAdoption: false` on the connection, `adopt: true` reports `AdoptionNotAllowed`.
-  Tests:
+  Tests: `internal/controller: TestProjectNamingAnExistingHarborProject/adopt without allowAdoption reports AdoptionNotAllowed`
 - **AC-1-11 Conflict.** A second resource (any namespace, even through a second connection to the same Harbor) naming the same Harbor project reports `Conflict`, and the first keeps working. Deleting the second never deletes the project.
-  Tests:
+  Tests: `internal/controller: TestSecondResourceForTheSameHarborProjectConflicts`
 
 ## Namespace access
 
 - **AC-1-12 Connection access.** A project in another namespace than the connection, which the connection doesn't admit, reports `NotAllowed` and nothing is created in Harbor. Adding the namespace's label to the connection's `allowedNamespaces` selector makes it proceed.
-  Tests:
+  Tests: `internal/controller: TestProjectInANamespaceTheConnectionDoesNotAdmit`
 - **AC-1-13 Project access.** A robot in another namespace referencing a project reports `NotAllowed` until the project's `allowedNamespaces` admits that namespace (by name or by label selector). A robot in the project's own namespace works with no `allowedNamespaces` set.
   Tests:
 
@@ -63,7 +63,7 @@ Approved for the owner by the operator on 2026-11-15. Only the owner adds scenar
 - **AC-1-23 No secret leaks.** Robot secrets and connection passwords appear in no status, condition, event or operator log line during the robot scenarios above.
   Tests:
 - **AC-1-24 Invalid spec.** A spec Harbor rejects (for example a CVE allowlist with an invalid ID) reports `InvalidSpec` with Harbor's message; fixing the spec clears it. Specs CRD validation can reject (both quota fields set, unknown permission) are refused by the API server.
-  Tests:
+  Tests: `internal/controller: TestProjectSpecHarborRejectsReportsInvalidSpec`, `api/v1alpha1: TestCRDValidation/quota with unlimited`, `api/v1alpha1: TestCRDValidation/unlisted action`, `api/v1alpha1: TestCRDValidation/unlisted resource`
 
 ## Shipping
 

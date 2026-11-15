@@ -18,6 +18,7 @@ import (
 
 	"github.com/solidDoWant/harbor-operator/internal/controller"
 	"github.com/solidDoWant/harbor-operator/internal/harbor"
+	"github.com/solidDoWant/harbor-operator/internal/ownership"
 	"github.com/solidDoWant/harbor-operator/internal/scheme"
 )
 
@@ -96,8 +97,21 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := (&controller.HarborConnectionReconciler{Client: mgr.GetClient(), Clients: harbor.NewClientCache(mgr.GetClient())}).SetupWithManager(mgr); err != nil {
+	if err := ownership.SetupIndexes(ctx, mgr.GetFieldIndexer()); err != nil {
+		setupLog.Error(err, "unable to register ownership indexes")
+		os.Exit(1)
+	}
+
+	clients := harbor.NewClientCache(mgr.GetClient())
+
+	if err := (&controller.HarborConnectionReconciler{Client: mgr.GetClient(), Clients: clients}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to set up the HarborConnection controller")
+		os.Exit(1)
+	}
+
+	projects := &controller.HarborProjectReconciler{Client: mgr.GetClient(), Clients: clients, Recorder: mgr.GetEventRecorder("harbor-operator")}
+	if err := projects.SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to set up the HarborProject controller")
 		os.Exit(1)
 	}
 

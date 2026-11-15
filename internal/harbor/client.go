@@ -104,6 +104,18 @@ func (c *Client) GetProjectByName(ctx context.Context, name string) (*Project, e
 	return projectFromModel(response.Payload), nil
 }
 
+// GetProject returns the project with the ID, or a 404 error when there is none.
+func (c *Client) GetProject(ctx context.Context, id int64) (*Project, error) {
+	resource := false
+
+	response, err := c.api.Project.GetProject(ctx, &project.GetProjectParams{ProjectNameOrID: strconv.FormatInt(id, 10), XIsResourceName: &resource})
+	if err != nil {
+		return nil, c.fail(err)
+	}
+
+	return projectFromModel(response.Payload), nil
+}
+
 // CreateProject creates a project. A nil storageLimit leaves Harbor's default.
 func (c *Client) CreateProject(ctx context.Context, name string, settings ProjectSettings, storageLimit *int64) (*Project, error) {
 	request := &models.ProjectReq{
