@@ -1,0 +1,28 @@
+# Generated from config/rbac/role.yaml by make generate; do not edit.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "harbor-operator.fullname" . }}
+  labels:
+    {{- include "harbor-operator.labels" . | nindent 4 }}
+rules:
+- apiGroups:
+  - ""
+  - events.k8s.io
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch

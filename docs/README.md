@@ -40,6 +40,7 @@ docs/user/
 docs/admin/
   README.md                What the pages for admins will cover.
   credentials.md           Which Harbor credential the operator signs in with.
+  chart-values.md          Every Helm chart value (generated).
 
 docs/dev/
   README.md                What the developer pages will cover, and the commands.

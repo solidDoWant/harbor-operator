@@ -9,6 +9,6 @@ harbor-operator is in early development. These pages are not written yet. They w
 - decide which namespaces may use a connection, a project or a registry;
 - understand the security limits, and fix problems.
 
-For now, one page exists: [which Harbor credential to use](credentials.md).
+For now, two pages exist: [which Harbor credential to use](credentials.md) and the [chart values](chart-values.md).
 
 For the rest, read [`SPEC.md`](../../SPEC.md).

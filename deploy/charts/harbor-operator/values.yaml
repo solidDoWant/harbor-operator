@@ -1,0 +1,52 @@
+# -- Number of operator replicas. Leader election keeps one of them active.
+replicaCount: 1
+image:
+  # -- Operator image repository.
+  repository: ghcr.io/soliddowant/harbor-operator
+  # -- Image tag. Defaults to the chart's appVersion.
+  tag: ""
+  # -- Image pull policy.
+  pullPolicy: IfNotPresent
+# -- Names of image pull Secrets.
+imagePullSecrets: []
+# -- Override the chart name used in resource names.
+nameOverride: ""
+# -- Override the full resource name.
+fullnameOverride: ""
+crds:
+  # -- Install the CRDs with the chart. Set to false when you manage them yourself.
+  install: true
+serviceAccount:
+  # -- Create the ServiceAccount.
+  create: true
+  # -- ServiceAccount name. Defaults to the full name.
+  name: ""
+  # -- Annotations for the ServiceAccount.
+  annotations: {}
+leaderElection:
+  # -- Enable leader election.
+  enabled: true
+metrics:
+  # -- Port of the metrics endpoint.
+  port: 8443
+  # -- Serve metrics over HTTPS with authentication and authorization.
+  secure: true
+resources:
+  requests:
+    # -- CPU request. There is no CPU limit.
+    cpu: 100m
+    # -- Memory request.
+    memory: 128Mi
+  limits:
+    # -- Memory limit. Keep it equal to the memory request.
+    memory: 128Mi
+# -- Extra arguments for the operator binary.
+extraArgs: []
+# -- Pod annotations.
+podAnnotations: {}
+# -- Node selector.
+nodeSelector: {}
+# -- Tolerations.
+tolerations: []
+# -- Affinity rules.
+affinity: {}
