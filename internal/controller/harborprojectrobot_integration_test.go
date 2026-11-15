@@ -63,7 +63,8 @@ func systemRobotPermissions() []*models.RobotPermission {
 		{Kind: "system", Namespace: "/", Access: append(append(access("project", "create", "list"),
 			access("quota", "read", "update")...), access("robot", "create", "read", "list", "delete")...)},
 		{Kind: "project", Namespace: "*", Access: append(append(access("project", "read", "update", "delete"),
-			access("robot", "create", "read", "list", "delete")...), access("repository", "push", "pull")...)},
+			access("robot", "create", "read", "list", "delete")...), append(access("repository", "push", "pull"),
+			access("tag-retention", "create", "read", "update", "delete")...)...)},
 	}
 }
 

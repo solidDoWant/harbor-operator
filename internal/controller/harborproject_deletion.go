@@ -64,6 +64,10 @@ func (r *HarborProjectReconciler) rateLimiter() workqueue.TypedRateLimiter[recon
 	return backoffLimiter(maxDelay)
 }
 
+func (r *HarborProjectReconciler) projectForRetention(_ context.Context, object client.Object) []reconcile.Request {
+	return []reconcile.Request{{NamespacedName: retentionProjectKey(object.(*harborv1alpha1.HarborRetentionPolicy))}}
+}
+
 func (r *HarborProjectReconciler) projectForRobot(_ context.Context, object client.Object) []reconcile.Request {
 	return []reconcile.Request{{NamespacedName: robotProjectKey(object.(*harborv1alpha1.HarborProjectRobot))}}
 }
@@ -98,7 +102,7 @@ func (r *HarborProjectReconciler) finalize(ctx context.Context, project *harborv
 			listed, suffix = listed[:maxListedDependents], fmt.Sprintf(" and %d more", len(dependents)-maxListedDependents)
 		}
 
-		// A deleted robot triggers a new reconcile through the robot watch.
+		// A deleted robot or policy triggers a new reconcile through its watch.
 		return reconcile.Result{}, r.setReady(ctx, project, metav1.ConditionFalse, harborv1alpha1.ReasonDependentsExist,
 			"still used by "+strings.Join(listed, ", ")+suffix)
 	}
@@ -226,24 +230,33 @@ func deletionPolicy(project *harborv1alpha1.HarborProject, connection *harborv1a
 	return harborv1alpha1.DeletionPolicyDelete
 }
 
-// dependents lists the robots and immutability policies that reference the project from a namespace it admits, as
-// "Kind namespace/name".
+// dependents lists the robots, retention policies and immutability policies that reference the project from a
+// namespace it admits, as "Kind namespace/name".
 func (r *HarborProjectReconciler) dependents(ctx context.Context, project *harborv1alpha1.HarborProject) ([]string, error) {
-	projectKey := client.MatchingFields{RobotProjectIndex: client.ObjectKeyFromObject(project).String()}
+	projectKey := client.ObjectKeyFromObject(project).String()
 
 	var robots harborv1alpha1.HarborProjectRobotList
-	if err := r.List(ctx, &robots, projectKey); err != nil {
+	if err := r.List(ctx, &robots, client.MatchingFields{RobotProjectIndex: projectKey}); err != nil {
+		return nil, err
+	}
+
+	var retentions harborv1alpha1.HarborRetentionPolicyList
+	if err := r.List(ctx, &retentions, client.MatchingFields{RetentionProjectIndex: projectKey}); err != nil {
 		return nil, err
 	}
 
 	var policies harborv1alpha1.HarborImmutabilityPolicyList
-	if err := r.List(ctx, &policies, client.MatchingFields{ImmutabilityProjectIndex: client.ObjectKeyFromObject(project).String()}); err != nil {
+	if err := r.List(ctx, &policies, client.MatchingFields{ImmutabilityProjectIndex: projectKey}); err != nil {
 		return nil, err
 	}
 
-	referrers := make([]client.Object, 0, len(robots.Items)+len(policies.Items))
+	referrers := make([]client.Object, 0, len(robots.Items)+len(retentions.Items)+len(policies.Items))
 	for index := range robots.Items {
 		referrers = append(referrers, &robots.Items[index])
+	}
+
+	for index := range retentions.Items {
+		referrers = append(referrers, &retentions.Items[index])
 	}
 
 	for index := range policies.Items {
@@ -260,7 +273,11 @@ func (r *HarborProjectReconciler) dependents(ctx context.Context, project *harbo
 
 		if admitted {
 			kind := "HarborProjectRobot"
-			if _, ok := referrer.(*harborv1alpha1.HarborImmutabilityPolicy); ok {
+
+			switch referrer.(type) {
+			case *harborv1alpha1.HarborRetentionPolicy:
+				kind = "HarborRetentionPolicy"
+			case *harborv1alpha1.HarborImmutabilityPolicy:
 				kind = "HarborImmutabilityPolicy"
 			}
 

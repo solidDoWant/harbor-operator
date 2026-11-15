@@ -34,6 +34,8 @@ type Project struct {
 	Settings ProjectSettings
 	// CreationTime is when Harbor created the project. Zero when Harbor did not report it.
 	CreationTime time.Time
+	// RetentionID is the ID of the project's tag retention policy, or 0 when it has none.
+	RetentionID int64
 }
 
 func boolString(value *bool) *string {
@@ -124,6 +126,12 @@ func projectFromModel(model *models.Project) *Project {
 	public := stringBool(&metadata.Public)
 	if public == nil {
 		public = new(bool)
+	}
+
+	if metadata.RetentionID != nil {
+		if id, err := strconv.ParseInt(*metadata.RetentionID, 10, 64); err == nil {
+			project.RetentionID = id
+		}
 	}
 
 	project.Settings = ProjectSettings{
