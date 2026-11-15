@@ -3,10 +3,8 @@
 package e2e_test
 
 import (
-	"bytes"
 	"context"
 	"os"
-	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -26,29 +24,13 @@ import (
 	"github.com/solidDoWant/harbor-operator/test/harborfixture"
 )
 
-const (
-	operatorNamespace = "harbor-operator-system"
-	previousChart     = "oci://ghcr.io/soliddowant/charts/harbor-operator"
-)
-
-// helm runs the helm binary against the e2e cluster.
-func helm(t *testing.T, args ...string) {
-	t.Helper()
-
-	full := append([]string{"--kube-context", os.Getenv("E2E_KUBE_CONTEXT"), "--namespace", operatorNamespace}, args...)
-	command := exec.CommandContext(context.WithoutCancel(t.Context()), "helm", full...)
-
-	var output bytes.Buffer
-
-	command.Stdout, command.Stderr = &output, &output
-	require.NoErrorf(t, command.Run(), "helm %s:\n%s", strings.Join(args, " "), output.String())
-}
+const previousChart = "oci://ghcr.io/soliddowant/charts/harbor-operator"
 
 func installLocalChart(t *testing.T) {
 	t.Helper()
 
 	helm(t, "upgrade", "--install", "harbor-operator", "../../deploy/charts/harbor-operator", "--create-namespace",
-		"--set", "image.tag=e2e", "--set", "image.pullPolicy=Never", "--wait", "--timeout", "5m")
+		"--set", "image.tag=e2e", "--set", "image.pullPolicy=Never")
 }
 
 func applyManifest(t *testing.T, cl client.Client, manifest string) []*unstructured.Unstructured {
@@ -180,7 +162,7 @@ func TestUpgradeFromThePreviousReleaseChangesNothingInHarbor(t *testing.T) {
 
 	// Replacing the installed release in place keeps the CRDs, so nothing waits on their deletion.
 	helm(t, "upgrade", "--install", "harbor-operator", previousChart, "--version", strings.TrimSpace(string(version)),
-		"--create-namespace", "--wait", "--timeout", "5m")
+		"--create-namespace")
 
 	require.NoError(t, cl.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}))
 	require.NoError(t, cl.Create(ctx, &corev1.Secret{
