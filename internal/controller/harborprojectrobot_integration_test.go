@@ -492,6 +492,13 @@ func TestRobotInConflictDeletionLeavesTheOwnersHarborRobot(t *testing.T) {
 	setAllowed("team-b")
 	awaitRobot(t, cl, client.ObjectKeyFromObject(first), metav1.ConditionFalse, harborv1alpha1.ReasonNotAllowed)
 
+	// Creation timestamps have whole-second resolution and ties go to the lowest
+	// UID, so the second robot must be created in a later second for the first
+	// (oldest) claimant to win the conflict.
+	require.Eventually(t, func() bool {
+		return time.Now().After(owner.CreationTimestamp.Add(time.Second))
+	}, 5*time.Second, 50*time.Millisecond, "waiting for a new second to start")
+
 	second := ciRobot("team-b", setup.project)
 	second.Spec.Adopt = true
 	second.Spec.DeletionPolicy = harborv1alpha1.DeletionPolicyDelete
