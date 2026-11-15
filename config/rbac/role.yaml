@@ -60,3 +60,11 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - harbor.soliddowant.dev
+  resources:
+  - harborprojectrobots
+  verbs:
+  - get
+  - list
+  - watch
