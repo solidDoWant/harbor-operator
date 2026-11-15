@@ -2,13 +2,9 @@
 
 For: people who install harbor-operator and connect it to Harbor. You know Kubernetes, Helm, Flux and Harbor's web interface.
 
-harbor-operator is in early development. These pages are not written yet. They will tell you how to:
+- [Install and connect](install.md): install the chart, create the system robot and the `HarborConnection`.
+- [Which Harbor credential to use](credentials.md): the robot permissions and the connection status reasons.
+- [Namespace access, adoption and deletion](namespace-access.md): who may use what, and the security model.
+- [Chart values](chart-values.md): every Helm value (generated).
 
-- install the operator with its Helm chart;
-- create the Harbor system robot account that the operator signs in with, and the `HarborConnection`;
-- decide which namespaces may use a connection, a project or a registry;
-- understand the security limits, and fix problems.
-
-For now, two pages exist: [which Harbor credential to use](credentials.md) and the [chart values](chart-values.md).
-
-For the rest, read [`SPEC.md`](../../SPEC.md).
+[`SPEC.md`](../../SPEC.md) has the full rules.

@@ -9,7 +9,7 @@ harbor-operator has four kinds of readers. Each page is for one of them. This pa
 | Reader | What they already know | What they need | Pages |
 |---|---|---|---|
 | Chart authors (users) | Kubernetes YAML and Helm. | Which resources to write for a project, a robot and a cache, and what each status means. | `docs/user/` |
-| Admins | Kubernetes, Helm, Flux and Harbor's web interface. | How to install the operator, create the system robot and the connection, allow namespaces, the security limits, and how to fix problems. | `docs/admin/` (the CRD and chart value references are generated) |
+| Admins | Kubernetes, Helm, Flux and Harbor's web interface. | How to install the operator, create the system robot and the connection, allow namespaces, the security limits, and how to fix problems. | `docs/admin/` (the chart value reference is generated) |
 | Developers | Go and controller-runtime. | The architecture, the packages, the test setup and how to release. | `docs/dev/` |
 | Agents | This repository. | Playbooks. Their pages do not follow the style rules for people. | `docs/agents/`, `.claude/`, `CLAUDE.md` |
 
@@ -34,11 +34,15 @@ CHANGELOG.md               The release notes.
 docs/README.md             This page.
 
 docs/user/
-  README.md                What the pages for chart authors will cover.
+  README.md                The pages for chart authors.
+  example.md               A project with a CI robot, the robot Secret and the status reasons.
+  crd-reference.md         Every resource field (generated).
   robot-permissions.md     The resource and action pairs a project robot may be granted.
 
 docs/admin/
-  README.md                What the pages for admins will cover.
+  README.md                The pages for admins.
+  install.md               Install the chart, create the system robot and the connection.
+  namespace-access.md      Allowed namespaces, adoption, deletion policies and the security model.
   credentials.md           Which Harbor credential the operator signs in with.
   chart-values.md          Every Helm chart value (generated).
 
