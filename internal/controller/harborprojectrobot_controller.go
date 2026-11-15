@@ -510,8 +510,8 @@ func (r *HarborProjectRobotReconciler) update(ctx context.Context, state *robotR
 }
 
 // currentSecret returns the robot secret held by a Secret this robot owns, preferring the Secrets the spec names, and
-// the name of that Secret. found is false when the secret must be refreshed: an interrupted create or refresh, a changed secret.rotate, or no
-// owned Secret whose data matches its hash annotation.
+// the name of that Secret. found is false when the secret must be refreshed: an interrupted create or refresh, a
+// changed secret.rotate, or no owned Secret whose data matches its hash annotation.
 func (r *HarborProjectRobotReconciler) currentSecret(ctx context.Context, robot *harborv1alpha1.HarborProjectRobot) (string, string, bool, error) {
 	_, createPending := robot.Annotations[harborv1alpha1.AnnotationCreatePending]
 	_, refreshPending := robot.Annotations[harborv1alpha1.AnnotationSecretRefreshPending]
