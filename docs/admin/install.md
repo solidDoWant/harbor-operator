@@ -52,3 +52,12 @@ The operator reads the credentials Secret only from the namespace of the connect
 The connection also sets defaults for the resources that use it: `defaults.resyncInterval` (how often the operator compares a resource with Harbor, default `10m`) and `defaults.deletionPolicy` (default `Delete`).
 
 Next: [namespace access](namespace-access.md).
+
+## Harden the install
+
+The pod runs as non-root with a read-only root file system. Its memory request equals its limit, and it has no CPU limit.
+
+Two options are off by default:
+
+- `networkPolicy.enabled`: limits the pod to the API server, Harbor and cluster DNS. Set `networkPolicy.apiServer.cidrs` to the API server addresses, or the chart fails. Set `networkPolicy.harborEgress.peers` to where Harbor runs.
+- `podDisruptionBudget.enabled`: allows one pod to be unavailable during a node drain.

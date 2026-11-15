@@ -20,7 +20,7 @@ For: admins who install harbor-operator with its Helm chart.
 | `leaderElection.enabled` | `true` | Enable leader election. |
 | `metrics.port` | `8443` | Port of the metrics endpoint. |
 | `metrics.secure` | `true` | Serve metrics over HTTPS with authentication and authorization. |
-| `resources.requests.cpu` | `100m` | CPU request. There is no CPU limit. |
+| `resources.requests.cpu` | `10m` | CPU request. There is no CPU limit. |
 | `resources.requests.memory` | `128Mi` | Memory request. |
 | `resources.limits.memory` | `128Mi` | Memory limit. Keep it equal to the memory request. |
 | `extraArgs` | `[]` | Extra arguments for the operator binary. |
@@ -28,3 +28,12 @@ For: admins who install harbor-operator with its Helm chart.
 | `nodeSelector` | `{}` | Node selector. |
 | `tolerations` | `[]` | Tolerations. |
 | `affinity` | `{}` | Affinity rules. |
+| `networkPolicy.enabled` | `false` | Create a NetworkPolicy that limits egress to the API server, Harbor and DNS. |
+| `networkPolicy.apiServer.cidrs` | `[]` | CIDRs of the Kubernetes API server (the `kubernetes` Service IP and the control plane node IPs). Required when the policy is enabled. |
+| `networkPolicy.apiServer.ports` | `[443, 6443]` | Ports of the API server. |
+| `networkPolicy.harborEgress.peers` | `[]` | Where Harbor is. A list of NetworkPolicy peers: `ipBlock`, or `podSelector` with `namespaceSelector`. Leave empty to allow any destination on the Harbor ports. |
+| `networkPolicy.harborEgress.ports` | `[443]` | Ports of the Harbor URL. |
+| `networkPolicy.dns.namespaceLabels` | `""` | Labels of the namespace that runs the cluster DNS. |
+| `networkPolicy.dns.podLabels` | `""` | Labels of the cluster DNS pods. |
+| `podDisruptionBudget.enabled` | `false` | Create a PodDisruptionBudget. |
+| `podDisruptionBudget.maxUnavailable` | `1` | Number of pods that may be unavailable. |
