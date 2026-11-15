@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Prints the body of the `## <version>` section of CHANGELOG.md (the release
 # notes), without its heading. Fails when there is no such section or it is
-# empty.
+# empty. CHANGELOG_FILE overrides the file (tests).
 #
 #   scripts/changelog-section.sh 0.1.0
 set -euo pipefail
@@ -13,7 +13,7 @@ notes=$(awk -v heading="## $version" '
 	$0 == heading || index($0, heading " ") == 1 { found = 1; next }
 	found && /^## / { exit }
 	found { print }
-' CHANGELOG.md)
+' "${CHANGELOG_FILE:-CHANGELOG.md}")
 if [[ -z "${notes//[[:space:]]/}" ]]; then
 	echo "changelog-section: CHANGELOG.md has no '## $version' section, or it is empty" >&2
 	exit 1
