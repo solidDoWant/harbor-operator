@@ -1,0 +1,137 @@
+package harbor
+
+import (
+	"strconv"
+	"time"
+
+	"github.com/goharbor/go-client/pkg/sdk/v2.0/models"
+)
+
+// ProjectSettings is the part of a Harbor project the operator manages. A nil
+// field is not managed: it is left out of requests, and when read from Harbor
+// every field is set.
+type ProjectSettings struct {
+	Public                  *bool
+	PreventVulnerableImages *bool
+	// Severity is one of none, low, medium, high, critical.
+	Severity           *string
+	ScanOnPush         *bool
+	UseSystemAllowlist *bool
+	// CVEAllowlist replaces the project's own allowlist when set.
+	CVEAllowlist *CVEAllowlist
+}
+
+// CVEAllowlist is a project's list of CVE IDs allowed despite the severity gate.
+type CVEAllowlist struct {
+	Items     []string
+	ExpiresAt *time.Time
+}
+
+// Project is a project as Harbor reports it.
+type Project struct {
+	ID       int64
+	Name     string
+	Settings ProjectSettings
+}
+
+func boolString(value *bool) *string {
+	if value == nil {
+		return nil
+	}
+
+	text := strconv.FormatBool(*value)
+
+	return &text
+}
+
+func stringBool(value *string) *bool {
+	if value == nil {
+		return nil
+	}
+
+	parsed, err := strconv.ParseBool(*value)
+	if err != nil {
+		return nil
+	}
+
+	return &parsed
+}
+
+// metadata builds the Harbor metadata for the managed fields.
+func (s ProjectSettings) metadata() *models.ProjectMetadata {
+	metadata := &models.ProjectMetadata{
+		PreventVul:           boolString(s.PreventVulnerableImages),
+		Severity:             s.Severity,
+		AutoScan:             boolString(s.ScanOnPush),
+		ReuseSysCVEAllowlist: boolString(s.UseSystemAllowlist),
+	}
+	if s.Public != nil {
+		metadata.Public = strconv.FormatBool(*s.Public)
+	}
+
+	return metadata
+}
+
+func (a *CVEAllowlist) toModel() *models.CVEAllowlist {
+	if a == nil {
+		return nil
+	}
+
+	model := &models.CVEAllowlist{Items: make([]*models.CVEAllowlistItem, 0, len(a.Items))}
+	for _, item := range a.Items {
+		model.Items = append(model.Items, &models.CVEAllowlistItem{CVEID: item})
+	}
+
+	if a.ExpiresAt != nil {
+		expires := a.ExpiresAt.Unix()
+		model.ExpiresAt = &expires
+	}
+
+	return model
+}
+
+func allowlistFromModel(model *models.CVEAllowlist) *CVEAllowlist {
+	allowlist := &CVEAllowlist{Items: []string{}}
+
+	if model == nil {
+		return allowlist
+	}
+
+	for _, item := range model.Items {
+		if item != nil {
+			allowlist.Items = append(allowlist.Items, item.CVEID)
+		}
+	}
+
+	if model.ExpiresAt != nil && *model.ExpiresAt != 0 {
+		expires := time.Unix(*model.ExpiresAt, 0).UTC()
+		allowlist.ExpiresAt = &expires
+	}
+
+	return allowlist
+}
+
+func projectFromModel(model *models.Project) *Project {
+	project := &Project{ID: int64(model.ProjectID), Name: model.Name}
+
+	metadata := model.Metadata
+	if metadata == nil {
+		metadata = &models.ProjectMetadata{}
+	}
+
+	public := stringBool(&metadata.Public)
+	if public == nil {
+		public = new(bool)
+	}
+
+	project.Settings = ProjectSettings{
+		Public:                  public,
+		PreventVulnerableImages: stringBool(metadata.PreventVul),
+		Severity:                metadata.Severity,
+		ScanOnPush:              stringBool(metadata.AutoScan),
+		UseSystemAllowlist:      stringBool(metadata.ReuseSysCVEAllowlist),
+		CVEAllowlist:            allowlistFromModel(model.CVEAllowlist),
+	}
+
+	return project
+}

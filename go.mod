@@ -3,6 +3,7 @@ module github.com/solidDoWant/harbor-operator
 go 1.27.0
 
 require (
+	github.com/go-openapi/runtime v0.21.0
 	github.com/goharbor/go-client v0.213.1
 	github.com/google/go-containerregistry v0.22.1
 	github.com/stretchr/testify v1.12.1
@@ -37,7 +38,6 @@ require (
 	github.com/go-openapi/jsonpointer v1.0.0 // indirect
 	github.com/go-openapi/jsonreference v1.0.0 // indirect
 	github.com/go-openapi/loads v0.21.0 // indirect
-	github.com/go-openapi/runtime v0.21.0 // indirect
 	github.com/go-openapi/spec v0.20.4 // indirect
 	github.com/go-openapi/strfmt v0.21.0 // indirect
 	github.com/go-openapi/swag v0.27.1 // indirect
