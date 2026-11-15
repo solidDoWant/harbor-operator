@@ -136,21 +136,40 @@ jobs:
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         uses: ./.github/actions/go-cache-save
 
-  # kind on the runner's Docker (kind, kubectl and helm come from the dev
-  # shell): Harbor from its chart and the operator from this repo's chart.
-  e2e:
+  # The Harbor minors to test against, from test/harbor/versions.yaml.
+  harbor-versions:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - id: matrix
+        run: echo "matrix=$(./scripts/ci/harbor-versions.py matrix)" >> "$GITHUB_OUTPUT"
+
+  # kind on the runner's Docker (kind, kubectl and helm come from the dev
+  # shell): Harbor from its chart and the operator from this repo's chart. One
+  # job per Harbor minor release; the required `checks` job needs all of them.
+  e2e:
+    needs: [changes, harbor-versions]
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        harbor: ${{ fromJSON(needs.harbor-versions.outputs.matrix) }}
     env:
       E2E_CLUSTER: harbor-op-ci
+      HARBOR_VERSION: ${{ matrix.harbor }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/nix-dev-shell
-      - name: e2e tests
+      - name: e2e tests (Harbor ${{ matrix.harbor }})
         env:
-          GO_TEST_JSON: build/acceptance/results/go-e2e.json
+          GO_TEST_JSON: build/acceptance/results/go-e2e-${{ matrix.harbor }}.json
         run: nix develop -c make test-e2e
       - name: Save Go caches
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
@@ -224,7 +243,7 @@ jobs:
   # still produce a passing `checks`; it fails if any job failed or was
   # cancelled, and passes when each succeeded or was skipped.
   checks:
-    needs: [changes, lint, unit, generate, integration, e2e, scoreboard-tests, docs, test-guard]
+    needs: [changes, lint, unit, generate, integration, harbor-versions, e2e, scoreboard-tests, docs, test-guard]
     if: always()
     runs-on: ubuntu-latest
     steps:

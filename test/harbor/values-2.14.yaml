@@ -1,0 +1,38 @@
+# Image pins that move values.yaml from Harbor 2.15 to 2.14. Harbor 2.14 uses
+# Redis where 2.15 uses Valkey. Images come from the same places as in
+# values.yaml and are pinned by digest.
+nginx:
+  image:
+    repository: mirror.gcr.io/goharbor/nginx-photon
+    tag: v2.14.6@sha256:87f30853bbeb18de7d26e2c3463da42dafe072aa96b27b289410f03654cdcb03
+portal:
+  image:
+    repository: ghcr.io/goharbor/harbor-portal
+    tag: v2.14.6@sha256:b2dbb334d9227763a7b0190de787257fe91f51c28a606014209e3a9746ab62df
+core:
+  image:
+    repository: ghcr.io/goharbor/harbor-core
+    tag: v2.14.6@sha256:9b6735cee07efda12f4970988da8d79ee0053dad6048b032b04e7d7f27813f92
+jobservice:
+  image:
+    repository: ghcr.io/goharbor/harbor-jobservice
+    tag: v2.14.6@sha256:294ee9356b7fbc0a02ea08431a9fe3a19e10bf65c10cbab54e217ff5c3884109
+registry:
+  registry:
+    image:
+      repository: ghcr.io/goharbor/registry-photon
+      tag: v2.14.6@sha256:49e0d97f52efb707ac5302d3f4ba14fa84c57fdb4b5ea1ceb8e0b9a932318354
+  controller:
+    image:
+      repository: ghcr.io/goharbor/harbor-registryctl
+      tag: v2.14.6@sha256:56a27c7747cc040922840652d8ae8afc02646aa430b538e23bb07a43a373b865
+database:
+  internal:
+    image:
+      repository: mirror.gcr.io/goharbor/harbor-db
+      tag: v2.14.6@sha256:5e6e49d9bdd1057f2e846e263a11cc27e1ee3e2b543e48b8bea7df795f06ca4b
+redis:
+  internal:
+    image:
+      repository: mirror.gcr.io/goharbor/redis-photon
+      tag: v2.14.6@sha256:253c249589189b1f2b858023c92bced1dc15cd3a507943557295c7ff8e7e2f19

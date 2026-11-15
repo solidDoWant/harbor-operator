@@ -55,9 +55,39 @@
       matchStrings: ["(?<depName>(?:mirror\\.gcr\\.io|ghcr\\.io|quay\\.io)/[a-z0-9._/-]+):(?<currentValue>[A-Za-z0-9._-]+)@(?<currentDigest>sha256:[a-f0-9]{64})"],
       datasourceTemplate: "docker",
     },
+    {
+      customType: "regex",
+      description: "Harbor chart versions in the version matrix, from the renovate comment above each",
+      managerFilePatterns: ["/^test/harbor/versions\\.yaml$/"],
+      matchStrings: ["# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)(?: registryUrl=(?<registryUrl>\\S+))?\\n\\s+chartVersion: \"(?<currentValue>[^\"]+)\""],
+    },
   ],
 
   packageRules: [
+    // Each entry in test/harbor/versions.yaml stays on its own Harbor minor
+    // (chart line and image tags). A new minor moves the pair by hand.
+    {
+      description: "Harbor chart for the first matrix entry stays on chart line 1.19",
+      matchFileNames: ["test/harbor/versions.yaml"],
+      matchCurrentValue: "/^1\\.19\\./",
+      allowedVersions: "/^1\\.19\\./",
+    },
+    {
+      description: "Harbor chart for the second matrix entry stays on chart line 1.18",
+      matchFileNames: ["test/harbor/versions.yaml"],
+      matchCurrentValue: "/^1\\.18\\./",
+      allowedVersions: "/^1\\.18\\./",
+    },
+    {
+      description: "Harbor images in values.yaml stay on 2.15",
+      matchFileNames: ["test/harbor/values.yaml"],
+      allowedVersions: "/^v2\\.15\\./",
+    },
+    {
+      description: "Harbor images in values-2.14.yaml stay on 2.14",
+      matchFileNames: ["test/harbor/values-2.14.yaml"],
+      allowedVersions: "/^v2\\.14\\./",
+    },
     // Last so it overrides any preset rule. Renovate never merges by itself:
     // the agent scheduler routes its PRs (renovate_prs) and arms green ones.
     {
