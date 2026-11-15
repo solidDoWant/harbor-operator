@@ -162,8 +162,8 @@ jobs:
       - name: Scoreboard tests
         run: ./scripts/acceptance-scoreboard_test.py
 
-  # The human-facing Markdown: links and anchors, agent-prose tells, the page
-  # index and the generated reference pages fail the job; the plain-English
+  # The human-facing Markdown: links and anchors, agent-prose tells, tracking
+  # IDs, the page index and the generated reference pages fail the job; the plain-English
   # style report is advisory and only goes to the job summary.
   docs:
     needs: changes
@@ -180,6 +180,10 @@ jobs:
           go: 'false'
       - name: Links, agent prose, page index and generated pages
         run: nix develop -c make docs-check
+      # `make lint` runs this over Markdown too, but lint is skipped for
+      # Markdown-only changes, so the docs job runs it as well.
+      - name: No tracking IDs in code or docs
+        run: nix develop -c ./scripts/check-tracking-ids.py
       - name: Style report (advisory)
         if: always() && github.event_name == 'pull_request'
         continue-on-error: true
