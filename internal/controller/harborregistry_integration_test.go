@@ -346,6 +346,7 @@ func TestRegistryRenamedInHarborStaysWithItsOwner(t *testing.T) {
 	// Any reconcile of the owner after the rename puts its name back, so the rename waits until the owner has
 	// stopped writing its status.
 	lastVersion := ""
+
 	require.Eventually(t, func() bool {
 		current := &harborv1alpha1.HarborRegistry{}
 		if err := setup.cl.Get(t.Context(), client.ObjectKeyFromObject(owner), current); err != nil || current.Status.Health == "" {
