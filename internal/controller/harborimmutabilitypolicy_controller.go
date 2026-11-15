@@ -38,6 +38,9 @@ type HarborImmutabilityPolicyReconciler struct {
 	Recorder events.EventRecorder
 	// Wakeups receives the connection when a Harbor call fails as unavailable. Nil sends nothing.
 	Wakeups ConnectionWakeups
+	// WatchNamespaces lists the namespaces the operator watches; empty means all. A reference into any other
+	// namespace is not admitted.
+	WatchNamespaces access.WatchedNamespaces
 }
 
 // +kubebuilder:rbac:groups=harbor.soliddowant.dev,resources=harborimmutabilitypolicies,verbs=get;list;watch;update;patch
@@ -169,6 +172,13 @@ func (r *HarborImmutabilityPolicyReconciler) resolve(ctx context.Context, policy
 	key := policyProjectKey(policy)
 	project := &harborv1alpha1.HarborProject{}
 
+	if !r.WatchNamespaces.Watches(key.Namespace) {
+		message := access.NotWatchedMessage(key.Namespace)
+		r.setReferenceResolved(policy, metav1.ConditionFalse, harborv1alpha1.ReasonNotAllowed, message)
+
+		return stop(harborv1alpha1.ReasonNotAllowed, message)
+	}
+
 	if err := r.Get(ctx, key, project); err != nil {
 		if !apierrors.IsNotFound(err) {
 			return nil, reconcile.Result{}, err
@@ -196,6 +206,11 @@ func (r *HarborImmutabilityPolicyReconciler) resolve(ctx context.Context, policy
 
 	if !projectUsable(project) {
 		return stop(harborv1alpha1.ReasonProjectNotReady, fmt.Sprintf("HarborProject %s has no Harbor project it owns yet", key))
+	}
+
+	if !r.WatchNamespaces.Watches(connectionKey(project).Namespace) {
+		return stop(harborv1alpha1.ReasonProjectNotReady, "the HarborConnection of HarborProject "+key.String()+" is not usable: "+
+			access.NotWatchedMessage(connectionKey(project).Namespace))
 	}
 
 	connection := &harborv1alpha1.HarborConnection{}
@@ -263,6 +278,10 @@ func (r *HarborImmutabilityPolicyReconciler) resolve(ctx context.Context, policy
 
 // admitted reports whether a claimant's project admits the claimant's namespace.
 func (r *HarborImmutabilityPolicyReconciler) admitted(ctx context.Context, claimant *harborv1alpha1.HarborImmutabilityPolicy) (bool, error) {
+	if !r.WatchNamespaces.Watches(policyProjectKey(claimant).Namespace) {
+		return false, nil
+	}
+
 	project := &harborv1alpha1.HarborProject{}
 	if err := r.Get(ctx, policyProjectKey(claimant), project); err != nil {
 		if apierrors.IsNotFound(err) {
@@ -346,12 +365,27 @@ func (r *HarborImmutabilityPolicyReconciler) finalize(ctx context.Context, polic
 	key := policyProjectKey(policy)
 	project := &harborv1alpha1.HarborProject{}
 
+	if !r.WatchNamespaces.Watches(key.Namespace) {
+		r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, harborv1alpha1.ReasonNotAllowed, "Delete",
+			"%s; the Harbor immutability rules is left in place", access.NotWatchedMessage(key.Namespace))
+
+		return release()
+	}
+
 	if err := r.Get(ctx, key, project); err != nil {
 		if !apierrors.IsNotFound(err) {
 			return reconcile.Result{}, err
 		}
 
 		// Without its project the rules cannot be reached through an admitted reference.
+		return release()
+	}
+
+	if !r.WatchNamespaces.Watches(connectionKey(project).Namespace) {
+		r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, harborv1alpha1.ReasonNotAllowed, "Delete",
+			"the HarborConnection of HarborProject %s is not usable: %s; the Harbor immutability rules is left in place",
+			key, access.NotWatchedMessage(connectionKey(project).Namespace))
+
 		return release()
 	}
 

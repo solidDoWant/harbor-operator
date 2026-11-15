@@ -66,7 +66,7 @@ Run `kubectl get harborproject,harborprojectrobot`. The `Ready` column is `True`
 | Reason | Meaning | What you do |
 |---|---|---|
 | `Ready` | Harbor matches the spec. | Nothing. |
-| `NotAllowed` | The connection or project does not admit your namespace. | Ask the admin to allow it. The operator changes nothing in Harbor. |
+| `NotAllowed` | The connection or project does not admit your namespace, or it is in a namespace that the operator does not watch. | Ask the admin to allow it. The operator changes nothing in Harbor. |
 | `Conflict` | Another resource claims the same Harbor object, and it is older. | Delete one of the two resources. |
 | `AlreadyExists` | A Harbor object with that name exists and you did not set `adopt: true`. | Choose another name, or set `adopt: true`. |
 | `AdoptionNotAllowed` | You set `adopt: true` but the connection has `allowAdoption: false`. | Ask the admin to allow adoption. |

@@ -17,6 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
+	"github.com/solidDoWant/harbor-operator/internal/access"
 	"github.com/solidDoWant/harbor-operator/internal/controller"
 	"github.com/solidDoWant/harbor-operator/internal/harbor"
 	"github.com/solidDoWant/harbor-operator/internal/ownership"
@@ -81,11 +82,13 @@ func main() {
 		metricsServerOptions.FilterProvider = filters.WithAuthenticationAndAuthorization
 	}
 
+	watched := access.ParseWatchedNamespaces(watchNamespaces)
+
 	ctx := ctrl.SetupSignalHandler()
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                        runtimeScheme,
-		Cache:                         cacheOptions(watchNamespaces),
+		Cache:                         cacheOptions(watched),
 		Metrics:                       metricsServerOptions,
 		HealthProbeBindAddress:        probeAddr,
 		LeaderElection:                enableLeaderElection,
@@ -120,37 +123,37 @@ func main() {
 		os.Exit(1)
 	}
 
-	projects := &controller.HarborProjectReconciler{Client: mgr.GetClient(), Clients: clients, Recorder: mgr.GetEventRecorder("harbor-operator"), Wakeups: wakeups}
+	projects := &controller.HarborProjectReconciler{Client: mgr.GetClient(), Clients: clients, Recorder: mgr.GetEventRecorder("harbor-operator"), Wakeups: wakeups, WatchNamespaces: watched}
 	if err := projects.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to set up the HarborProject controller")
 		os.Exit(1)
 	}
 
-	registries := &controller.HarborRegistryReconciler{Client: mgr.GetClient(), Clients: clients, Recorder: mgr.GetEventRecorder("harbor-operator"), Wakeups: wakeups}
+	registries := &controller.HarborRegistryReconciler{Client: mgr.GetClient(), Clients: clients, Recorder: mgr.GetEventRecorder("harbor-operator"), Wakeups: wakeups, WatchNamespaces: watched}
 	if err := registries.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to set up the HarborRegistry controller")
 		os.Exit(1)
 	}
 
-	robots := &controller.HarborProjectRobotReconciler{Client: mgr.GetClient(), Clients: clients, Recorder: mgr.GetEventRecorder("harbor-operator"), Wakeups: wakeups}
+	robots := &controller.HarborProjectRobotReconciler{Client: mgr.GetClient(), Clients: clients, Recorder: mgr.GetEventRecorder("harbor-operator"), Wakeups: wakeups, WatchNamespaces: watched}
 	if err := robots.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to set up the HarborProjectRobot controller")
 		os.Exit(1)
 	}
 
-	systemRobots := &controller.HarborSystemRobotReconciler{Client: mgr.GetClient(), Clients: clients, Recorder: mgr.GetEventRecorder("harbor-operator"), Wakeups: wakeups}
+	systemRobots := &controller.HarborSystemRobotReconciler{Client: mgr.GetClient(), Clients: clients, Recorder: mgr.GetEventRecorder("harbor-operator"), Wakeups: wakeups, WatchNamespaces: watched}
 	if err := systemRobots.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to set up the HarborSystemRobot controller")
 		os.Exit(1)
 	}
 
-	retentions := &controller.HarborRetentionPolicyReconciler{Client: mgr.GetClient(), Clients: clients, Recorder: mgr.GetEventRecorder("harbor-operator"), Wakeups: wakeups}
+	retentions := &controller.HarborRetentionPolicyReconciler{Client: mgr.GetClient(), Clients: clients, Recorder: mgr.GetEventRecorder("harbor-operator"), Wakeups: wakeups, WatchNamespaces: watched}
 	if err := retentions.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to set up the HarborRetentionPolicy controller")
 		os.Exit(1)
 	}
 
-	immutability := &controller.HarborImmutabilityPolicyReconciler{Client: mgr.GetClient(), Clients: clients, Recorder: mgr.GetEventRecorder("harbor-operator"), Wakeups: wakeups}
+	immutability := &controller.HarborImmutabilityPolicyReconciler{Client: mgr.GetClient(), Clients: clients, Recorder: mgr.GetEventRecorder("harbor-operator"), Wakeups: wakeups, WatchNamespaces: watched}
 	if err := immutability.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to set up the HarborImmutabilityPolicy controller")
 		os.Exit(1)

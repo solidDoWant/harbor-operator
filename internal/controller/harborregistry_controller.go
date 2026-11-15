@@ -49,6 +49,9 @@ type HarborRegistryReconciler struct {
 	Clients *harbor.ClientCache
 	// Recorder emits events on the resource.
 	Recorder events.EventRecorder
+	// WatchNamespaces lists the namespaces the operator watches; empty means all. A reference into any other
+	// namespace is not admitted.
+	WatchNamespaces access.WatchedNamespaces
 	// MaxBackoff caps the retry delay of a failing reconcile; tests lower it. Zero means 5 minutes.
 	MaxBackoff time.Duration
 	// Wakeups receives the connection when a Harbor call fails as unavailable. Nil sends nothing.
@@ -230,6 +233,13 @@ func (r *HarborRegistryReconciler) resolve(ctx context.Context, registry *harbor
 	key := registryConnectionKey(registry)
 	connection := &harborv1alpha1.HarborConnection{}
 
+	if !r.WatchNamespaces.Watches(key.Namespace) {
+		message := access.NotWatchedMessage(key.Namespace)
+		r.setReferenceResolved(registry, metav1.ConditionFalse, harborv1alpha1.ReasonNotAllowed, message)
+
+		return stop(harborv1alpha1.ReasonNotAllowed, message)
+	}
+
 	if err := r.Get(ctx, key, connection); err != nil {
 		if !apierrors.IsNotFound(err) {
 			return nil, reconcile.Result{}, err
@@ -366,6 +376,10 @@ func (r *HarborRegistryReconciler) readCredential(ctx context.Context, registry 
 
 // admitted reports whether a claimant's connection admits the claimant's namespace for Harbor-wide objects.
 func (r *HarborRegistryReconciler) admitted(ctx context.Context, claimant *harborv1alpha1.HarborRegistry) (bool, error) {
+	if !r.WatchNamespaces.Watches(registryConnectionKey(claimant).Namespace) {
+		return false, nil
+	}
+
 	connection := &harborv1alpha1.HarborConnection{}
 	if err := r.Get(ctx, registryConnectionKey(claimant), connection); err != nil {
 		if apierrors.IsNotFound(err) {

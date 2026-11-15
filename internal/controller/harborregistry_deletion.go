@@ -50,6 +50,13 @@ func (r *HarborRegistryReconciler) finalize(ctx context.Context, registry *harbo
 	key := registryConnectionKey(registry)
 	connection := &harborv1alpha1.HarborConnection{}
 
+	if !r.WatchNamespaces.Watches(key.Namespace) {
+		r.Recorder.Eventf(registry, nil, corev1.EventTypeWarning, harborv1alpha1.ReasonNotAllowed, "Delete",
+			"%s; the Harbor registry is left in place", access.NotWatchedMessage(key.Namespace))
+
+		return reconcile.Result{}, r.release(ctx, registry)
+	}
+
 	if err := r.Get(ctx, key, connection); err != nil {
 		if !apierrors.IsNotFound(err) {
 			return reconcile.Result{}, err

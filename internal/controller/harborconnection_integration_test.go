@@ -22,6 +22,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	harborv1alpha1 "github.com/solidDoWant/harbor-operator/api/v1alpha1"
+	"github.com/solidDoWant/harbor-operator/internal/access"
 	"github.com/solidDoWant/harbor-operator/internal/controller"
 	"github.com/solidDoWant/harbor-operator/internal/harbor"
 	"github.com/solidDoWant/harbor-operator/test/harborfixture"
@@ -103,10 +104,13 @@ type operatorOptions struct {
 	logger logr.Logger
 	// wrapRobotClient, when set, wraps the robot controller's client so a test can change what the controller reads.
 	wrapRobotClient func(client.Client) client.Client
+	// watchNamespaces limits the cache and the reconcilers to these namespaces, as the --watch-namespaces flag does.
+	watchNamespaces access.WatchedNamespaces
 }
 
 // startIsolatedOperator starts a private API server and operator for one test. It is the documented exception for
-// tests that need operator-wide settings the shared operator does not have: a different logger, or a wrapped client.
+// tests that need operator-wide settings the shared operator does not have: a different logger, a wrapped client, or
+// a watch list.
 func startIsolatedOperator(t *testing.T, options operatorOptions) client.Client {
 	t.Helper()
 

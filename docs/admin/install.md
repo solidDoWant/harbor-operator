@@ -35,6 +35,8 @@ Obey these rules when you use `watchNamespaces`:
 
 The operator ignores resources in namespaces that are not listed. It does not show a status on them, and it does not change Harbor for them.
 
+A resource in a listed namespace can point to a connection, project or registry in a namespace that is not listed. In that case, the resource shows `Ready=False` with the reason `NotAllowed` and the message "namespace X is not watched by the operator". The operator does not call Harbor for it. If you delete such a resource, the operator leaves its Harbor object in place.
+
 ## Create the system robot in Harbor
 
 1. In Harbor, open Administration, then Robot Accounts.

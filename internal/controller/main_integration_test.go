@@ -14,6 +14,7 @@ import (
 
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -88,7 +89,15 @@ func runOperator(restConfig *rest.Config, options operatorOptions) (func(), clie
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	manager, err := ctrl.NewManager(restConfig, ctrl.Options{Scheme: runtimeScheme, Logger: options.logger, Metrics: metricsserver.Options{BindAddress: "0"}, Controller: config.Controller{SkipNameValidation: ptr(true)}})
+	cacheOptions := cache.Options{}
+	if len(options.watchNamespaces) > 0 {
+		cacheOptions.DefaultNamespaces = map[string]cache.Config{}
+		for _, namespace := range options.watchNamespaces {
+			cacheOptions.DefaultNamespaces[namespace] = cache.Config{}
+		}
+	}
+
+	manager, err := ctrl.NewManager(restConfig, ctrl.Options{Scheme: runtimeScheme, Logger: options.logger, Cache: cacheOptions, Metrics: metricsserver.Options{BindAddress: "0"}, Controller: config.Controller{SkipNameValidation: ptr(true)}})
 	if err != nil {
 		cancel()
 
@@ -108,12 +117,12 @@ func runOperator(restConfig *rest.Config, options operatorOptions) (func(), clie
 		controller.IndexFields(ctx, manager.GetFieldIndexer()),
 		ownership.SetupIndexes(ctx, manager.GetFieldIndexer()),
 		(&controller.HarborConnectionReconciler{Client: manager.GetClient(), Clients: clients, Recorder: recorder, Wakeups: wakeups}).SetupWithManager(manager),
-		(&controller.HarborProjectReconciler{Client: manager.GetClient(), Clients: clients, Recorder: recorder, Wakeups: wakeups, MaxBackoff: 2 * time.Second}).SetupWithManager(manager),
-		(&controller.HarborProjectRobotReconciler{Client: robotClient, Clients: clients, Recorder: recorder, Wakeups: wakeups}).SetupWithManager(manager),
-		(&controller.HarborSystemRobotReconciler{Client: manager.GetClient(), Clients: clients, Recorder: recorder, Wakeups: wakeups}).SetupWithManager(manager),
-		(&controller.HarborRetentionPolicyReconciler{Client: manager.GetClient(), Clients: clients, Recorder: recorder, Wakeups: wakeups}).SetupWithManager(manager),
-		(&controller.HarborRegistryReconciler{Client: manager.GetClient(), Clients: clients, Recorder: recorder, Wakeups: wakeups, MaxBackoff: 2 * time.Second}).SetupWithManager(manager),
-		(&controller.HarborImmutabilityPolicyReconciler{Client: manager.GetClient(), Clients: clients, Recorder: recorder, Wakeups: wakeups}).SetupWithManager(manager),
+		(&controller.HarborProjectReconciler{Client: manager.GetClient(), Clients: clients, Recorder: recorder, Wakeups: wakeups, MaxBackoff: 2 * time.Second, WatchNamespaces: options.watchNamespaces}).SetupWithManager(manager),
+		(&controller.HarborProjectRobotReconciler{Client: robotClient, Clients: clients, Recorder: recorder, Wakeups: wakeups, WatchNamespaces: options.watchNamespaces}).SetupWithManager(manager),
+		(&controller.HarborSystemRobotReconciler{Client: manager.GetClient(), Clients: clients, Recorder: recorder, Wakeups: wakeups, WatchNamespaces: options.watchNamespaces}).SetupWithManager(manager),
+		(&controller.HarborRetentionPolicyReconciler{Client: manager.GetClient(), Clients: clients, Recorder: recorder, Wakeups: wakeups, WatchNamespaces: options.watchNamespaces}).SetupWithManager(manager),
+		(&controller.HarborRegistryReconciler{Client: manager.GetClient(), Clients: clients, Recorder: recorder, Wakeups: wakeups, MaxBackoff: 2 * time.Second, WatchNamespaces: options.watchNamespaces}).SetupWithManager(manager),
+		(&controller.HarborImmutabilityPolicyReconciler{Client: manager.GetClient(), Clients: clients, Recorder: recorder, Wakeups: wakeups, WatchNamespaces: options.watchNamespaces}).SetupWithManager(manager),
 	}
 
 	for _, err := range setup {
