@@ -11,6 +11,30 @@ This page installs the operator and connects it to one Harbor. The operator does
 
 [Chart values](chart-values.md) lists every value you can set.
 
+## Limit the operator to some namespaces
+
+By default, the operator watches all namespaces, and the chart gives it read and write access to Secrets and to its resources in all namespaces. To limit this access, set `watchNamespaces` to a list of namespaces:
+
+```yaml
+watchNamespaces:
+  - team-a
+  - team-b
+```
+
+With `watchNamespaces` set, the chart gives the operator a Role in each listed namespace and a Role in the release namespace for leader election. The operator keeps only these cluster-wide permissions:
+
+- Read Namespaces. The operator reads the labels of namespaces for `allowedNamespaces` selectors.
+- Create `tokenreviews` and `subjectaccessreviews`. The metrics endpoint uses them to check who reads the metrics.
+
+Obey these rules when you use `watchNamespaces`:
+
+- Create each listed namespace before you install or upgrade the chart.
+- Put every `HarborConnection` in a listed namespace.
+- Install the operator only once for each Harbor. Put all resources that use that Harbor in listed namespaces.
+- Delete the resources in a namespace before you remove that namespace from the list.
+
+The operator ignores resources in namespaces that are not listed. It does not show a status on them, and it does not change Harbor for them.
+
 ## Create the system robot in Harbor
 
 1. In Harbor, open Administration, then Robot Accounts.

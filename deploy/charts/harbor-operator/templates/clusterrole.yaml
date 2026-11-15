@@ -1,8 +1,19 @@
-# Generated from config/rbac/role.yaml by make generate; do not edit.
+{{- if not .Values.watchNamespaces }}
+# The manager's rules in every namespace. With watchNamespaces set, namespaced-rbac.yaml grants them per namespace.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: {{ include "harbor-operator.fullname" . }}
+  labels:
+    {{- include "harbor-operator.labels" . | nindent 4 }}
+{{ include "harbor-operator.managerRules" . }}
+{{- else }}
+# allowedNamespaces label selectors read the labels of Namespaces, which are cluster-scoped, so reading Namespaces
+# stays a cluster-wide grant even when watchNamespaces limits everything else.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "harbor-operator.fullname" . }}-namespaces
   labels:
     {{- include "harbor-operator.labels" . | nindent 4 }}
 rules:
@@ -14,77 +25,4 @@ rules:
   - get
   - list
   - watch
-- apiGroups:
-  - ""
-  resources:
-  - secrets
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - ""
-  - events.k8s.io
-  resources:
-  - events
-  verbs:
-  - create
-  - patch
-- apiGroups:
-  - coordination.k8s.io
-  resources:
-  - leases
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - harbor.soliddowant.dev
-  resources:
-  - harborconnections
-  - harborimmutabilitypolicies
-  - harborprojectrobots
-  - harborprojects
-  - harborregistries
-  - harborretentionpolicies
-  - harborsystemrobots
-  verbs:
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - harbor.soliddowant.dev
-  resources:
-  - harborconnections/finalizers
-  - harborimmutabilitypolicies/finalizers
-  - harborprojectrobots/finalizers
-  - harborprojects/finalizers
-  - harborregistries/finalizers
-  - harborretentionpolicies/finalizers
-  - harborsystemrobots/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - harbor.soliddowant.dev
-  resources:
-  - harborconnections/status
-  - harborimmutabilitypolicies/status
-  - harborprojectrobots/status
-  - harborprojects/status
-  - harborregistries/status
-  - harborretentionpolicies/status
-  - harborsystemrobots/status
-  verbs:
-  - get
-  - patch
-  - update
+{{- end }}

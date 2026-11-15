@@ -18,6 +18,7 @@ For: admins who install harbor-operator with its Helm chart.
 | `serviceAccount.name` | `""` | ServiceAccount name. Defaults to the full name. |
 | `serviceAccount.annotations` | `{}` | Annotations for the ServiceAccount. |
 | `leaderElection.enabled` | `true` | Enable leader election. |
+| `watchNamespaces` | `[]` | Namespaces that the operator watches. Empty means all namespaces. See docs/admin/install.md. |
 | `metrics.port` | `8443` | Port of the metrics endpoint. |
 | `metrics.secure` | `true` | Serve metrics over HTTPS with authentication and authorization. |
 | `resources.requests.cpu` | `10m` | CPU request. There is no CPU limit. |

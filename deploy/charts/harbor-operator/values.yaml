@@ -26,6 +26,8 @@ serviceAccount:
 leaderElection:
   # -- Enable leader election.
   enabled: true
+# -- Namespaces that the operator watches. Empty means all namespaces. See docs/admin/install.md.
+watchNamespaces: []
 metrics:
   # -- Port of the metrics endpoint.
   port: 8443

@@ -1,0 +1,80 @@
+{{- if .Values.watchNamespaces }}
+{{- /*
+With watchNamespaces set, the manager's rules are granted only in the listed namespaces. Namespaces are
+cluster-scoped (clusterrole.yaml grants reading them), and leader election needs leases only in the release
+namespace, so both are left out of the per-namespace Roles. Events are kept: they are written in the namespace of
+the resource they describe.
+*/}}
+{{- $rules := (include "harbor-operator.managerRules" . | fromYaml).rules }}
+{{- $watched := list }}
+{{- $leaderElection := list }}
+{{- range $rules }}
+{{- $resources := without .resources "namespaces" "leases" }}
+{{- if $resources }}
+{{- $watched = append $watched (set (deepCopy .) "resources" $resources) }}
+{{- end }}
+{{- $own := list }}
+{{- range .resources }}
+{{- if has . (list "leases" "events") }}
+{{- $own = append $own . }}
+{{- end }}
+{{- end }}
+{{- if $own }}
+{{- $leaderElection = append $leaderElection (set (deepCopy .) "resources" $own) }}
+{{- end }}
+{{- end }}
+{{- range $namespace := uniq .Values.watchNamespaces }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "harbor-operator.fullname" $ }}
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "harbor-operator.labels" $ | nindent 4 }}
+rules:
+  {{- toYaml $watched | nindent 2 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "harbor-operator.fullname" $ }}
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "harbor-operator.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "harbor-operator.fullname" $ }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "harbor-operator.serviceAccountName" $ }}
+    namespace: {{ $.Release.Namespace }}
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "harbor-operator.fullname" . }}-leader-election
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "harbor-operator.labels" . | nindent 4 }}
+rules:
+  {{- toYaml $leaderElection | nindent 2 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "harbor-operator.fullname" . }}-leader-election
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "harbor-operator.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "harbor-operator.fullname" . }}-leader-election
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "harbor-operator.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

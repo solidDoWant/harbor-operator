@@ -1,0 +1,86 @@
+{{/* Generated from config/rbac/role.yaml by make generate; do not edit. */}}
+{{- define "harbor-operator.managerRules" -}}
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - namespaces
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  - events.k8s.io
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - harbor.soliddowant.dev
+  resources:
+  - harborconnections
+  - harborimmutabilitypolicies
+  - harborprojectrobots
+  - harborprojects
+  - harborregistries
+  - harborretentionpolicies
+  - harborsystemrobots
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - harbor.soliddowant.dev
+  resources:
+  - harborconnections/finalizers
+  - harborimmutabilitypolicies/finalizers
+  - harborprojectrobots/finalizers
+  - harborprojects/finalizers
+  - harborregistries/finalizers
+  - harborretentionpolicies/finalizers
+  - harborsystemrobots/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - harbor.soliddowant.dev
+  resources:
+  - harborconnections/status
+  - harborimmutabilitypolicies/status
+  - harborprojectrobots/status
+  - harborprojects/status
+  - harborregistries/status
+  - harborretentionpolicies/status
+  - harborsystemrobots/status
+  verbs:
+  - get
+  - patch
+  - update
+{{- end }}
