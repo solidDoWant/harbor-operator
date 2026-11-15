@@ -115,7 +115,7 @@ func (r *HarborConnectionReconciler) Reconcile(ctx context.Context, request reco
 		}
 	}
 
-	harborClient, reason, message := r.clientFor(ctx, &connection)
+	harborClient, reason, message := clientFor(ctx, r.Client, r.Clients, &connection)
 	if harborClient == nil {
 		// A fix to the Secret or the spec triggers a new reconcile through the watch.
 		return reconcile.Result{}, r.setNotReady(ctx, &connection, reason, message)
@@ -163,12 +163,12 @@ func resyncInterval(connection *harborv1alpha1.HarborConnection) time.Duration {
 	return defaultResyncInterval
 }
 
-// clientFor returns a Harbor client, or a reason and message when the credentials cannot give one.
-func (r *HarborConnectionReconciler) clientFor(ctx context.Context, connection *harborv1alpha1.HarborConnection) (*harbor.Client, string, string) {
+// clientFor returns a Harbor client for the connection, or a reason and message when the credentials cannot give one.
+func clientFor(ctx context.Context, reader client.Reader, clients *harbor.ClientCache, connection *harborv1alpha1.HarborConnection) (*harbor.Client, string, string) {
 	secretName := connection.Spec.CredentialsSecretRef.Name
 
 	var secret corev1.Secret
-	if err := r.Get(ctx, client.ObjectKey{Namespace: connection.Namespace, Name: secretName}, &secret); err != nil {
+	if err := reader.Get(ctx, client.ObjectKey{Namespace: connection.Namespace, Name: secretName}, &secret); err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil, harborv1alpha1.ReasonCredentialsInvalid, fmt.Sprintf("credentials Secret %q not found", secretName)
 		}
@@ -182,7 +182,7 @@ func (r *HarborConnectionReconciler) clientFor(ctx context.Context, connection *
 		}
 	}
 
-	built, err := r.Clients.Get(ctx, harbor.Connection{
+	built, err := clients.Get(ctx, harbor.Connection{
 		UID: connection.UID, Generation: connection.Generation, Namespace: connection.Namespace,
 		URL: connection.Spec.URL, CredentialsSecret: secretName,
 		CABundle: connection.Spec.CABundle, InsecureSkipVerify: connection.Spec.InsecureSkipVerify,
