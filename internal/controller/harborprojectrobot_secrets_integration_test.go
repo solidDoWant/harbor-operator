@@ -4,6 +4,7 @@ package controller_test
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -256,4 +257,55 @@ func TestRobotSecretNameTakenByAForeignSecret(t *testing.T) {
 
 	username, password := dockerCredentials(t, setup.cl, "default", "ci-dockerconfig", setup.instance.Registry(t))
 	require.NoError(t, push(t, setup.instance, username, password, setup.project.Spec.Name, "app"), "once the name is free the robot's Secret is written")
+}
+
+func TestRobotRejectsTwoEnabledSecretsWithTheSameName(t *testing.T) {
+	setup := readyRobotProject(t, nil, nil)
+
+	tests := []struct {
+		name   string
+		change func(*harborv1alpha1.RobotSecretSpec)
+		assert require.ErrorAssertionFunc
+	}{
+		{name: "same explicit name", change: func(spec *harborv1alpha1.RobotSecretSpec) {
+			spec.DockerConfigJSON.Name = "same"
+			spec.Opaque = harborv1alpha1.SecretOutput{Enabled: ptr(true), Name: "same"}
+		}, assert: require.Error},
+		{name: "opaque name equals the dockerconfigjson default", change: func(spec *harborv1alpha1.RobotSecretSpec) {
+			spec.Opaque = harborv1alpha1.SecretOutput{Enabled: ptr(true), Name: "ci-dockerconfig"}
+		}, assert: require.Error},
+		{name: "dockerconfigjson name equals the opaque default", change: func(spec *harborv1alpha1.RobotSecretSpec) {
+			spec.DockerConfigJSON.Name = "ci-credentials"
+			spec.Opaque.Enabled = ptr(true)
+		}, assert: require.Error},
+		{name: "same name but opaque disabled", change: func(spec *harborv1alpha1.RobotSecretSpec) {
+			spec.DockerConfigJSON.Name = "same"
+			spec.Opaque = harborv1alpha1.SecretOutput{Name: "same"}
+		}, assert: require.NoError},
+		{name: "same name but dockerconfigjson disabled", change: func(spec *harborv1alpha1.RobotSecretSpec) {
+			spec.DockerConfigJSON = harborv1alpha1.SecretOutput{Enabled: ptr(false), Name: "same"}
+			spec.Opaque = harborv1alpha1.SecretOutput{Enabled: ptr(true), Name: "same"}
+		}, assert: require.NoError},
+		{name: "both enabled with different names", change: func(spec *harborv1alpha1.RobotSecretSpec) {
+			spec.Opaque.Enabled = ptr(true)
+		}, assert: require.NoError},
+	}
+
+	for index, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			robot := ciRobot("default", setup.project)
+			// Rejected specs are never stored, so they can share a name; accepted ones are reconciled and need their own.
+			if index >= 3 {
+				robot.Name = fmt.Sprintf("ci-accepted-%d", index)
+			}
+
+			test.change(&robot.Spec.Secret)
+			err := setup.cl.Create(t.Context(), robot)
+			test.assert(t, err)
+
+			if err != nil {
+				assert.Contains(t, err.Error(), "must have different names")
+			}
+		})
+	}
 }
