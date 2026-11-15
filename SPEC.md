@@ -34,7 +34,7 @@ Non-negotiable. Tests enforce them, and only the owner can change them.
 
 - Kubernetes 1.33 or later. No other operator is required.
 - Harbor 2.13 or later, reached over HTTPS (or HTTP for tests), v2.0 REST API. The owner runs Harbor 2.15 with OIDC sign-in; the operator never uses OIDC.
-- The operator authenticates to Harbor with HTTP basic auth: either a Harbor **system robot account** (recommended, the owner's choice) or a local admin user. The admin creates that first credential by hand.
+- The operator authenticates to Harbor with HTTP basic auth: either a Harbor **system robot account** (the owner's choice, and the documented default) or a local admin user. The admin creates that first credential by hand. Harbor doesn't let a robot update robots or refresh their secrets, so with a robot credential those changes are made by deleting and re-creating the robot (`docs/design/phase-1.md`).
 
 ## 4. Architecture
 
@@ -115,22 +115,22 @@ The dockerconfigjson Secret holds an auth entry for the connection's registry ho
 
 ## 6. Ownership and adoption
 
-- The operator records the Harbor ID it created or adopted in status. A Harbor object is **owned** by exactly one custom resource.
-- On create, if an object with that name already exists in Harbor and no custom resource owns it: with `adopt: true` the operator takes it over (and from then on overwrites drift); otherwise `Ready=False, reason=AlreadyExists`.
-- If another custom resource in the cluster already owns that Harbor object (same Harbor, identified by the connection's normalized URL, and same Harbor name), the newer custom resource gets `Ready=False, reason=Conflict`. The older one (by creation time, then UID) wins. Ownership is decided from the cluster's custom resources, not from markers in Harbor.
-- A project robot's Harbor name is `robot$<project>+<name>` (Harbor's prefix rules apply); a system robot's is `robot$<name>`.
+- **Harbor identity.** Each connection records its Harbor's `external_url` from `GET /systeminfo` in status (normalized: scheme, lower-cased host, default port removed, no trailing slash). Two connections to the same Harbor share it, whatever URL each uses to reach it. Each resource records `status.harborKey` (Harbor identity + object type + Harbor name) when it starts claiming an object.
+- **One owner per Harbor object.** The owner is the claimant whose status records the object's ID for this Harbor identity. If no claimant records an ID, the owner is the **oldest admitted** claimant (creation time, then UID). A claimant that isn't admitted, or is being deleted without an ID, doesn't count. Only the owner creates, updates or deletes the object. Every other claimant gets `Ready=False, reason=Conflict` on every reconcile, even if its own status has an ID.
+- **Adoption.** On create, if an object with that name already exists in Harbor and this resource doesn't own it by the rule above: with `adopt: true` (and the connection's `allowAdoption`) the operator takes it over and from then on overwrites drift; otherwise `Ready=False, reason=AlreadyExists`. An object the operator created itself just before a crash is not "existing" (the create-pending annotation, `docs/design/phase-1.md`).
+- **Names.** Robot names come from Harbor's responses, never from text: Harbor adds its configured prefix (`robot$` by default) to `<project>+<name>` for project robots and `<name>` for system robots.
 
 ## 7. Deletion
 
-- `deletionPolicy: Delete` (default, overridable by the connection's `defaults`) deletes the Harbor object when the custom resource is deleted; `Orphan` leaves it.
-- Harbor refuses to delete a project that still has repositories. The operator reports `reason=DeleteBlocked` with Harbor's message and retries with backoff; it never deletes repositories itself.
-- Deleting a `HarborProject` that still has policy or robot resources pointing at it waits until those are gone (`reason=DependentsExist`), so the finalizers don't race.
-- Deleting a `HarborConnection` waits until no resource uses it.
-- If Harbor is unreachable, deletion waits (finalizer kept) and retries. An admin can remove the finalizer by hand to give up; that is documented, not automated.
+- `deletionPolicy: Delete` (default, overridable by the connection's `defaults`) deletes the Harbor object when the custom resource is deleted; `Orphan` leaves it. Either way the operator only ever deletes by the ID in status, after checking that ID still names this resource's own object; with no ID it deletes nothing.
+- A resource whose reference is no longer admitted is orphaned when deleted: the finalizer goes and Harbor is untouched.
+- Harbor refuses to delete a project that still has repositories (HTTP 412). The operator reports `reason=DeleteBlocked` with Harbor's message and retries with backoff; it never deletes repositories itself. A 404 on delete counts as deleted.
+- Deleting a `HarborProject` (either policy) waits while robot or policy resources that the project admits still point at it (`reason=DependentsExist`). Resources it doesn't admit never hold it up. The same goes for a `HarborConnection` and the resources it admits.
+- If Harbor is unreachable or the connection's credentials are gone, deletion waits (finalizer kept) and retries. Admins delete the resources before deleting their namespace; removing a finalizer by hand gives up, and is documented, not automated.
 
 ## 8. Errors and status
 
-- Harbor errors map to condition reasons: `Unauthorized`, `Forbidden`, `NotFound`, `Conflict`, `InvalidSpec` (Harbor 400 with its message), `HarborUnavailable` (network, 5xx). Invalid specs that can be caught statically are rejected by CRD validation (CEL), not at reconcile.
+- Harbor errors map to condition reasons: `Unauthorized` (401), `Forbidden` (403), `NotFound`, `Conflict`, `InvalidSpec` (Harbor 400 with its message), `DeleteBlocked` (412 on project delete), `HarborUnavailable` (network, 5xx). Invalid specs that can be caught statically are rejected by CRD validation (CEL), not at reconcile.
 - Transient errors retry with controller-runtime's exponential backoff; `InvalidSpec` waits for a spec change.
 - Every status change also emits a Kubernetes event on the resource. Messages never include secrets.
 
