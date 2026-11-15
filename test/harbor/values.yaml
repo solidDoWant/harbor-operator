@@ -1,0 +1,55 @@
+# Harbor chart values for the integration test environment: plain HTTP behind
+# a NodePort that kind maps to the host. up.sh adds externalURL and the node
+# port. Images come from ghcr.io/goharbor, except the two Harbor does not
+# publish there (nginx and harbor-db), which come from mirror.gcr.io. All are
+# pinned by digest.
+expose:
+  type: nodePort
+  tls:
+    enabled: false
+  nodePort:
+    ports:
+      http:
+        nodePort: 30002
+harborAdminPassword: Harbor12345
+persistence:
+  enabled: false
+trivy:
+  enabled: false
+metrics:
+  enabled: false
+nginx:
+  image:
+    repository: mirror.gcr.io/goharbor/nginx-photon
+    tag: v2.15.4@sha256:7eff0287d5ad0f35754e162c8481ced04bbde107153ce586cefb15ee74fa1311
+portal:
+  image:
+    repository: ghcr.io/goharbor/harbor-portal
+    tag: v2.15.4@sha256:01edf478505b21dba23a83c095f6ecac0c1e705690093edbab41e9a4d6754a75
+core:
+  image:
+    repository: ghcr.io/goharbor/harbor-core
+    tag: v2.15.4@sha256:7d2ba5304a729887cdec7cb222a82b500278423de230ae5150c386a6c332b112
+jobservice:
+  image:
+    repository: ghcr.io/goharbor/harbor-jobservice
+    tag: v2.15.4@sha256:f143578ef30e2be5c48873298257ed0fca31545025958c534e536a06765d2b82
+registry:
+  registry:
+    image:
+      repository: ghcr.io/goharbor/registry-photon
+      tag: v2.15.4@sha256:dc0cb388a6445c69c8a0c406679290d2991c9698833d9e6e86a23bdfaf2f83c3
+  controller:
+    image:
+      repository: ghcr.io/goharbor/harbor-registryctl
+      tag: v2.15.4@sha256:30bd1ace4e3bb390d75b84673f98ddb4a69fcc6d116932ea764391df01943fb7
+database:
+  internal:
+    image:
+      repository: mirror.gcr.io/goharbor/harbor-db
+      tag: v2.15.4@sha256:a32d51e636d76303e086a7c5251a2c8415c6f165b2f87bafa914efd866c5403f
+redis:
+  internal:
+    image:
+      repository: ghcr.io/goharbor/valkey-photon
+      tag: v2.15.4@sha256:bb022e8f236f56f53cee7bb1f609595e497da67d829048e0af2284f97e6eb54f

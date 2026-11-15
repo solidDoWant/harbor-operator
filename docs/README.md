@@ -38,6 +38,7 @@ docs/user/
 
 docs/admin/
   README.md                What the pages for admins will cover.
+  credentials.md           Which Harbor credential the operator signs in with.
 
 docs/dev/
   README.md                What the developer pages will cover, and the commands.
