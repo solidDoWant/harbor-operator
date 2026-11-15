@@ -34,7 +34,7 @@ metrics:
 resources:
   requests:
     # -- CPU request. There is no CPU limit.
-    cpu: 100m
+    cpu: 10m
     # -- Memory request.
     memory: 128Mi
   limits:
@@ -50,3 +50,28 @@ nodeSelector: {}
 tolerations: []
 # -- Affinity rules.
 affinity: {}
+networkPolicy:
+  # -- Create a NetworkPolicy that limits egress to the API server, Harbor and DNS.
+  enabled: false
+  apiServer:
+    # -- CIDRs of the Kubernetes API server (the `kubernetes` Service IP and the control plane node IPs). Required when the policy is enabled.
+    cidrs: []
+    # -- Ports of the API server.
+    ports: [443, 6443]
+  harborEgress:
+    # -- Where Harbor is. A list of NetworkPolicy peers: `ipBlock`, or `podSelector` with `namespaceSelector`. Leave empty to allow any destination on the Harbor ports.
+    peers: []
+    # -- Ports of the Harbor URL.
+    ports: [443]
+  dns:
+    # -- Labels of the namespace that runs the cluster DNS.
+    namespaceLabels:
+      kubernetes.io/metadata.name: kube-system
+    # -- Labels of the cluster DNS pods.
+    podLabels:
+      k8s-app: kube-dns
+podDisruptionBudget:
+  # -- Create a PodDisruptionBudget.
+  enabled: false
+  # -- Number of pods that may be unavailable.
+  maxUnavailable: 1

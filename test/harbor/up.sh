@@ -16,8 +16,14 @@ cd "$(git rev-parse --show-toplevel)"
 
 cluster="${HARBOR_CLUSTER:-harbor-op-int}"
 node_image="mirror.gcr.io/kindest/node:v1.35.8@sha256:07b2536e30b803ed61d1677a79df6115f798ce64c80f9e22f6ed45afd09323c0"
-chart="oci://ghcr.io/home-operations/charts-mirror/harbor"
-chart_version="1.19.4"
+# HARBOR_VERSION picks a Harbor minor from test/harbor/versions.yaml (default:
+# the first entry).
+versions=scripts/ci/harbor-versions.py
+harbor_minor="$($versions get "${HARBOR_VERSION:-}" minor)"
+chart="$($versions get "$harbor_minor" chart)"
+chart_repo="$($versions get "$harbor_minor" repo)"
+chart_version="$($versions get "$harbor_minor" chartVersion)"
+extra_values="$($versions get "$harbor_minor" values)"
 node_port=30002
 upstream_node_port=30005
 upstream_image="ghcr.io/distribution/distribution:3.1.2@sha256:d106962e6fe3fa69c178cec77eeeee5edb626b8df6535b7bd6b95e658a0a5ca9"
@@ -54,10 +60,13 @@ kubectl_ctx="kind-${cluster}"
 port="$(docker port "${cluster}-control-plane" "${node_port}/tcp" | head -1 | sed 's/.*://')"
 url="http://127.0.0.1:${port}"
 
-log "installing Harbor chart ${chart_version}"
-helm upgrade --install harbor "$chart" --version "$chart_version" \
+log "installing Harbor ${harbor_minor} (chart ${chart_version})"
+helm_args=(--version "$chart_version" -f test/harbor/values.yaml)
+if [[ -n "$chart_repo" ]]; then helm_args+=(--repo "$chart_repo"); fi
+if [[ -n "$extra_values" ]]; then helm_args+=(-f "$extra_values"); fi
+helm upgrade --install harbor "$chart" "${helm_args[@]}" \
 	--kube-context "$kubectl_ctx" --namespace harbor --create-namespace \
-	-f test/harbor/values.yaml --set "externalURL=${url}" \
+	--set "externalURL=${url}" \
 	--wait --timeout 10m >&2
 
 log "waiting for ${url}"
@@ -120,6 +129,7 @@ HARBOR_URL=${url}
 HARBOR_ADMIN_USER=admin
 HARBOR_ADMIN_PASSWORD=${admin_password}
 HARBOR_CLUSTER=${cluster}
+HARBOR_MINOR=${harbor_minor}
 UPSTREAM_URL=http://upstream.upstream.svc.cluster.local:5000
 UPSTREAM_REGISTRY=${upstream_host:+127.0.0.1:${upstream_host}}
 ENV

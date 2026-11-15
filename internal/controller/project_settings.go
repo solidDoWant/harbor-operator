@@ -115,3 +115,16 @@ func desiredStorageQuota(spec *harborv1alpha1.HarborProjectSpec) (int64, bool) {
 		return 0, false
 	}
 }
+
+// projectSettingsFields names the settings a diff changes.
+func projectSettingsFields(diff harbor.ProjectSettings) []string {
+	return []string{
+		fieldIf(diff.Public != nil, "public"),
+		fieldIf(diff.PreventVulnerableImages != nil, "vulnerability.preventVulnerableImages"),
+		fieldIf(diff.Severity != nil, "vulnerability.severity"),
+		fieldIf(diff.ScanOnPush != nil, "vulnerability.scanOnPush"),
+		fieldIf(diff.UseSystemAllowlist != nil, "vulnerability.useSystemAllowlist"),
+		fieldIf(diff.CVEAllowlist != nil, "vulnerability.cveAllowlist"),
+		fieldIf(diff.ProxySpeedKbps != nil, "proxyCache.speedLimitKbps"),
+	}
+}

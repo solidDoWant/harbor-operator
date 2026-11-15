@@ -1,0 +1,23 @@
+# The Harbor minor releases the e2e suite runs against: the two most recent.
+# CI makes one job per entry (scripts/ci/harbor-versions.py prints them as a
+# JSON matrix); test/harbor/up.sh installs the entry named by HARBOR_VERSION
+# (default: the first). One entry per line group, keys in this order. The
+# first entry is also what the integration tests use.
+#
+# chart: an OCI reference, or a chart name when repo is set.
+# values: extra Helm values layered over values.yaml, empty for none.
+#
+# When a new minor ships, move the pair: the new minor goes first and the old
+# first entry becomes the second. Check the two entries still differ.
+- minor: "2.15"
+  chart: oci://ghcr.io/home-operations/charts-mirror/harbor
+  repo: ""
+  # renovate: datasource=docker depName=ghcr.io/home-operations/charts-mirror/harbor
+  chartVersion: "1.19.4"
+  values: ""
+- minor: "2.14"
+  chart: harbor
+  repo: https://helm.goharbor.io
+  # renovate: datasource=helm depName=harbor registryUrl=https://helm.goharbor.io
+  chartVersion: "1.18.4"
+  values: test/harbor/values-2.14.yaml

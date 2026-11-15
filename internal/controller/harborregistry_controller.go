@@ -497,6 +497,8 @@ func (r *HarborRegistryReconciler) create(ctx context.Context, state *registryRe
 
 	if recreate {
 		r.Recorder.Eventf(registry, nil, corev1.EventTypeNormal, harborv1alpha1.EventReasonRecreated, "Create", "Created Harbor registry %q again after it was deleted in Harbor", name)
+	} else {
+		recordCreated(r.Recorder, registry, "registry", name)
 	}
 
 	return r.checkHealth(ctx, state, created.ID)
@@ -537,6 +539,12 @@ func (r *HarborRegistryReconciler) update(ctx context.Context, state *registryRe
 	if differs || (due && desired.Credential != nil) {
 		if err := state.harbor.UpdateRegistry(ctx, current.ID, desired); err != nil {
 			return r.harborFailed(ctx, state, err)
+		}
+
+		if differs {
+			recordUpdated(r.Recorder, state.registry, "registry", current.Name,
+				fieldIf(current.Name != desired.Name, "name"), fieldIf(current.URL != desired.URL, "url"),
+				fieldIf(current.Description != desired.Description, "description"), fieldIf(current.Insecure != desired.Insecure, "insecure"))
 		}
 	}
 

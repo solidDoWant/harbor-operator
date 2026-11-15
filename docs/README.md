@@ -41,6 +41,7 @@ docs/user/
   robot-permissions.md     The resource and action pairs a project robot may be granted.
   immutability.md          Tag immutability rules for a project.
   proxy-cache.md           A pull-through cache: a registry, a proxy-cache project and their status reasons.
+  events.md                The Kubernetes events the operator writes and when.
 
 docs/admin/
   README.md                The pages for admins.
@@ -49,6 +50,7 @@ docs/admin/
   credentials.md           Which Harbor credential the operator signs in with.
   system-robots.md         System robots: access to many projects, and their status reasons.
   troubleshooting.md       Every condition reason with its cause and fix.
+  metrics.md               The metrics the operator exports.
   chart-values.md          Every Helm chart value (generated).
 
 docs/dev/

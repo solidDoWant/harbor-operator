@@ -13,6 +13,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
@@ -102,9 +103,14 @@ func main() {
 		os.Exit(1)
 	}
 
+	if err := ctrlmetrics.Registry.Register(controller.NewResourceCollector(mgr.GetClient(), mgr.Elected())); err != nil {
+		setupLog.Error(err, "unable to register the resource metrics")
+		os.Exit(1)
+	}
+
 	clients := harbor.NewClientCache(mgr.GetClient())
 
-	if err := (&controller.HarborConnectionReconciler{Client: mgr.GetClient(), Clients: clients}).SetupWithManager(mgr); err != nil {
+	if err := (&controller.HarborConnectionReconciler{Client: mgr.GetClient(), Clients: clients, Recorder: mgr.GetEventRecorder("harbor-operator")}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to set up the HarborConnection controller")
 		os.Exit(1)
 	}
