@@ -17,6 +17,12 @@ var (
 	// function.
 	SchemeBuilder = runtime.NewSchemeBuilder(func(s *runtime.Scheme) error {
 		metav1.AddToGroupVersion(s, GroupVersion)
+		s.AddKnownTypes(GroupVersion,
+			&HarborConnection{}, &HarborConnectionList{},
+			&HarborProject{}, &HarborProjectList{},
+			&HarborProjectRobot{}, &HarborProjectRobotList{},
+		)
+
 		return nil
 	})
 
