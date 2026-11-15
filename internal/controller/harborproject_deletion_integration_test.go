@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -181,6 +182,125 @@ func TestProjectDeletion(t *testing.T) {
 		assert.Equal(t, int64(ready.Status.ProjectID), found.ID)
 		awaitProject(t, cl, client.ObjectKeyFromObject(owner), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
 	})
+
+	t.Run("a project whose connection stopped admitting it and was then deleted is orphaned", func(t *testing.T) {
+		setup := withdrawnAndDeletedConnection(t, cl, instance, "gone-conn", false)
+
+		require.NoError(t, cl.Delete(t.Context(), setup.project))
+		awaitGone(t, cl, setup.key, "the finalizer is removed without the connection")
+		awaitEvent(t, cl, setup.project, harborv1alpha1.ReasonNotAllowed)
+
+		found, err := admin.GetProjectByName(t.Context(), setup.harborName)
+		require.NoError(t, err, "the Harbor project stays")
+		assert.Equal(t, int64(setup.project.Status.ProjectID), found.ID)
+	})
+
+	t.Run("a robot and its project whose connection stopped admitting them and was then deleted are orphaned", func(t *testing.T) {
+		setup := withdrawnAndDeletedConnection(t, cl, instance, "gone-conn-robot", true)
+
+		require.NoError(t, cl.Delete(t.Context(), setup.robot))
+		require.NoError(t, cl.Delete(t.Context(), setup.project))
+
+		robotKey := client.ObjectKeyFromObject(setup.robot)
+
+		require.Eventually(t, func() bool {
+			return apierrors.IsNotFound(cl.Get(t.Context(), robotKey, &harborv1alpha1.HarborProjectRobot{}))
+		}, projectWait, 200*time.Millisecond, "the robot's finalizer is removed without the connection")
+		awaitGone(t, cl, setup.key, "the project's finalizer is removed once the robot is gone")
+
+		_, err := admin.GetRobot(t.Context(), setup.robot.Status.RobotID)
+		require.NoError(t, err, "the Harbor robot stays")
+
+		_, err = admin.GetProjectByName(t.Context(), setup.harborName)
+		require.NoError(t, err, "the Harbor project stays")
+	})
+
+	t.Run("deletion of an admitted project waits while its connection's credentials are missing", func(t *testing.T) {
+		connection, name := deletionSetup(t, cl, instance, "delete-no-creds")
+
+		project := newProject("delete-no-creds", name, connection)
+		require.NoError(t, cl.Create(t.Context(), project))
+		key := client.ObjectKeyFromObject(project)
+		awaitProject(t, cl, key, metav1.ConditionTrue, harborv1alpha1.ReasonReady)
+
+		require.NoError(t, cl.Delete(t.Context(), credentials("delete-no-creds", "harbor-creds", "", "")))
+		awaitReady(t, cl, client.ObjectKeyFromObject(connection), metav1.ConditionFalse, harborv1alpha1.ReasonCredentialsInvalid)
+
+		require.NoError(t, cl.Delete(t.Context(), project))
+		awaitProject(t, cl, key, metav1.ConditionFalse, harborv1alpha1.ReasonCredentialsInvalid)
+
+		_, err := admin.GetProjectByName(t.Context(), name)
+		require.NoError(t, err, "the Harbor project stays while the deletion waits")
+
+		// With the credentials back the deletion finishes.
+		require.NoError(t, cl.Create(t.Context(), credentials("delete-no-creds", "harbor-creds", instance.Username, instance.Password)))
+		awaitGone(t, cl, key, "the deletion finishes once the credentials are back")
+
+		_, err = admin.GetProjectByName(t.Context(), name)
+		assert.True(t, harbor.IsNotFound(err), "the Harbor project is deleted, got %v", err)
+	})
+}
+
+// goneConnectionSetup is a ready project, and optionally a ready robot, whose connection no longer exists.
+type goneConnectionSetup struct {
+	project    *harborv1alpha1.HarborProject
+	robot      *harborv1alpha1.HarborProjectRobot
+	key        client.ObjectKey
+	harborName string
+}
+
+// withdrawnAndDeletedConnection creates a connection in its own namespace that admits the namespace prefix, a ready
+// project (and, withRobot, a ready robot) there, then withdraws the admission and deletes the connection. It returns once the operator has
+// seen the connection go.
+func withdrawnAndDeletedConnection(t *testing.T, cl client.Client, instance *harborfixture.Harbor, prefix string, withRobot bool) goneConnectionSetup {
+	t.Helper()
+
+	connectionNamespace, namespace := prefix+"-harbor", prefix
+	for _, name := range []string{connectionNamespace, namespace} {
+		require.NoError(t, cl.Create(t.Context(), &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: name}}))
+	}
+
+	harborName := harborfixture.UniqueName(t, "op")
+	t.Cleanup(func() { instance.DeleteProject(context.Background(), t, harborName) })
+
+	connection := readyConnection(t, cl, instance, connectionNamespace, func(connection *harborv1alpha1.HarborConnection) {
+		connection.Spec.AllowedNamespaces.Names = []string{namespace}
+	})
+
+	project := newProject(namespace, harborName, connection)
+	project.Spec.DeletionPolicy = harborv1alpha1.DeletionPolicyDelete
+	require.NoError(t, cl.Create(t.Context(), project))
+	key := client.ObjectKeyFromObject(project)
+	project = awaitProject(t, cl, key, metav1.ConditionTrue, harborv1alpha1.ReasonReady)
+
+	var robot *harborv1alpha1.HarborProjectRobot
+	if withRobot {
+		robot = newRobot(namespace, "ci", key)
+		robot.Spec.DeletionPolicy = harborv1alpha1.DeletionPolicyDelete
+		require.NoError(t, cl.Create(t.Context(), robot))
+		robot = awaitRobot(t, cl, client.ObjectKeyFromObject(robot), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
+	}
+
+	require.Eventually(t, func() bool {
+		current := &harborv1alpha1.HarborConnection{}
+		if err := cl.Get(t.Context(), client.ObjectKeyFromObject(connection), current); err != nil {
+			return false
+		}
+
+		current.Spec.AllowedNamespaces.Names = nil
+
+		return cl.Update(t.Context(), current) == nil
+	}, 10*time.Second, 100*time.Millisecond)
+	awaitProject(t, cl, key, metav1.ConditionFalse, harborv1alpha1.ReasonNotAllowed)
+
+	require.NoError(t, cl.Delete(t.Context(), connection))
+	require.Eventually(t, func() bool {
+		return apierrors.IsNotFound(cl.Get(t.Context(), client.ObjectKeyFromObject(connection), &harborv1alpha1.HarborConnection{}))
+	}, projectWait, 200*time.Millisecond, "the connection goes: it admits no resource")
+	// The project reports the missing connection only once the operator's cache no longer holds it.
+	awaitProject(t, cl, key, metav1.ConditionFalse, harborv1alpha1.ReasonNotFound)
+
+	return goneConnectionSetup{project: project, robot: robot, key: key, harborName: harborName}
 }
 
 // removeRepositories deletes every repository of the Harbor project.

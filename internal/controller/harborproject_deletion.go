@@ -109,14 +109,15 @@ func (r *HarborProjectReconciler) finalize(ctx context.Context, project *harborv
 		return reconcile.Result{}, r.release(ctx, project)
 	}
 
-	if connection == nil {
-		// Like missing credentials: the deletion waits rather than leaving the Harbor project behind unnoticed.
-		return r.deleteFailed(ctx, project, harborv1alpha1.ReasonNotFound, fmt.Sprintf("HarborConnection %s not found", key))
-	}
+	// A connection that no longer exists admits nothing. It only goes while it admits none of its projects, so this
+	// project's reference is no longer admitted and the project is orphaned like any other.
+	admitted := false
 
-	admitted, err := access.Admits(ctx, r.Client, connection.Spec.AllowedNamespaces, connection.Namespace, project.Namespace)
-	if err != nil {
-		return reconcile.Result{}, err
+	if connection != nil {
+		var err error
+		if admitted, err = access.Admits(ctx, r.Client, connection.Spec.AllowedNamespaces, connection.Namespace, project.Namespace); err != nil {
+			return reconcile.Result{}, err
+		}
 	}
 
 	if !admitted {

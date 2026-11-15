@@ -828,14 +828,15 @@ func (r *HarborProjectRobotReconciler) finalize(ctx context.Context, robot *harb
 		return release()
 	}
 
-	resync := robotResync(robot, nil)
-
 	if connectionErr != nil {
-		return reconcile.Result{RequeueAfter: resync}, r.setReady(ctx, robot, metav1.ConditionFalse, harborv1alpha1.ReasonHarborUnavailable,
-			fmt.Sprintf("HarborConnection of HarborProject %s not found", key))
+		// A connection that no longer exists admits nothing, so the project reference is no longer admitted.
+		r.Recorder.Eventf(robot, nil, corev1.EventTypeWarning, harborv1alpha1.ReasonNotAllowed, "Delete",
+			"the HarborConnection of HarborProject %s no longer exists; the Harbor robot is left in place", key)
+
+		return release()
 	}
 
-	resync = robotResync(robot, connection)
+	resync := robotResync(robot, connection)
 
 	identity := connection.Status.HarborIdentity
 	if ready := meta.FindStatusCondition(connection.Status.Conditions, harborv1alpha1.ConditionReady); ready == nil || ready.Status != metav1.ConditionTrue || identity == "" {
