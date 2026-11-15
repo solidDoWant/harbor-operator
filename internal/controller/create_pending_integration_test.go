@@ -3,9 +3,11 @@
 package controller_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
+	"github.com/goharbor/go-client/pkg/sdk/v2.0/client/configure"
 	"github.com/goharbor/go-client/pkg/sdk/v2.0/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -16,6 +18,7 @@ import (
 
 	harborv1alpha1 "github.com/solidDoWant/harbor-operator/api/v1alpha1"
 	"github.com/solidDoWant/harbor-operator/internal/harbor"
+	"github.com/solidDoWant/harbor-operator/test/harborfixture"
 )
 
 // forgedCreatePending is the create-pending annotation as a namespace user would set it on a resource they write.
@@ -228,6 +231,16 @@ func TestRobotCreateMarkerInStatusClaimsOnlyARobotCreatedAfterIt(t *testing.T) {
 	require.NoError(t, push(t, setup.instance, username, password, setup.project.Spec.Name, "app"), "the refreshed secret works")
 }
 
+// restrictProjectCreation sets who may create projects in Harbor: "adminonly" or "everyone".
+func restrictProjectCreation(t *testing.T, instance *harborfixture.Harbor, value string) {
+	t.Helper()
+
+	_, err := instance.Client(t).Configure.UpdateConfigurations(context.Background(), &configure.UpdateConfigurationsParams{
+		Configurations: &models.Configurations{ProjectCreationRestriction: &value},
+	})
+	require.NoError(t, err)
+}
+
 func TestProjectWhoseCreateHarborRefusedDoesNotTakeOverAProjectMadeLater(t *testing.T) {
 	instance, admin, name := projectHarbor(t)
 	cl := startOperator(t, true)
@@ -241,13 +254,17 @@ func TestProjectWhoseCreateHarborRefusedDoesNotTakeOverAProjectMadeLater(t *test
 		return result
 	}
 
-	// The connection's system robot may not create projects, so Harbor refuses the create.
 	connectionInstance := *instance
 	connectionInstance.Username, connectionInstance.Password = instance.CreateSystemRobot(t, []*models.RobotPermission{
 		{Kind: "system", Namespace: "/", Access: append(access("project", "list"), access("quota", "read", "update")...)},
 		{Kind: "project", Namespace: "*", Access: access("project", "read", "update", "delete")},
 	})
 	connection := readyConnection(t, cl, &connectionInstance, "default", nil)
+
+	// Only admins may create projects, so Harbor refuses the connection's create. The restriction stays until the
+	// admin has created the project, so the operator's retries cannot create it first.
+	restrictProjectCreation(t, instance, "adminonly")
+	t.Cleanup(func() { restrictProjectCreation(t, instance, "everyone") })
 
 	project := newProject("default", name, connection)
 	project.Spec.Public = ptr(true)
@@ -260,6 +277,7 @@ func TestProjectWhoseCreateHarborRefusedDoesNotTakeOverAProjectMadeLater(t *test
 
 	existing, err := admin.CreateProject(t.Context(), name, harbor.ProjectSettings{Public: ptr(false)}, nil)
 	require.NoError(t, err)
+	restrictProjectCreation(t, instance, "everyone")
 
 	reported := awaitProject(t, cl, key, metav1.ConditionFalse, harborv1alpha1.ReasonAlreadyExists)
 	assert.Zero(t, reported.Status.ProjectID)
