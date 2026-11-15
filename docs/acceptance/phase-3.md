@@ -13,7 +13,7 @@ Same rules as phase 1. Approved for the owner by the operator on 2026-11-15.
 - **AC-3-05 Watch namespaces.** With the chart's `watchNamespaces` set, the operator ignores resources elsewhere and can't read Secrets or custom resources outside the listed namespaces. The only cluster-wide grants left are reading Namespaces and the metrics endpoint's token and access reviews.
   Tests:
 - **AC-3-06 Chart hardening.** The chart supports a NetworkPolicy (egress to the Harbor URL and the API server only), a PodDisruptionBudget, resource values with memory request equal to limit and no CPU limit by default, and a non-root read-only-root-filesystem pod. `make chart-lint` passes.
-  Tests:
+  Tests: `test/chart: TestDefaultPodIsHardened`, `test/chart: TestNetworkPolicyLimitsEgress`, `test/chart: TestNetworkPolicyNeedsAPIServerCIDRs`, `test/chart: TestPodDisruptionBudget`
 - **AC-3-07 Upgrade.** Upgrading the chart from the phase 2 release to the current build with existing resources changes nothing in Harbor and keeps every resource `Ready`.
   Tests:
 - **AC-3-08 CI chart example.** `docs/user/` contains a Helm template snippet for a CI chart (namespace, project, push robot, retention policy) that the e2e suite renders and applies successfully.
