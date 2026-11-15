@@ -109,8 +109,8 @@ Amended after the design review on issue #4. The **Test** column names the cover
 |---|---|---|
 | Connection does not admit the project's namespace (own namespace always admitted) | `Ready=False, NotAllowed`; nothing in Harbor | integration |
 | Not the owner (section 3.5) | `Ready=False, Conflict` on every reconcile, even with an ID in status | integration |
-| Owner, no ID, no project of that name in Harbor | set the create-pending annotation (section 3.7), create, record ID, clear the annotation | e2e |
-| Owner, no ID, project exists, create-pending annotation set | it is this resource's own: record the ID, clear the annotation | integration |
+| Owner, no ID, no project of that name in Harbor | set `status.createPending` (section 3.7), create, record ID, clear `status.createPending` | e2e |
+| Owner, no ID, project exists, `status.createPending` set and Harbor's `creation_time` is not earlier than it (section 3.7) | it is this resource's own: record the ID, clear `status.createPending` | integration |
 | Owner, no ID, project exists, `adopt: false` | `Ready=False, AlreadyExists` | e2e |
 | ... `adopt: true`, connection `allowAdoption: false` | `Ready=False, AdoptionNotAllowed` | integration |
 | ... `adopt: true`, allowed | record the ID, `Adopted` event, then the update path | e2e |
@@ -135,11 +135,11 @@ The robot waits for its project to have `status.projectID` and not be in `Confli
 | Project resource missing, has no ID, or is `Conflict`/`NotAllowed` | `Ready=False, ProjectNotReady` | integration |
 | Project doesn't admit the robot's namespace | `Ready=False, NotAllowed` | integration |
 | Not the owner (section 3.5) | `Ready=False, Conflict` | integration |
-| Owner, no ID, no robot of that name (`GET /robots?q=Level=project,ProjectID=<id>,name=<project>+<name>`) | create-pending annotation, create (level `project`, one permission entry `{kind: project, namespace: <project name>, access: [...]}`), record ID and `status.harborName` from Harbor's response, write Secrets, clear the annotation | e2e |
-| Owner, no ID, robot exists, create-pending annotation set | own robot: record the ID, then refresh its secret (the secret was lost with the crash) | integration |
+| Owner, no ID, no robot of that name (`GET /robots?q=Level=project,ProjectID=<id>,name=<project>+<name>`) | set `status.createPending`, create (level `project`, one permission entry `{kind: project, namespace: <project name>, access: [...]}`), record ID and `status.harborName` from Harbor's response, write Secrets, clear `status.createPending` | e2e |
+| Owner, no ID, robot exists, `status.createPending` set and the robot's `creation_time` is not earlier than it | own robot: record the ID, then refresh its secret (the secret was lost with the crash) | integration |
 | Owner, no ID, robot exists, not created by us | `AlreadyExists` / `AdoptionNotAllowed` / adopt as for projects; on adoption refresh the secret immediately | e2e |
 | ID set, `GET /robots/{id}` returns 404, or a robot whose name isn't this one's or whose project isn't this project | stale ID: clear it and take the "no ID" rows (`Recreated` event on 404) | e2e |
-| Description, duration, disabled or permissions differ (permissions compared as a set of `(resource, action)`) | `PUT /robots/{id}` with the GET result with those fields changed. If Harbor answers 403 (robot credentials can't update robots), **replace**: create-pending annotation, delete by ID, create, record the new ID, write Secrets, `Replaced` event | e2e |
+| Description, duration, disabled or permissions differ (permissions compared as a set of `(resource, action)`) | `PUT /robots/{id}` with the GET result with those fields changed. If Harbor answers 403 (robot credentials can't update robots), **replace**: set `status.createPending`, delete by ID, create, record the new ID, write Secrets, `Replaced` event | e2e |
 | An enabled Secret is missing or renamed, and another Secret this robot owns has data matching its hash annotation | copy the credentials from it; write the new Secret before deleting the old one. No refresh. | integration |
 | No Secret this robot owns has matching data, or the secret-refresh-pending annotation is set | refresh-pending annotation, `PATCH /robots/{id}` with an empty secret (Harbor generates one), write every enabled Secret, clear the annotation. On 403, replace as above | e2e |
 | `secret.rotate` differs from `status.observedRotate` | refresh as above, record `status.observedRotate` and `status.lastRotated`. On create, record the current value without refreshing | e2e |
@@ -160,9 +160,14 @@ Before any write (and before create), list the claimants of `status.harborKey` (
 - Robot reconciler: `HarborProject` (through a `spec.projectRef` index), `Namespace`, owned `Secret`s, and robots with the same `status.harborKey`.
 - Connection reconciler: its credential `Secret`.
 
-### 3.7 Pending annotations
+### 3.7 Pending markers
 
-`harbor.soliddowant.dev/create-pending` (RFC 3339 time) is set on the resource before a create call and cleared once the ID is in status. `harbor.soliddowant.dev/secret-refresh-pending` is set before a refresh and cleared once every enabled Secret is written. If either is present at the start of a reconcile, the interrupted step is finished first. Both steps are safe to repeat.
+Proof that an existing Harbor object is this resource's own interrupted create must be something a namespace user can't forge. Users can write a resource's metadata and spec, but not its status subresource: the chart grants `*/status` only to the operator's own ClusterRole, and the admin docs say that granting `*/status` to anyone else lets them take over Harbor objects.
+
+- **`status.createPending`** (RFC 3339 time, written through the `/status` subresource) is set before a create call and cleared once the ID is in status. An existing Harbor object found with no ID in status counts as this resource's own only if `status.createPending` is set **and** the object's Harbor `creation_time` is no earlier than `status.createPending` minus 2 minutes (clock skew between Harbor and the API server). Anything else is an existing object, and the adoption rules apply.
+- **`harbor.soliddowant.dev/secret-refresh-pending`** (annotation) is set before a robot secret refresh and cleared once every enabled Secret is written. If it is present at the start of a reconcile, the refresh is done again. It can stay an annotation: forging it only makes the operator renew the secret of a robot the resource already owns.
+- The operator ignores a `harbor.soliddowant.dev/create-pending` annotation (an earlier design used one) and removes it when it sees it.
+- Both interrupted steps are safe to repeat.
 
 ### 3.8 Field mapping
 
