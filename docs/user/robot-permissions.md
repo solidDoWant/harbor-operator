@@ -38,3 +38,35 @@ permissions:
   - resource: repository
     action: pull
 ```
+
+## System robot permissions
+
+A `HarborSystemRobot` lists system-level access in `spec.systemPermissions`. Each entry has a `resource` and an `action`. The API server rejects an entry that is not in this table. Project access in `spec.projectPermissions` uses the project table above.
+
+The table is Harbor 2.15's documented list for system robots. It was not read from a running Harbor's `GET /api/v2.0/permissions`, because no Harbor was available when it was written.
+
+| Resource | Actions |
+|---|---|
+| `audit-log` | `list` |
+| `catalog` | `read` |
+| `configuration` | `read`, `update` |
+| `garbage-collection` | `create`, `list`, `read`, `stop`, `update` |
+| `jobservice-monitor` | `list`, `stop` |
+| `label` | `create`, `delete`, `read`, `update` |
+| `ldap-user` | `create`, `list` |
+| `log-rotation` | `create`, `list`, `read`, `stop`, `update` |
+| `preheat-instance` | `create`, `delete`, `list`, `read`, `update` |
+| `project` | `create`, `list` |
+| `purge-audit` | `create`, `list`, `read`, `stop`, `update` |
+| `quota` | `list`, `read`, `update` |
+| `registry` | `create`, `delete`, `list`, `read`, `update` |
+| `replication` | `create`, `list`, `read` |
+| `replication-adapter` | `list` |
+| `replication-policy` | `create`, `delete`, `list`, `read`, `update` |
+| `robot` | `create`, `delete`, `list`, `read`, `update` |
+| `scan-all` | `create`, `read`, `stop`, `update` |
+| `scanner` | `create`, `delete`, `list`, `read`, `update` |
+| `security-hub` | `create`, `list` |
+| `system-volumes` | `read` |
+| `user` | `create`, `delete`, `list`, `read`, `update` |
+| `user-group` | `create`, `delete`, `list`, `read`, `update` |

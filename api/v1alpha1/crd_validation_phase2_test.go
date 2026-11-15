@@ -132,6 +132,12 @@ func TestPhase2CRDValidation(t *testing.T) {
 		"system robot unlisted project action": {rejected: true, object: systemRobot("sys-badaction", func(r *v1alpha1.HarborSystemRobot) {
 			r.Spec.ProjectPermissions = []v1alpha1.ProjectPermission{{Projects: []string{"a"}, Access: []v1alpha1.RobotAccess{{Resource: "repository", Action: "explode"}}}}
 		})},
+		"system robot unlisted system action": {rejected: true, object: systemRobot("sys-badsysaction", func(r *v1alpha1.HarborSystemRobot) {
+			r.Spec.SystemPermissions = []v1alpha1.SystemRobotAccess{{Resource: "project", Action: "explode"}}
+		})},
+		"system robot unlisted system resource": {rejected: true, object: systemRobot("sys-badsysres", func(r *v1alpha1.HarborSystemRobot) {
+			r.Spec.SystemPermissions = []v1alpha1.SystemRobotAccess{{Resource: "nothing", Action: "list"}}
+		})},
 		"system robot bad name": {rejected: true, object: systemRobot("sys-name", func(r *v1alpha1.HarborSystemRobot) { r.Spec.Name = "Bad_Name" })},
 
 		"proxy cache speed -1": {object: project("pc-unlimited", func(p *v1alpha1.HarborProject) {
