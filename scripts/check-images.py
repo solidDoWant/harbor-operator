@@ -2,7 +2,7 @@
 """Fails on a container image reference that is unqualified or from Docker Hub.
 
 Every image comes from ghcr.io, quay.io or mirror.gcr.io (or a local registry
-such as localhost). The check reads Go image constants and Image fields, YAML
+such as localhost), pinned by digest. The check reads Go image constants and Image fields, YAML
 image: fields, Dockerfile FROM lines and docker/kind commands in shell
 scripts. It does not read SQL, so SQL FROM is never matched.
 """
@@ -13,6 +13,7 @@ import re
 import subprocess
 import sys
 
+ALLOWED_HOSTS = ("ghcr.io", "quay.io", "mirror.gcr.io")
 DOCKER_HUB = ("docker.io", "index.docker.io", "registry-1.docker.io")
 GO_IMAGE = re.compile(r'\b\w*Image\s*(?::=|=|:)\s*"([^"]*)"')
 YAML_IMAGE = re.compile(r"^\s*(?:-\s*)?image:\s*[\"']?([^\"'\s#]+)")
@@ -30,6 +31,10 @@ def problem(image):
         return "comes from Docker Hub"
     if not rest or not ("." in first or ":" in first or first == "localhost"):
         return "has no registry host"
+    if first not in ALLOWED_HOSTS and first.partition(":")[0] != "localhost":
+        return f"comes from {first}, which is not an allowed registry"
+    if "@sha256:" not in image and first.partition(":")[0] != "localhost":
+        return "is not pinned by an @sha256: digest"
     return None
 
 
