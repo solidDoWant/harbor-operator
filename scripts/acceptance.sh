@@ -25,6 +25,29 @@ results="$out/results"
 rm -rf "$out"
 mkdir -p "$results"
 
+# Harbor and the operator on kind for the e2e tests (and the integration tests
+# that read HARBOR_URL); a cluster this script created is deleted afterwards
+# unless KEEP_CLUSTER=1. Without Docker those tests skip.
+if [[ -z "${HARBOR_URL:-}" ]] && docker info >/dev/null 2>&1; then
+	export E2E_CLUSTER="${E2E_CLUSTER:-harbor-op-e2e}"
+	export HARBOR_CLUSTER="$E2E_CLUSTER"
+	created=true
+	if kind get clusters 2>/dev/null | grep -qx "$E2E_CLUSTER"; then created=false; fi
+	# shellcheck disable=SC2329 # runs through the EXIT trap
+	cleanup() {
+		if [[ "$created" == true && "${KEEP_CLUSTER:-}" != 1 ]]; then test/harbor/down.sh || true; fi
+	}
+	trap cleanup EXIT
+	if env_file="$(test/e2e/up.sh)"; then
+		set -a
+		# shellcheck disable=SC1090
+		source "$env_file"
+		set +a
+	else
+		echo "acceptance: could not start Harbor and the operator; e2e tests will fail or skip" >&2
+	fi
+fi
+
 checklist_args=()
 for file in docs/acceptance/phase-*.md; do checklist_args+=(--checklist "$file"); done
 pattern=$(./scripts/acceptance-scoreboard.py --go-run-pattern "${checklist_args[@]}") || exit 1

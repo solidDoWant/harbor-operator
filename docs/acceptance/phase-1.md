@@ -12,7 +12,7 @@ Approved for the owner by the operator on 2026-11-15. Only the owner adds scenar
 ## Projects
 
 - **AC-1-03 Create project.** A `HarborProject` with `public`, `storageQuota: 5Gi`, prevent-vulnerable-images (severity high), scan-on-push and a CVE allowlist creates a Harbor project with exactly those settings, and the resource becomes `Ready` with the project ID.
-  Tests: `internal/controller: TestProjectIsCreatedWithTheSpecSettings`
+  Tests: `internal/controller: TestProjectIsCreatedWithTheSpecSettings`, `test/e2e: TestProjectIsCreatedByTheOperatorInstalledFromTheChart`
 - **AC-1-04 Update project.** Changing each of those fields in the resource changes it in Harbor.
   Tests: `internal/controller: TestProjectFollowsSpecChanges`
 - **AC-1-05 Drift.** Changing those settings in Harbor's API (as the UI would) is reverted within one resync interval. Settings the resource leaves unset keep their Harbor value.
@@ -68,6 +68,6 @@ Approved for the owner by the operator on 2026-11-15. Only the owner adds scenar
 ## Shipping
 
 - **AC-1-25 Chart install.** `helm install` of the chart into a kind cluster with the released-image tag runs the operator, and AC-1-03 passes against it (the e2e suite runs the operator from the chart).
-  Tests:
+  Tests: `test/e2e: TestProjectIsCreatedByTheOperatorInstalledFromTheChart`
 - **AC-1-26 Docs.** `docs/user/` shows a complete example of a project plus a CI push robot; `docs/admin/` explains creating the system robot, the connection and allowing namespaces. `make docs-check` passes.
   Tests:

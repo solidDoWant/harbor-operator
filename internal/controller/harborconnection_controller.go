@@ -47,6 +47,7 @@ type HarborConnectionReconciler struct {
 // +kubebuilder:rbac:groups=harbor.soliddowant.dev,resources=harborconnections/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=harbor.soliddowant.dev,resources=harborconnections/finalizers,verbs=update
 // +kubebuilder:rbac:groups=harbor.soliddowant.dev,resources=harborprojects,verbs=get;list;watch
+// +kubebuilder:rbac:groups=harbor.soliddowant.dev,resources=harborprojectrobots,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
 
