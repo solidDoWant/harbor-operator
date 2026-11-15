@@ -11,6 +11,7 @@ Give the robot:
 - `project`: create, read, update, delete, list
 - `quota`: read, update
 - `robot`: create, read, list, delete
+- `tag-retention`: create, read, update, delete, on all projects. The operator needs them for `HarborRetentionPolicy` resources.
 - on all projects, every permission that any robot resource in your cluster may ask for (for CI robots usually `repository` push and pull). Harbor only lets a robot create robots with permissions it holds itself, and answers `403` otherwise.
 
 Harbor doesn't let a robot change another robot or refresh its secret. When a robot resource changes, or its secret must be renewed, the operator deletes the Harbor robot and creates it again, then rewrites the robot's Secret. Pods that read the Secret get the new password; anything that copied the old one needs the new one.

@@ -73,6 +73,12 @@ func IndexFields(ctx context.Context, indexer client.FieldIndexer) error {
 		return err
 	}
 
+	if err := indexer.IndexField(ctx, &harborv1alpha1.HarborRetentionPolicy{}, RetentionProjectIndex, func(object client.Object) []string {
+		return []string{retentionProjectKey(object.(*harborv1alpha1.HarborRetentionPolicy)).String()}
+	}); err != nil {
+		return err
+	}
+
 	return indexer.IndexField(ctx, &harborv1alpha1.HarborImmutabilityPolicy{}, ImmutabilityProjectIndex, func(object client.Object) []string {
 		return []string{policyProjectKey(object.(*harborv1alpha1.HarborImmutabilityPolicy)).String()}
 	})

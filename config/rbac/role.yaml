@@ -51,6 +51,7 @@ rules:
   - harborimmutabilitypolicies
   - harborprojectrobots
   - harborprojects
+  - harborretentionpolicies
   verbs:
   - get
   - list
@@ -64,6 +65,7 @@ rules:
   - harborimmutabilitypolicies/finalizers
   - harborprojectrobots/finalizers
   - harborprojects/finalizers
+  - harborretentionpolicies/finalizers
   verbs:
   - update
 - apiGroups:
@@ -73,6 +75,7 @@ rules:
   - harborimmutabilitypolicies/status
   - harborprojectrobots/status
   - harborprojects/status
+  - harborretentionpolicies/status
   verbs:
   - get
   - patch

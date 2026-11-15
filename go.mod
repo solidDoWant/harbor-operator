@@ -7,6 +7,7 @@ require (
 	github.com/go-openapi/runtime v0.21.0
 	github.com/goharbor/go-client v0.213.1
 	github.com/google/go-containerregistry v0.22.1
+	github.com/robfig/cron/v3 v3.0.1
 	github.com/stretchr/testify v1.12.1
 	golang.org/x/time v0.15.0
 	k8s.io/api v0.37.0
