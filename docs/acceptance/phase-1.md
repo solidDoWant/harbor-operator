@@ -61,7 +61,7 @@ Approved for the owner by the operator on 2026-11-15. Only the owner adds scenar
 ## Secrets and errors
 
 - **AC-1-23 No secret leaks.** Robot secrets and connection passwords appear in no status, condition, event or operator log line during the robot scenarios above.
-  Tests:
+  Tests: `internal/controller: TestNoSecretAppearsInStatusEventsOrLogsDuringTheRobotLifecycle`, `test/leakscan: TestScanFindsASecretInTheLogAndNamesItsLabelOnly`
 - **AC-1-24 Invalid spec.** A spec Harbor rejects (for example a CVE allowlist with an invalid ID) reports `InvalidSpec` with Harbor's message; fixing the spec clears it. Specs CRD validation can reject (both quota fields set, unknown permission) are refused by the API server.
   Tests: `internal/controller: TestProjectSpecHarborRejectsReportsInvalidSpec`, `api/v1alpha1: TestCRDValidation/quota with unlimited`, `api/v1alpha1: TestCRDValidation/unlisted action`, `api/v1alpha1: TestCRDValidation/unlisted resource`
 

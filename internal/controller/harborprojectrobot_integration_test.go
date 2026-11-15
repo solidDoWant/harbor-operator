@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-logr/logr"
+
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/v1/random"
@@ -42,6 +44,13 @@ type robotSetup struct {
 func readyRobotProject(t *testing.T, changeConnection func(*harborv1alpha1.HarborConnection), changeProject func(*harborv1alpha1.HarborProject)) *robotSetup {
 	t.Helper()
 
+	return readyRobotProjectLogging(t, logr.Logger{}, changeConnection, changeProject)
+}
+
+// readyRobotProjectLogging is readyRobotProject with the operator's log sent to logger.
+func readyRobotProjectLogging(t *testing.T, logger logr.Logger, changeConnection func(*harborv1alpha1.HarborConnection), changeProject func(*harborv1alpha1.HarborProject)) *robotSetup {
+	t.Helper()
+
 	instance := harborfixture.FromEnv(t)
 	admin, err := harbor.NewClient(harbor.ConnectionConfig{URL: instance.URL, Username: instance.Username, Password: instance.Password})
 	require.NoError(t, err)
@@ -49,7 +58,7 @@ func readyRobotProject(t *testing.T, changeConnection func(*harborv1alpha1.Harbo
 	projectName := harborfixture.UniqueName(t, "op")
 	t.Cleanup(func() { instance.DeleteProject(context.Background(), t, projectName) })
 
-	cl := startOperator(t, true)
+	cl := startOperatorLogging(t, logger, true)
 	connection := readyConnection(t, cl, instance, "default", changeConnection)
 
 	project := newProject("default", projectName, connection)
