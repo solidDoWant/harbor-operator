@@ -157,3 +157,9 @@ func MapError(err error) (string, bool) {
 		return ReasonHarborUnavailable, true
 	}
 }
+
+// IsForbidden reports whether err is a Harbor 403.
+func IsForbidden(err error) bool {
+	var harborErr *Error
+	return errors.As(err, &harborErr) && harborErr.StatusCode == http.StatusForbidden
+}

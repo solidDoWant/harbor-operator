@@ -59,6 +59,7 @@ func startOperator(t *testing.T, withProjects ...bool) client.Client {
 	if len(withProjects) > 0 && withProjects[0] {
 		require.NoError(t, ownership.SetupIndexes(t.Context(), manager.GetFieldIndexer()))
 		require.NoError(t, (&controller.HarborProjectReconciler{Client: manager.GetClient(), Clients: clients, Recorder: manager.GetEventRecorder("harbor-operator"), MaxBackoff: 2 * time.Second}).SetupWithManager(manager))
+		require.NoError(t, (&controller.HarborProjectRobotReconciler{Client: manager.GetClient(), Clients: clients, Recorder: manager.GetEventRecorder("harbor-operator")}).SetupWithManager(manager))
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

@@ -35,12 +35,12 @@ Approved for the owner by the operator on 2026-11-15. Only the owner adds scenar
 - **AC-1-12 Connection access.** A project in another namespace than the connection, which the connection doesn't admit, reports `NotAllowed` and nothing is created in Harbor. Adding the namespace's label to the connection's `allowedNamespaces` selector makes it proceed.
   Tests: `internal/controller: TestProjectInANamespaceTheConnectionDoesNotAdmit`
 - **AC-1-13 Project access.** A robot in another namespace referencing a project reports `NotAllowed` until the project's `allowedNamespaces` admits that namespace (by name or by label selector). A robot in the project's own namespace works with no `allowedNamespaces` set.
-  Tests:
+  Tests: `internal/controller: TestRobotInANamespaceTheProjectDoesNotAdmit`, `internal/controller: TestRobotWithPushAndPullCanPushOnlyToItsProject`
 
 ## Robots
 
 - **AC-1-14 Create robot.** A `HarborProjectRobot` with push and pull on the project creates a project robot and a `kubernetes.io/dockerconfigjson` Secret in its namespace. `docker login`-equivalent credentials from that Secret can push an image to the project and can't push to another project.
-  Tests:
+  Tests: `internal/controller: TestRobotWithPushAndPullCanPushOnlyToItsProject`
 - **AC-1-15 Secret options.** Disabling the dockerconfigjson Secret, enabling the opaque Secret and setting custom names produce exactly the requested Secrets with the documented keys; switching back removes the disabled ones.
   Tests:
 - **AC-1-16 Lost secret.** Deleting the robot's Secret produces a new working secret; the old one no longer authenticates.
@@ -50,11 +50,11 @@ Approved for the owner by the operator on 2026-11-15. Only the owner adds scenar
 - **AC-1-18 Robot drift.** Permissions, description, expiry and disabled state changed in Harbor are put back, both with a system-robot connection (by replacing the robot and rewriting its Secret) and with an admin-user connection (in place).
   Tests:
 - **AC-1-19 Robot delete.** Deleting the resource deletes the Harbor robot and its Secrets; with `Orphan` the Harbor robot stays.
-  Tests:
+  Tests: `internal/controller: TestRobotDeletion/Delete removes the Harbor robot`, `internal/controller: TestRobotDeletion/Orphan leaves the Harbor robot`
 - **AC-1-20 Secret conflict.** A robot whose target Secret name is taken by a Secret it doesn't own reports `SecretConflict` and leaves that Secret untouched.
   Tests:
 - **AC-1-21 Robot adoption.** An existing robot is adopted only with `adopt: true` and gets a fresh secret written to its Secret.
-  Tests:
+  Tests: `internal/controller: TestRobotAdoptsAnExistingHarborRobot`, `internal/controller: TestRobotAdoptionNeedsTheConnectionToAllowIt`
 - **AC-1-22 Project deletion waits for robots.** Deleting a project while a robot resource references it waits (`DependentsExist`) until the robot is deleted, then completes.
   Tests: `internal/controller: TestProjectDeletion/deletion waits for robots in namespaces the project admits`
 
