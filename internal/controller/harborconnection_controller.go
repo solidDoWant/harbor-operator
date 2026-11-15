@@ -191,6 +191,12 @@ func (r *HarborConnectionReconciler) Reconcile(ctx context.Context, request reco
 			return reconcile.Result{}, updateErr
 		}
 
+		// Harbor locks an account after repeated failed sign-ins, so rejected credentials are tried again only after
+		// one resync interval. A change to the Secret or the spec triggers a new reconcile through the watch.
+		if reason == harborv1alpha1.ReasonUnauthorized || reason == harborv1alpha1.ReasonForbidden {
+			return reconcile.Result{RequeueAfter: resyncInterval(&connection)}, nil
+		}
+
 		if !retry {
 			return reconcile.Result{}, nil
 		}
