@@ -161,26 +161,38 @@ func TestSystemRobotLifecycle(t *testing.T) {
 		ready := awaitSystemRobot(t, setup.cl, client.ObjectKeyFromObject(robot), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
 
 		id := ready.Status.RobotID
-		require.NoError(t, setup.admin.UpdateRobot(t.Context(), id, "", harbor.RobotSpec{
-			Description: "changed in the UI", Duration: -1, Disabled: true,
-			Grants: []harbor.RobotGrant{{Kind: harbor.LevelProject, Namespace: "*", Access: []harbor.RobotAccess{{Resource: "repository", Action: "push"}}}},
-		}))
-
 		want := harbor.FlattenGrants([]harbor.RobotGrant{
 			{Kind: harbor.LevelProject, Namespace: "*", Access: []harbor.RobotAccess{{Resource: "repository", Action: "pull"}}},
 			{Kind: harbor.LevelProject, Namespace: setup.project.Spec.Name, Access: []harbor.RobotAccess{{Resource: "repository", Action: "push"}, {Resource: "repository", Action: "pull"}}},
 		})
 
-		var found *harbor.Robot
+		awaitPutBack := func() {
+			var found *harbor.Robot
 
-		require.Eventually(t, func() bool {
-			var err error
+			require.Eventually(t, func() bool {
+				var err error
 
-			found, err = setup.admin.GetRobot(t.Context(), id)
+				found, err = setup.admin.GetRobot(t.Context(), id)
 
-			return err == nil && found.Description == "deploys everywhere" && !found.Disabled &&
-				assert.ObjectsAreEqual(want, harbor.FlattenGrants(found.Grants))
-		}, projectWait, 500*time.Millisecond, "waiting for Harbor's robot to match the spec again, have %+v", found)
+				return err == nil && found.Description == "deploys everywhere" && !found.Disabled &&
+					assert.ObjectsAreEqual(want, harbor.FlattenGrants(found.Grants))
+			}, projectWait, 500*time.Millisecond, "waiting for Harbor's robot to match the spec again, have %+v", found)
+		}
+
+		require.NoError(t, setup.admin.UpdateRobot(t.Context(), id, "", harbor.RobotSpec{
+			Description: "changed in the UI", Duration: -1, Disabled: true,
+			Grants: []harbor.RobotGrant{{Kind: harbor.LevelProject, Namespace: "*", Access: []harbor.RobotAccess{{Resource: "repository", Action: "push"}}}},
+		}))
+		awaitPutBack()
+
+		// Only the scope of a permission changes here: the same resource and action, moved from one project to all.
+		require.NoError(t, setup.admin.UpdateRobot(t.Context(), id, "", harbor.RobotSpec{
+			Description: "deploys everywhere", Duration: -1,
+			Grants: []harbor.RobotGrant{
+				{Kind: harbor.LevelProject, Namespace: "*", Access: []harbor.RobotAccess{{Resource: "repository", Action: "pull"}, {Resource: "repository", Action: "push"}}},
+			},
+		}))
+		awaitPutBack()
 	})
 
 	t.Run("a lost Secret gets a new secret", func(t *testing.T) {
