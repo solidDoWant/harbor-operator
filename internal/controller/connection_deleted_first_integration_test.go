@@ -39,7 +39,7 @@ func TestRegistryDeletedAfterItsConnectionIsDeletedFromHarbor(t *testing.T) {
 	setup := readyRegistrySetup(t, nil, nil)
 	harborName := setup.harborRegistryName(t, "")
 
-	registry := setup.newRegistry("default", "upstream", harborName)
+	registry := setup.newRegistry(setup.connection.Namespace, "upstream", harborName)
 	registry.Spec.DeletionPolicy = harborv1alpha1.DeletionPolicyDelete
 	require.NoError(t, setup.cl.Create(t.Context(), registry))
 	ready := awaitRegistry(t, setup.cl, client.ObjectKeyFromObject(registry), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
@@ -59,19 +59,19 @@ func TestProjectDependentsDeletedAfterTheirConnectionIsDeletedFollowTheirDeletio
 	})
 	projectID := setup.project.Status.ProjectID
 
-	retention := keepVersionsAndRecentPulls("default", "retention", setup.project)
+	retention := keepVersionsAndRecentPulls(setup.project.Namespace, "retention", setup.project)
 	retention.Spec.DeletionPolicy = harborv1alpha1.DeletionPolicyDelete
 	require.NoError(t, setup.cl.Create(t.Context(), retention))
 
-	immutability := immutabilityPolicy("default", setup.project, immutabilityRule("v*", false))
+	immutability := immutabilityPolicy(setup.project.Namespace, setup.project, immutabilityRule("v*", false))
 	immutability.Spec.DeletionPolicy = harborv1alpha1.DeletionPolicyDelete
 	require.NoError(t, setup.cl.Create(t.Context(), immutability))
 
-	projectRobot := newRobot("default", "puller", client.ObjectKeyFromObject(setup.project))
+	projectRobot := newRobot(setup.project.Namespace, "puller", client.ObjectKeyFromObject(setup.project))
 	projectRobot.Spec.DeletionPolicy = harborv1alpha1.DeletionPolicyDelete
 	require.NoError(t, setup.cl.Create(t.Context(), projectRobot))
 
-	systemRobot := newSystemRobot(t, setup, "default", setup.project.Spec.Name)
+	systemRobot := newSystemRobot(t, setup, setup.project.Namespace, setup.project.Spec.Name)
 	require.NoError(t, setup.cl.Create(t.Context(), systemRobot))
 
 	awaitRetention(t, setup.cl, client.ObjectKeyFromObject(retention), metav1.ConditionTrue, harborv1alpha1.ReasonReady)

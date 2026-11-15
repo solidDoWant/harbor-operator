@@ -67,9 +67,10 @@ func TestConnectionDoesNotRetryRejectedCredentials(t *testing.T) {
 
 			awaitReady(t, cl, key, metav1.ConditionFalse, reason)
 
-			// The default backoff would retry many times in this window.
+			// The default backoff would retry about ten times in this window. A few requests come from the first
+			// reconciles (the finalizer and status updates each trigger one), so the bound allows for them.
 			time.Sleep(10 * time.Second)
-			assert.LessOrEqual(t, requests.Load(), int64(2), "a rejected credential must not be retried")
+			assert.LessOrEqual(t, requests.Load(), int64(4), "a rejected credential must not be retried")
 
 			require.NoError(t, cl.Get(t.Context(), client.ObjectKeyFromObject(secret), secret))
 			secret.Data = nil
