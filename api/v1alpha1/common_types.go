@@ -1,0 +1,86 @@
+package v1alpha1
+
+import (
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+// AllowedNamespaces lists the namespaces that may use an object. The object's own namespace is always admitted.
+type AllowedNamespaces struct {
+	// Names is an explicit list of namespace names.
+	// +optional
+	// +listType=set
+	Names []string `json:"names,omitempty"`
+	// Selector admits every namespace whose labels match.
+	// +optional
+	Selector *metav1.LabelSelector `json:"selector,omitempty"`
+}
+
+// ObjectReference points at an object of another kind.
+type ObjectReference struct {
+	// Namespace of the object. Empty means the namespace of the referring resource.
+	// +optional
+	Namespace string `json:"namespace,omitempty"`
+	// Name of the object.
+	// +kubebuilder:validation:MinLength=1
+	Name string `json:"name"`
+}
+
+// LocalSecretReference points at a Secret in the namespace of the referring resource.
+type LocalSecretReference struct {
+	// Name of the Secret.
+	// +kubebuilder:validation:MinLength=1
+	Name string `json:"name"`
+}
+
+// DeletionPolicy says what happens to the Harbor object when its custom resource is deleted.
+// +kubebuilder:validation:Enum=Delete;Orphan
+type DeletionPolicy string
+
+const (
+	// DeletionPolicyDelete deletes the Harbor object.
+	DeletionPolicyDelete DeletionPolicy = "Delete"
+	// DeletionPolicyOrphan leaves the Harbor object in place.
+	DeletionPolicyOrphan DeletionPolicy = "Orphan"
+)
+
+// Annotations the operator sets on resources while a multi-step Harbor change is in flight.
+const (
+	// AnnotationCreatePending holds an RFC 3339 time. It is set before a create call and cleared once the ID is in status.
+	AnnotationCreatePending = "harbor.soliddowant.dev/create-pending"
+	// AnnotationSecretRefreshPending is set before a robot secret refresh and cleared once every enabled Secret is written.
+	AnnotationSecretRefreshPending = "harbor.soliddowant.dev/secret-refresh-pending"
+)
+
+// Condition types.
+const (
+	ConditionReady             = "Ready"
+	ConditionReferenceResolved = "ReferenceResolved"
+)
+
+// Condition reasons. Every reason the controllers set is listed here.
+const (
+	ReasonReady              = "Ready"
+	ReasonCredentialsInvalid = "CredentialsInvalid"
+	ReasonUnauthorized       = "Unauthorized"
+	ReasonForbidden          = "Forbidden"
+	ReasonNotFound           = "NotFound"
+	ReasonHarborUnavailable  = "HarborUnavailable"
+	ReasonDependentsExist    = "DependentsExist"
+	ReasonNotAllowed         = "NotAllowed"
+	ReasonConflict           = "Conflict"
+	ReasonAlreadyExists      = "AlreadyExists"
+	ReasonAdoptionNotAllowed = "AdoptionNotAllowed"
+	ReasonInvalidSpec        = "InvalidSpec"
+	ReasonDeleteBlocked      = "DeleteBlocked"
+	ReasonProjectNotReady    = "ProjectNotReady"
+	ReasonSecretConflict     = "SecretConflict"
+	ReasonExpired            = "Expired"
+	ReasonReferenceResolved  = "ReferenceResolved"
+)
+
+// Event reasons.
+const (
+	EventReasonAdopted   = "Adopted"
+	EventReasonRecreated = "Recreated"
+	EventReasonReplaced  = "Replaced"
+)

@@ -35,6 +35,7 @@ docs/README.md             This page.
 
 docs/user/
   README.md                What the pages for chart authors will cover.
+  robot-permissions.md     The resource and action pairs a project robot may be granted.
 
 docs/admin/
   README.md                What the pages for admins will cover.
