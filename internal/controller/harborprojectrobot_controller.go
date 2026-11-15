@@ -403,7 +403,7 @@ func (r *HarborProjectRobotReconciler) finalize(ctx context.Context, robot *harb
 
 	resync := robotResync(resource, connection)
 
-	if reason, message := connectionNotReady(connection); reason != "" {
+	if reason, message := connectionNotReadyForDeletion(connection); reason != "" {
 		return reconcile.Result{RequeueAfter: resync}, lifecycle.setReady(ctx, resource, metav1.ConditionFalse, reason, message)
 	}
 

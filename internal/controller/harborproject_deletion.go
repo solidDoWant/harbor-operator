@@ -9,7 +9,6 @@ import (
 	"golang.org/x/time/rate"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
@@ -141,13 +140,8 @@ func (r *HarborProjectReconciler) finalize(ctx context.Context, project *harborv
 	}
 
 	identity := connection.Status.HarborIdentity
-	if ready := meta.FindStatusCondition(connection.Status.Conditions, harborv1alpha1.ConditionReady); ready == nil || ready.Status != metav1.ConditionTrue || identity == "" {
-		reason := harborv1alpha1.ReasonHarborUnavailable
-		if ready != nil && ready.Status == metav1.ConditionFalse {
-			reason = ready.Reason
-		}
-
-		return r.deleteFailed(ctx, project, reason, fmt.Sprintf("HarborConnection %s is not ready", key))
+	if reason, message := connectionNotReadyForDeletion(connection); reason != "" {
+		return r.deleteFailed(ctx, project, reason, message)
 	}
 
 	harborClient, reason, message := clientFor(ctx, r.Client, r.Clients, connection)

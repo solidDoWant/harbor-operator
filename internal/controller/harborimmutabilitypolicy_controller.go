@@ -384,14 +384,8 @@ func (r *HarborImmutabilityPolicyReconciler) finalize(ctx context.Context, polic
 	resync := immutabilityResync(policy, connection)
 
 	identity := connection.Status.HarborIdentity
-	if ready := meta.FindStatusCondition(connection.Status.Conditions, harborv1alpha1.ConditionReady); ready == nil || ready.Status != metav1.ConditionTrue || identity == "" {
-		reason := harborv1alpha1.ReasonHarborUnavailable
-		if ready != nil && ready.Status == metav1.ConditionFalse {
-			reason = ready.Reason
-		}
-
-		return reconcile.Result{RequeueAfter: resync}, r.setReady(ctx, policy, metav1.ConditionFalse, reason,
-			fmt.Sprintf("HarborConnection %s is not ready", client.ObjectKeyFromObject(connection)))
+	if reason, message := connectionNotReadyForDeletion(connection); reason != "" {
+		return reconcile.Result{RequeueAfter: resync}, r.setReady(ctx, policy, metav1.ConditionFalse, reason, message)
 	}
 
 	harborClient, reason, message := clientFor(ctx, r.Client, r.Clients, connection)
