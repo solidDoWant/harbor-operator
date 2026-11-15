@@ -12,6 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -41,6 +42,8 @@ type HarborConnectionReconciler struct {
 	client.Client
 	// Clients is the shared cache of Harbor clients.
 	Clients *harbor.ClientCache
+	// Recorder emits events on the resource.
+	Recorder events.EventRecorder
 }
 
 // +kubebuilder:rbac:groups=harbor.soliddowant.dev,resources=harborconnections,verbs=get;list;watch;update;patch
@@ -281,12 +284,28 @@ func (r *HarborConnectionReconciler) setNotReady(ctx context.Context, connection
 }
 
 func (r *HarborConnectionReconciler) setCondition(ctx context.Context, connection *harborv1alpha1.HarborConnection, status metav1.ConditionStatus, reason, message string) error {
+	previous := meta.FindStatusCondition(connection.Status.Conditions, harborv1alpha1.ConditionReady)
+	changed := previous == nil || previous.Status != status || previous.Reason != reason || previous.Message != message
+
 	connection.Status.ObservedGeneration = connection.Generation
 	meta.SetStatusCondition(&connection.Status.Conditions, metav1.Condition{
 		Type: harborv1alpha1.ConditionReady, Status: status, Reason: reason, Message: message, ObservedGeneration: connection.Generation,
 	})
 
-	return r.Status().Update(ctx, connection)
+	if err := r.Status().Update(ctx, connection); err != nil {
+		return err
+	}
+
+	if changed {
+		eventType := corev1.EventTypeNormal
+		if status != metav1.ConditionTrue {
+			eventType = corev1.EventTypeWarning
+		}
+
+		r.Recorder.Eventf(connection, nil, eventType, reason, "Reconcile", "%s", message)
+	}
+
+	return nil
 }
 
 // finalize keeps the finalizer while a project or registry that the connection admits still uses it.

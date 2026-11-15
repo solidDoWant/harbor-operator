@@ -129,6 +129,9 @@ type projectReconcile struct {
 	// registryID is the Harbor ID of a proxy-cache project's upstream registry, or 0 when the project is not a proxy
 	// cache or its registry resource is not usable now.
 	registryID int64
+	// justCreated is set once this reconcile created the Harbor project, so the settings written right after
+	// are not reported as drift.
+	justCreated bool
 }
 
 // Reconcile makes the Harbor project match the resource and records the result in status.
@@ -430,7 +433,11 @@ func (r *HarborProjectReconciler) create(ctx context.Context, state *projectReco
 
 	if recreate {
 		r.Recorder.Eventf(project, nil, corev1.EventTypeNormal, harborv1alpha1.EventReasonRecreated, "Create", "Created Harbor project %q again after it was deleted in Harbor", name)
+	} else {
+		recordCreated(r.Recorder, project, "project", name)
 	}
+
+	state.justCreated = true
 
 	return r.update(ctx, state, created)
 }
@@ -447,6 +454,14 @@ func (r *HarborProjectReconciler) recordID(ctx context.Context, project *harborv
 // update writes the spec's fields that differ in Harbor, and only those.
 func (r *HarborProjectReconciler) update(ctx context.Context, state *projectReconcile, current *harbor.Project) (reconcile.Result, error) {
 	project := state.project
+
+	var fields []string
+
+	defer func() {
+		if !state.justCreated {
+			recordUpdated(r.Recorder, project, "project", current.Name, fields...)
+		}
+	}()
 
 	// A proxy-cache project follows its registry resource, which may have been re-created with a new ID.
 	if project.Spec.ProxyCache != nil && state.registryID != 0 && current.RegistryID != state.registryID {
@@ -467,6 +482,7 @@ func (r *HarborProjectReconciler) update(ctx context.Context, state *projectReco
 			return reconcile.Result{}, r.setReady(ctx, project, metav1.ConditionFalse, harborv1alpha1.ReasonInvalidSpec, message)
 		}
 
+		fields = append(fields, "proxyCache.registryRef")
 		current = after
 	}
 
@@ -474,6 +490,8 @@ func (r *HarborProjectReconciler) update(ctx context.Context, state *projectReco
 		if err := state.harbor.UpdateProjectMetadata(ctx, current.Name, diff); err != nil {
 			return r.harborFailed(ctx, state, err)
 		}
+
+		fields = append(fields, projectSettingsFields(diff)...)
 	}
 
 	if limit, ok := desiredStorageQuota(&project.Spec); ok {
@@ -486,6 +504,8 @@ func (r *HarborProjectReconciler) update(ctx context.Context, state *projectReco
 			if err := state.harbor.SetProjectStorageQuota(ctx, current.ID, limit); err != nil {
 				return r.harborFailed(ctx, state, err)
 			}
+
+			fields = append(fields, "storageQuota")
 		}
 	}
 

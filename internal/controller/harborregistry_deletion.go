@@ -59,6 +59,8 @@ func (r *HarborRegistryReconciler) finalize(ctx context.Context, registry *harbo
 	}
 
 	if registryDeletionPolicy(registry, connection) == harborv1alpha1.DeletionPolicyOrphan {
+		recordOrphaned(r.Recorder, registry, "registry", registryName(registry))
+
 		return reconcile.Result{}, r.release(ctx, registry)
 	}
 
@@ -122,6 +124,8 @@ func (r *HarborRegistryReconciler) deleteOwned(ctx context.Context, registry *ha
 		reason, _ := harbor.MapError(err)
 		return r.deleteFailed(ctx, registry, reason, err.Error())
 	}
+
+	recordDeleted(r.Recorder, registry, "registry", registryName(registry))
 
 	return reconcile.Result{}, r.release(ctx, registry)
 }

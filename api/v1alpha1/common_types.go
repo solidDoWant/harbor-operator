@@ -85,6 +85,10 @@ const (
 
 // Event reasons.
 const (
+	EventReasonCreated       = "Created"
+	EventReasonUpdated       = "Updated"
+	EventReasonDeleted       = "Deleted"
+	EventReasonOrphaned      = "Orphaned"
 	EventReasonAdopted       = "Adopted"
 	EventReasonRecreated     = "Recreated"
 	EventReasonReplaced      = "Replaced"
