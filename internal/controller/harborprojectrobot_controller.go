@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -441,7 +442,7 @@ func (r *HarborProjectRobotReconciler) createRobot(ctx context.Context, state *r
 	}
 
 	// Until the Secrets hold the new secret the create-pending annotation stays, so an interrupted write refreshes it.
-	if conflict, err := r.writeSecrets(ctx, state, created.Name, created.Secret); conflict || err != nil {
+	if conflict, err := r.writeSecrets(ctx, state, created.Name, created.Secret, ""); conflict || err != nil {
 		return nil, true, reconcile.Result{RequeueAfter: state.resync}, err
 	}
 
@@ -487,7 +488,7 @@ func (r *HarborProjectRobotReconciler) update(ctx context.Context, state *robotR
 		return reconcile.Result{RequeueAfter: state.resync}, err
 	}
 
-	secret, found, err := r.currentSecret(ctx, robot)
+	secret, source, found, err := r.currentSecret(ctx, robot)
 	if err != nil {
 		return reconcile.Result{}, err
 	}
@@ -496,27 +497,32 @@ func (r *HarborProjectRobotReconciler) update(ctx context.Context, state *robotR
 		return r.refreshSecret(ctx, state, current)
 	}
 
-	if conflict, err := r.writeSecrets(ctx, state, current.Name, secret); conflict || err != nil {
+	conflict, err := r.writeSecrets(ctx, state, current.Name, secret, source)
+
+	switch {
+	case errors.Is(err, errSourceSecretGone):
+		return r.refreshSecret(ctx, state, current)
+	case conflict || err != nil:
 		return reconcile.Result{RequeueAfter: state.resync}, err
 	}
 
 	return reconcile.Result{RequeueAfter: state.resync}, r.setReady(ctx, robot, metav1.ConditionTrue, harborv1alpha1.ReasonReady, "Harbor robot matches the spec")
 }
 
-// currentSecret returns the robot secret held by a Secret this robot owns, preferring the Secrets the spec names.
-// found is false when the secret must be refreshed: an interrupted create or refresh, a changed secret.rotate, or no
+// currentSecret returns the robot secret held by a Secret this robot owns, preferring the Secrets the spec names, and
+// the name of that Secret. found is false when the secret must be refreshed: an interrupted create or refresh, a changed secret.rotate, or no
 // owned Secret whose data matches its hash annotation.
-func (r *HarborProjectRobotReconciler) currentSecret(ctx context.Context, robot *harborv1alpha1.HarborProjectRobot) (string, bool, error) {
+func (r *HarborProjectRobotReconciler) currentSecret(ctx context.Context, robot *harborv1alpha1.HarborProjectRobot) (string, string, bool, error) {
 	_, createPending := robot.Annotations[harborv1alpha1.AnnotationCreatePending]
 	_, refreshPending := robot.Annotations[harborv1alpha1.AnnotationSecretRefreshPending]
 
 	if createPending || refreshPending || robot.Spec.Secret.Rotate != robot.Status.ObservedRotate {
-		return "", false, nil
+		return "", "", false, nil
 	}
 
 	owned, err := r.ownedSecrets(ctx, robot)
 	if err != nil {
-		return "", false, err
+		return "", "", false, err
 	}
 
 	wanted := make(map[string]bool)
@@ -532,12 +538,12 @@ func (r *HarborProjectRobotReconciler) currentSecret(ctx context.Context, robot 
 			}
 
 			if value, ok := secrets.Recover(secret); ok {
-				return value, true, nil
+				return value, secret.Name, true, nil
 			}
 		}
 	}
 
-	return "", false, nil
+	return "", "", false, nil
 }
 
 // refreshSecret has Harbor generate a new secret for the robot, writes every enabled Secret with it and records the
@@ -558,7 +564,7 @@ func (r *HarborProjectRobotReconciler) refreshSecret(ctx context.Context, state 
 		return r.harborFailed(ctx, state, err)
 	}
 
-	if conflict, err := r.writeSecrets(ctx, state, current.Name, secret); conflict || err != nil {
+	if conflict, err := r.writeSecrets(ctx, state, current.Name, secret, ""); conflict || err != nil {
 		return reconcile.Result{RequeueAfter: state.resync}, err
 	}
 
@@ -623,10 +629,15 @@ func (r *HarborProjectRobotReconciler) replace(ctx context.Context, state *robot
 	return reconcile.Result{RequeueAfter: state.resync}, r.setReady(ctx, robot, metav1.ConditionTrue, harborv1alpha1.ReasonReady, "Harbor robot matches the spec")
 }
 
+// errSourceSecretGone reports that the Secret a robot secret was read from was deleted before it was written back. The
+// secret is then lost and must be refreshed: writing it again would bring back the secret the user threw away.
+var errSourceSecretGone = errors.New("the Secret holding the robot secret was deleted")
+
 // writeSecrets writes every enabled Secret with the robot's credentials, then deletes the Secrets this robot owns that
 // the spec no longer names. conflict is true, and nothing is written, when a target name is taken by a Secret this
-// robot does not own.
-func (r *HarborProjectRobotReconciler) writeSecrets(ctx context.Context, state *robotReconcile, harborName, secret string) (bool, error) {
+// robot does not own. source names the Secret the secret was read from, if any: that Secret is updated but never
+// created again, and errSourceSecretGone is returned when it no longer exists.
+func (r *HarborProjectRobotReconciler) writeSecrets(ctx context.Context, state *robotReconcile, harborName, secret, source string) (bool, error) {
 	robot := state.robot
 
 	if conflict, err := r.secretConflict(ctx, robot); conflict || err != nil {
@@ -647,7 +658,7 @@ func (r *HarborProjectRobotReconciler) writeSecrets(ctx context.Context, state *
 	for _, want := range rendered {
 		keep[want.Name] = true
 
-		if err := r.writeSecret(ctx, want); err != nil {
+		if err := r.writeSecret(ctx, want, want.Name != source); err != nil {
 			return false, err
 		}
 	}
@@ -656,19 +667,27 @@ func (r *HarborProjectRobotReconciler) writeSecrets(ctx context.Context, state *
 }
 
 // writeSecret creates the Secret, or updates the robot's own Secret of that name when it differs. A Secret's type cannot
-// change, so one of another type is deleted and created again.
-func (r *HarborProjectRobotReconciler) writeSecret(ctx context.Context, want *corev1.Secret) error {
+// change, so one of another type is deleted and created again. Without mayCreate a missing Secret is not created and
+// errSourceSecretGone is returned.
+func (r *HarborProjectRobotReconciler) writeSecret(ctx context.Context, want *corev1.Secret, mayCreate bool) error {
 	have := &corev1.Secret{}
 
 	err := r.Get(ctx, client.ObjectKeyFromObject(want), have)
 
 	switch {
+	case apierrors.IsNotFound(err) && !mayCreate:
+		return errSourceSecretGone
 	case apierrors.IsNotFound(err):
 		return r.Create(ctx, want)
 	case err != nil:
 		return err
 	case have.Type != want.Type:
-		if err := r.Delete(ctx, have, client.Preconditions{UID: &have.UID}); client.IgnoreNotFound(err) != nil {
+		err := r.Delete(ctx, have, client.Preconditions{UID: &have.UID})
+
+		switch {
+		case apierrors.IsNotFound(err) && !mayCreate:
+			return errSourceSecretGone
+		case client.IgnoreNotFound(err) != nil:
 			return err
 		}
 

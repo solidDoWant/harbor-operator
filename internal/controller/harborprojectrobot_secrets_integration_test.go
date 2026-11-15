@@ -3,6 +3,8 @@
 package controller_test
 
 import (
+	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -109,6 +111,80 @@ func TestRobotSecretDeletedGetsANewRobotSecret(t *testing.T) {
 
 	username, old := dockerCredentials(t, setup.cl, "default", "ci-dockerconfig", setup.instance.Registry(t))
 	require.NoError(t, setup.cl.Delete(t.Context(), &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "ci-dockerconfig"}}))
+
+	newUsername, password := awaitNewDockerPassword(t, setup, "ci-dockerconfig", old)
+	assert.Equal(t, username, newUsername)
+	require.NoError(t, push(t, setup.instance, newUsername, password, setup.project.Spec.Name, "app"), "the new secret works")
+	require.Error(t, push(t, setup.instance, username, old, setup.project.Spec.Name, "app"), "the lost secret no longer works")
+}
+
+// laggingSecretList is a client whose Secret lists still show a Secret after it was deleted, until a Secret of that
+// name exists again. It reproduces a reconcile that listed the robot's Secrets just before one was deleted.
+type laggingSecretList struct {
+	client.Client
+
+	mutex sync.Mutex
+	stale *corev1.Secret
+}
+
+// lag makes lists show secret once it is gone.
+func (lagging *laggingSecretList) lag(secret *corev1.Secret) {
+	lagging.mutex.Lock()
+	defer lagging.mutex.Unlock()
+
+	lagging.stale = secret.DeepCopy()
+}
+
+func (lagging *laggingSecretList) List(ctx context.Context, list client.ObjectList, options ...client.ListOption) error {
+	if err := lagging.Client.List(ctx, list, options...); err != nil {
+		return err
+	}
+
+	secretList, ok := list.(*corev1.SecretList)
+	if !ok {
+		return nil
+	}
+
+	lagging.mutex.Lock()
+	defer lagging.mutex.Unlock()
+
+	if lagging.stale == nil {
+		return nil
+	}
+
+	for _, secret := range secretList.Items {
+		if secret.Namespace == lagging.stale.Namespace && secret.Name == lagging.stale.Name {
+			if secret.UID != lagging.stale.UID {
+				lagging.stale = nil
+			}
+
+			return nil
+		}
+	}
+
+	secretList.Items = append(secretList.Items, *lagging.stale.DeepCopy())
+
+	return nil
+}
+
+func TestRobotSecretDeletedDuringAReconcileGetsANewRobotSecret(t *testing.T) {
+	lagging := &laggingSecretList{}
+	setup := readyRobotProjectWith(t, operatorOptions{wrapRobotClient: func(cached client.Client) client.Client {
+		lagging.Client = cached
+
+		return lagging
+	}}, false, nil, nil)
+
+	robot := ciRobot("default", setup.project)
+	require.NoError(t, setup.cl.Create(t.Context(), robot))
+	awaitRobot(t, setup.cl, client.ObjectKeyFromObject(robot), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
+
+	username, old := dockerCredentials(t, setup.cl, "default", "ci-dockerconfig", setup.instance.Registry(t))
+
+	secret := &corev1.Secret{}
+	require.NoError(t, setup.cl.Get(t.Context(), client.ObjectKey{Namespace: "default", Name: "ci-dockerconfig"}, secret))
+	lagging.lag(secret)
+	require.NoError(t, setup.cl.Delete(t.Context(), secret))
 
 	newUsername, password := awaitNewDockerPassword(t, setup, "ci-dockerconfig", old)
 	assert.Equal(t, username, newUsername)

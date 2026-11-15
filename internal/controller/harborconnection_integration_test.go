@@ -42,6 +42,23 @@ func startOperator(t *testing.T, withProjects ...bool) client.Client {
 func startOperatorLogging(t *testing.T, logger logr.Logger, withProjects ...bool) client.Client {
 	t.Helper()
 
+	return startOperatorWith(t, operatorOptions{logger: logger, withProjects: len(withProjects) > 0 && withProjects[0]})
+}
+
+// operatorOptions change how startOperatorWith runs the operator.
+type operatorOptions struct {
+	// logger receives the operator's log; the zero logger keeps the default.
+	logger logr.Logger
+	// withProjects also runs the project and robot controllers.
+	withProjects bool
+	// wrapRobotClient, when set, wraps the robot controller's client so a test can change what the controller reads.
+	wrapRobotClient func(client.Client) client.Client
+}
+
+// startOperatorWith is startOperator with options.
+func startOperatorWith(t *testing.T, options operatorOptions) client.Client {
+	t.Helper()
+
 	environment := &envtest.Environment{CRDDirectoryPaths: []string{filepath.Join("..", "..", "config", "crd", "bases")}, ErrorIfCRDPathMissing: true}
 
 	var (
@@ -59,16 +76,21 @@ func startOperatorLogging(t *testing.T, logger logr.Logger, withProjects ...bool
 	runtimeScheme, err := scheme.New()
 	require.NoError(t, err)
 
-	manager, err := ctrl.NewManager(restConfig, ctrl.Options{Scheme: runtimeScheme, Logger: logger, Metrics: metricsserver.Options{BindAddress: "0"}, Controller: config.Controller{SkipNameValidation: ptr(true)}})
+	manager, err := ctrl.NewManager(restConfig, ctrl.Options{Scheme: runtimeScheme, Logger: options.logger, Metrics: metricsserver.Options{BindAddress: "0"}, Controller: config.Controller{SkipNameValidation: ptr(true)}})
 	require.NoError(t, err)
 	require.NoError(t, controller.IndexFields(t.Context(), manager.GetFieldIndexer()))
 	clients := harbor.NewClientCache(manager.GetClient())
 	require.NoError(t, (&controller.HarborConnectionReconciler{Client: manager.GetClient(), Clients: clients}).SetupWithManager(manager))
 
-	if len(withProjects) > 0 && withProjects[0] {
+	if options.withProjects {
+		robotClient := manager.GetClient()
+		if options.wrapRobotClient != nil {
+			robotClient = options.wrapRobotClient(robotClient)
+		}
+
 		require.NoError(t, ownership.SetupIndexes(t.Context(), manager.GetFieldIndexer()))
 		require.NoError(t, (&controller.HarborProjectReconciler{Client: manager.GetClient(), Clients: clients, Recorder: manager.GetEventRecorder("harbor-operator"), MaxBackoff: 2 * time.Second}).SetupWithManager(manager))
-		require.NoError(t, (&controller.HarborProjectRobotReconciler{Client: manager.GetClient(), Clients: clients, Recorder: manager.GetEventRecorder("harbor-operator")}).SetupWithManager(manager))
+		require.NoError(t, (&controller.HarborProjectRobotReconciler{Client: robotClient, Clients: clients, Recorder: manager.GetEventRecorder("harbor-operator")}).SetupWithManager(manager))
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
