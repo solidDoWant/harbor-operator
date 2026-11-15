@@ -161,12 +161,14 @@ func TestRobotSecretNameTakenByAForeignSecret(t *testing.T) {
 	awaitRobot(t, setup.cl, key, metav1.ConditionFalse, harborv1alpha1.ReasonSecretConflict)
 
 	// The robot resyncs every two seconds; across several rounds the foreign Secret must stay as it was.
-	have := &corev1.Secret{}
-
+	// The condition gets its own object: assert.Never can return while a last check still runs in its goroutine.
 	assert.Never(t, func() bool {
-		return setup.cl.Get(t.Context(), client.ObjectKeyFromObject(foreign), have) != nil || have.ResourceVersion != foreign.ResourceVersion
+		current := &corev1.Secret{}
+
+		return setup.cl.Get(t.Context(), client.ObjectKeyFromObject(foreign), current) != nil || current.ResourceVersion != foreign.ResourceVersion
 	}, 3*robot.Spec.ResyncInterval.Duration, 200*time.Millisecond, "the foreign Secret is not written or deleted")
 
+	have := &corev1.Secret{}
 	require.NoError(t, setup.cl.Get(t.Context(), client.ObjectKeyFromObject(foreign), have))
 	assert.Equal(t, foreign.Data, have.Data)
 	assert.Empty(t, have.OwnerReferences)
