@@ -136,7 +136,7 @@ The dockerconfigjson Secret holds an auth entry for the connection's registry ho
 
 ## 9. Security model
 
-- The operator's Kubernetes RBAC: read and watch Secrets (credentials), write Secrets (robot output), read Namespaces (for label selectors). The chart grants this cluster-wide by default; an admin can narrow it with `watchNamespaces`. The operator only ever reads a credential Secret from the namespace of the resource that names it, and only writes robot Secrets into the robot resource's own namespace.
+- The operator's Kubernetes RBAC: read and watch Secrets (credentials), write Secrets (robot output), read Namespaces (for label selectors). The chart grants this cluster-wide by default; an admin can narrow it with `watchNamespaces`, which limits the operator's cache to the listed namespaces and replaces the cluster-wide grants with a Role in each. Reading Namespaces and the metrics endpoint's token and access reviews stay cluster-wide. The operator ignores resources in namespaces that are not listed. The operator only ever reads a credential Secret from the namespace of the resource that names it, and only writes robot Secrets into the robot resource's own namespace.
 - A namespace user who can create `HarborProject` or `HarborProjectRobot` objects can do in Harbor only what an admitting connection and project allow. A project robot only ever gets permissions on its own project.
 - Harbor-wide kinds (`HarborRegistry`, `HarborSystemRobot`) are admitted only through `systemAllowedNamespaces`, by default only the connection's own namespace.
 - Namespace users never get write access to the custom resources' `status` subresource. The operator trusts status as its own record, for example as proof that it created an object.

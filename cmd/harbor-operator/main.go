@@ -32,6 +32,7 @@ func main() {
 		enableLeaderElection bool
 		secureMetrics        bool
 		enableHTTP2          bool
+		watchNamespaces      string
 	)
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
@@ -43,6 +44,8 @@ func main() {
 		"Serve the metrics endpoint over HTTPS with authentication and authorization. "+
 			"Use --metrics-secure=false to serve plain HTTP instead.")
 	flag.BoolVar(&enableHTTP2, "enable-http2", false, "Enable HTTP/2 for the metrics server.")
+	flag.StringVar(&watchNamespaces, "watch-namespaces", "", "Comma-separated namespaces to watch. "+
+		"Empty watches every namespace; otherwise resources in other namespaces are ignored.")
 
 	opts := zap.Options{}
 	opts.BindFlags(flag.CommandLine)
@@ -81,6 +84,7 @@ func main() {
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                        runtimeScheme,
+		Cache:                         cacheOptions(watchNamespaces),
 		Metrics:                       metricsServerOptions,
 		HealthProbeBindAddress:        probeAddr,
 		LeaderElection:                enableLeaderElection,
