@@ -50,6 +50,7 @@ type HarborConnectionReconciler struct {
 // +kubebuilder:rbac:groups=harbor.soliddowant.dev,resources=harborprojectrobots,verbs=get;list;watch
 // +kubebuilder:rbac:groups=harbor.soliddowant.dev,resources=harborimmutabilitypolicies,verbs=get;list;watch
 // +kubebuilder:rbac:groups=harbor.soliddowant.dev,resources=harborregistries,verbs=get;list;watch
+// +kubebuilder:rbac:groups=harbor.soliddowant.dev,resources=harborsystemrobots,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
 
@@ -102,6 +103,12 @@ func IndexFields(ctx context.Context, indexer client.FieldIndexer) error {
 		return err
 	}
 
+	if err := indexer.IndexField(ctx, &harborv1alpha1.HarborSystemRobot{}, SystemRobotConnectionIndex, func(object client.Object) []string {
+		return []string{systemRobotConnectionKey(object.(*harborv1alpha1.HarborSystemRobot)).String()}
+	}); err != nil {
+		return err
+	}
+
 	if err := indexer.IndexField(ctx, &harborv1alpha1.HarborRetentionPolicy{}, RetentionProjectIndex, func(object client.Object) []string {
 		return []string{retentionProjectKey(object.(*harborv1alpha1.HarborRetentionPolicy)).String()}
 	}); err != nil {
@@ -133,6 +140,9 @@ func (r *HarborConnectionReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		})).
 		Watches(&harborv1alpha1.HarborRegistry{}, handler.EnqueueRequestsFromMapFunc(func(_ context.Context, object client.Object) []reconcile.Request {
 			return []reconcile.Request{{NamespacedName: registryConnectionKey(object.(*harborv1alpha1.HarborRegistry))}}
+		})).
+		Watches(&harborv1alpha1.HarborSystemRobot{}, handler.EnqueueRequestsFromMapFunc(func(_ context.Context, object client.Object) []reconcile.Request {
+			return []reconcile.Request{{NamespacedName: systemRobotConnectionKey(object.(*harborv1alpha1.HarborSystemRobot))}}
 		})).
 		Complete(r)
 }
@@ -304,8 +314,8 @@ func (r *HarborConnectionReconciler) finalize(ctx context.Context, connection *h
 	return reconcile.Result{}, client.IgnoreNotFound(r.Update(ctx, connection))
 }
 
-// dependents lists "Kind namespace/name" of the projects that use the connection from a namespace its allowedNamespaces
-// admits, and of the registries that use it from a namespace its systemAllowedNamespaces admits.
+// dependents lists the projects that use the connection and are in a namespace it admits, then the registries and system
+// robots that use it and are in a namespace its systemAllowedNamespaces admits, each as "Kind namespace/name".
 func (r *HarborConnectionReconciler) dependents(ctx context.Context, connection *harborv1alpha1.HarborConnection) ([]string, error) {
 	key := client.ObjectKeyFromObject(connection).String()
 
@@ -344,6 +354,24 @@ func (r *HarborConnectionReconciler) dependents(ctx context.Context, connection 
 
 		if admitted {
 			names = append(names, "HarborRegistry "+client.ObjectKeyFromObject(registry).String())
+		}
+	}
+
+	var robots harborv1alpha1.HarborSystemRobotList
+	if err := r.List(ctx, &robots, client.MatchingFields{SystemRobotConnectionIndex: client.ObjectKeyFromObject(connection).String()}); err != nil {
+		return nil, err
+	}
+
+	for index := range robots.Items {
+		robot := &robots.Items[index]
+
+		admitted, err := access.Admits(ctx, r.Client, connection.Spec.SystemAllowedNamespaces, connection.Namespace, robot.Namespace)
+		if err != nil {
+			return nil, err
+		}
+
+		if admitted {
+			names = append(names, "HarborSystemRobot "+client.ObjectKeyFromObject(robot).String())
 		}
 	}
 

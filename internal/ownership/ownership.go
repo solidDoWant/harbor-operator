@@ -63,6 +63,11 @@ func RobotKey(identity, projectName, robotName string) string {
 	return ProjectKey(identity, projectName) + "/robots/" + robotName
 }
 
+// SystemRobotKey is the status.harborKey of a system robot named robotName in the Harbor at identity.
+func SystemRobotKey(identity, robotName string) string {
+	return identity + "/system-robots/" + robotName
+}
+
 // RetentionKey is the status.harborKey of the tag retention policy of project projectName in the Harbor at identity.
 func RetentionKey(identity, projectName string) string {
 	return ProjectKey(identity, projectName) + "/retention"

@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	httptransport "github.com/go-openapi/runtime/client"
@@ -263,13 +264,23 @@ func (c *Client) SetProjectStorageQuota(ctx context.Context, projectID, bytes in
 // CreateRobot creates a project robot. The returned Robot carries the secret,
 // which Harbor shows only now.
 func (c *Client) CreateRobot(ctx context.Context, projectName string, spec RobotSpec) (*Robot, error) {
+	return c.createRobot(ctx, LevelProject, spec.permissions(projectName), spec)
+}
+
+// CreateSystemRobot creates a system robot with the spec's grants. The returned Robot carries the secret, which Harbor
+// shows only now.
+func (c *Client) CreateSystemRobot(ctx context.Context, spec RobotSpec) (*Robot, error) {
+	return c.createRobot(ctx, LevelSystem, spec.permissions(""), spec)
+}
+
+func (c *Client) createRobot(ctx context.Context, level string, permissions []*models.RobotPermission, spec RobotSpec) (*Robot, error) {
 	created, err := c.api.Robot.CreateRobot(ctx, &robot.CreateRobotParams{Robot: &models.RobotCreate{
 		Name:        spec.Name,
 		Description: spec.Description,
 		Disable:     spec.Disabled,
 		Duration:    spec.Duration,
-		Level:       "project",
-		Permissions: spec.permissions(projectName),
+		Level:       level,
+		Permissions: permissions,
 	}})
 	if err != nil {
 		return nil, c.fail(err)
@@ -298,7 +309,24 @@ func (c *Client) GetRobot(ctx context.Context, id int64) (*Robot, error) {
 // FindProjectRobot returns the robot of a project by its short name, or a 404
 // error when there is none.
 func (c *Client) FindProjectRobot(ctx context.Context, projectID int64, name string) (*Robot, error) {
-	query := fmt.Sprintf("Level=project,ProjectID=%d", projectID)
+	return c.findRobot(ctx, fmt.Sprintf("Level=project,ProjectID=%d", projectID), func(full string) bool {
+		return full == name || hasRobotSuffix(full, name)
+	})
+}
+
+// FindSystemRobot returns the system robot with the short name, or a 404 error when there is none. Harbor reports a
+// system robot's name with its configured prefix, for example "robot$name".
+func (c *Client) FindSystemRobot(ctx context.Context, name string) (*Robot, error) {
+	return c.findRobot(ctx, "Level=system", func(full string) bool { return IsSystemRobotName(full, name) })
+}
+
+// IsSystemRobotName reports whether full is the Harbor name of the system robot with the short name: the name itself
+// or the name after Harbor's prefix, which ends in "$".
+func IsSystemRobotName(full, name string) bool {
+	return full == name || strings.HasSuffix(full, "$"+name) && !strings.Contains(full[:len(full)-len(name)-1], "+")
+}
+
+func (c *Client) findRobot(ctx context.Context, query string, matches func(full string) bool) (*Robot, error) {
 	pageSize := int64(100)
 
 	for page := int64(1); ; page++ {
@@ -308,7 +336,7 @@ func (c *Client) FindProjectRobot(ctx context.Context, projectID int64, name str
 		}
 
 		for _, candidate := range response.Payload {
-			if candidate != nil && (candidate.Name == name || hasRobotSuffix(candidate.Name, name)) {
+			if candidate != nil && matches(candidate.Name) {
 				return robotFromModel(candidate), nil
 			}
 		}

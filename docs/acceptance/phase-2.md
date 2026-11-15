@@ -36,11 +36,11 @@ Same rules as phase 1. Approved for the owner by the operator on 2026-11-15.
 ## System robots
 
 - **AC-2-12 System robot.** A `HarborSystemRobot` with pull on all projects and push on two named projects creates a system robot and its Secret in the resource's namespace. Its credentials can pull from any project and push only to the two.
-  Tests:
+  Tests: `internal/controller: TestSystemRobotPullsFromEveryProjectAndPushesOnlyToNamedOnes`
 - **AC-2-13 System robot lifecycle.** Lost-secret refresh, `rotate`, drift, adoption and deletion behave as for project robots (AC-1-16 to AC-1-21).
-  Tests:
+  Tests: `internal/controller: TestSystemRobotLifecycle/drift in Harbor is put back`, `internal/controller: TestSystemRobotLifecycle/a lost Secret gets a new secret`, `internal/controller: TestSystemRobotLifecycle/changing rotate refreshes the secret`, `internal/controller: TestSystemRobotLifecycle/an existing Harbor robot is adopted only when asked`, `internal/controller: TestSystemRobotDeletion/Delete removes the Harbor robot`, `internal/controller: TestSystemRobotDeletion/Orphan leaves the Harbor robot`
 - **AC-2-14 System access.** A registry or system robot in a namespace that the connection's `allowedNamespaces` admits but its `systemAllowedNamespaces` doesn't reports `NotAllowed`.
-  Tests:
+  Tests: `internal/controller: TestSystemRobotInANamespaceOnlyAllowedNamespacesAdmits`
 
 ## Shipping
 

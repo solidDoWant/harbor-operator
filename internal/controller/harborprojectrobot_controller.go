@@ -166,7 +166,24 @@ func (t projectRobotTarget) isOwn(found *harbor.Robot, name string) bool {
 	return strings.HasSuffix(found.Name, "+"+name) && found.ProjectName == t.projectName
 }
 
-func (t projectRobotTarget) permissionScope() string { return harbor.ProjectScope(t.projectID) }
+func (t projectRobotTarget) missingPermissions(ctx context.Context, harborClient *harbor.Client, spec harbor.RobotSpec) ([]string, error) {
+	missing, err := harborClient.MissingPermissions(ctx, harbor.ProjectScope(t.projectID), spec.Permissions)
+	if err != nil {
+		return nil, err
+	}
+
+	return accessNames(missing, ""), nil
+}
+
+// accessNames lists permissions as "resource action", each after prefix.
+func accessNames(permissions []harbor.RobotAccess, prefix string) []string {
+	names := make([]string, 0, len(permissions))
+	for _, access := range permissions {
+		names = append(names, prefix+access.String())
+	}
+
+	return names
+}
 
 func (t projectRobotTarget) location() string { return fmt.Sprintf("in project %q", t.projectName) }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 	"time"
 
@@ -54,8 +55,9 @@ type robotTarget interface {
 	update(ctx context.Context, harborClient *harbor.Client, id int64, spec harbor.RobotSpec) error
 	// isOwn reports whether a Harbor robot found by ID is the resource's: the same short name in the same place.
 	isOwn(found *harbor.Robot, name string) bool
-	// permissionScope is the scope in which the connection must hold the robot's permissions to create it.
-	permissionScope() string
+	// missingPermissions names the permissions of spec the connection does not hold where the robot needs them. A
+	// robot asking for any of them would be refused, so a replace must not start.
+	missingPermissions(ctx context.Context, harborClient *harbor.Client, spec harbor.RobotSpec) ([]string, error)
 	// location says where the robot lives, for messages, for example `in project "team"`.
 	location() string
 }
@@ -101,10 +103,14 @@ func robotDeletionPolicy(robot robotResource, connection *harborv1alpha1.HarborC
 }
 
 // robotDiffers reports whether the Harbor robot's managed fields differ from the spec. Permissions are compared as a
-// set of resource and action pairs.
+// set of resource and action pairs, or of kind, namespace, resource and action when the spec has grants.
 func robotDiffers(want harbor.RobotSpec, have *harbor.Robot) bool {
 	if want.Description != have.Description || want.Duration != have.Duration || want.Disabled != have.Disabled {
 		return true
+	}
+
+	if want.Grants != nil {
+		return !maps.Equal(harbor.FlattenGrants(want.Grants), harbor.FlattenGrants(have.Grants))
 	}
 
 	wantSet := make(map[harbor.RobotAccess]struct{}, len(want.Permissions))
@@ -437,7 +443,7 @@ func (r *robotLifecycle) replace(ctx context.Context, state *robotReconcile, cur
 	status := robot.status()
 
 	// Harbor refuses a robot that asks for more than its creator holds. Deleting first would leave no robot at all.
-	missing, err := state.harbor.MissingPermissions(ctx, state.target.permissionScope(), robot.desired().Permissions)
+	missing, err := state.target.missingPermissions(ctx, state.harbor, robot.desired())
 	if err != nil {
 		return r.harborFailed(ctx, state, err)
 	}
@@ -473,12 +479,7 @@ func (r *robotLifecycle) replace(ctx context.Context, state *robotReconcile, cur
 
 // replaceForbiddenMessage says why a robot that cannot be updated is not replaced, naming the permissions the
 // connection lacks.
-func replaceForbiddenMessage(missing []harbor.RobotAccess) string {
-	names := make([]string, 0, len(missing))
-	for _, access := range missing {
-		names = append(names, access.String())
-	}
-
+func replaceForbiddenMessage(names []string) string {
 	return "the connection's credentials cannot update the Harbor robot, and the robot is not replaced because they lack these permissions: " +
 		strings.Join(names, ", ")
 }
