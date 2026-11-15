@@ -331,12 +331,14 @@ func TestRegistryDriftInHarborIsPutBack(t *testing.T) {
 }
 
 func TestRegistryRenamedInHarborStaysWithItsOwner(t *testing.T) {
+	t.Parallel()
+
 	setup := readyRegistrySetup(t, nil, func(connection *harborv1alpha1.HarborConnection) { connection.Spec.AllowAdoption = true })
-	setup.namespace(t, "other-team")
+	otherTeam := newNamespace(t, setup.cl, "other-team")
 	ownerName := setup.harborRegistryName(t, "own")
 	renamed := setup.harborRegistryName(t, "new")
 
-	owner := setup.newRegistry("default", "owner", ownerName)
+	owner := setup.newRegistry(setup.ownNamespace, "owner", ownerName)
 	owner.Spec.Description = "owned"
 	// A long resync keeps the owner from putting its name back before the other resource has looked.
 	owner.Spec.ResyncInterval = &metav1.Duration{Duration: time.Hour}
@@ -365,7 +367,7 @@ func TestRegistryRenamedInHarborStaysWithItsOwner(t *testing.T) {
 
 	for _, adopt := range []bool{true, false} {
 		t.Run(fmt.Sprintf("a resource with the new name and adopt %t gets Conflict and is deleted without deleting it", adopt), func(t *testing.T) {
-			other := setup.newRegistry("other-team", fmt.Sprintf("other-%t", adopt), renamed)
+			other := setup.newRegistry(otherTeam, fmt.Sprintf("other-%t", adopt), renamed)
 			other.Spec.Description = "taken over"
 			other.Spec.Adopt = adopt
 			other.Spec.DeletionPolicy = harborv1alpha1.DeletionPolicyDelete
