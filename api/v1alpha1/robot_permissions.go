@@ -24,3 +24,31 @@ var RobotPermissions = map[string][]string{
 	"tag":                 {"create", "delete", "list"},
 	"tag-retention":       {"create", "delete", "list", "operate", "read", "update"},
 }
+
+// SystemRobotPermissions lists the resource and action pairs a system robot may be granted for its system-level
+// access, as Harbor 2.15 documents them. The CEL rule on SystemRobotAccess carries the same list; a test keeps the two equal.
+var SystemRobotPermissions = map[string][]string{
+	"audit-log":           {"list"},
+	"catalog":             {"read"},
+	"configuration":       {"read", "update"},
+	"garbage-collection":  {"create", "list", "read", "stop", "update"},
+	"jobservice-monitor":  {"list", "stop"},
+	"label":               {"create", "delete", "read", "update"},
+	"ldap-user":           {"create", "list"},
+	"log-rotation":        {"create", "list", "read", "stop", "update"},
+	"preheat-instance":    {"create", "delete", "list", "read", "update"},
+	"project":             {"create", "list"},
+	"purge-audit":         {"create", "list", "read", "stop", "update"},
+	"quota":               {"list", "read", "update"},
+	"registry":            {"create", "delete", "list", "read", "update"},
+	"replication":         {"create", "list", "read"},
+	"replication-adapter": {"list"},
+	"replication-policy":  {"create", "delete", "list", "read", "update"},
+	"robot":               {"create", "delete", "list", "read", "update"},
+	"scan-all":            {"create", "read", "stop", "update"},
+	"scanner":             {"create", "delete", "list", "read", "update"},
+	"security-hub":        {"create", "list"},
+	"system-volumes":      {"read"},
+	"user":                {"create", "delete", "list", "read", "update"},
+	"user-group":          {"create", "delete", "list", "read", "update"},
+}

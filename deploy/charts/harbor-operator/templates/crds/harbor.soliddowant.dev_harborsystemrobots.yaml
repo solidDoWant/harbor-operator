@@ -206,6 +206,11 @@ spec:
                   - action
                   - resource
                   type: object
+                  x-kubernetes-validations:
+                  - message: resource and action must be a pair from the system list
+                      in docs/user/robot-permissions.md
+                    rule: '[''audit-log:list'',''catalog:read'',''configuration:read'',''configuration:update'',''garbage-collection:create'',''garbage-collection:list'',''garbage-collection:read'',''garbage-collection:stop'',''garbage-collection:update'',''jobservice-monitor:list'',''jobservice-monitor:stop'',''label:create'',''label:delete'',''label:read'',''label:update'',''ldap-user:create'',''ldap-user:list'',''log-rotation:create'',''log-rotation:list'',''log-rotation:read'',''log-rotation:stop'',''log-rotation:update'',''preheat-instance:create'',''preheat-instance:delete'',''preheat-instance:list'',''preheat-instance:read'',''preheat-instance:update'',''project:create'',''project:list'',''purge-audit:create'',''purge-audit:list'',''purge-audit:read'',''purge-audit:stop'',''purge-audit:update'',''quota:list'',''quota:read'',''quota:update'',''registry:create'',''registry:delete'',''registry:list'',''registry:read'',''registry:update'',''replication:create'',''replication:list'',''replication:read'',''replication-adapter:list'',''replication-policy:create'',''replication-policy:delete'',''replication-policy:list'',''replication-policy:read'',''replication-policy:update'',''robot:create'',''robot:delete'',''robot:list'',''robot:read'',''robot:update'',''scan-all:create'',''scan-all:read'',''scan-all:stop'',''scan-all:update'',''scanner:create'',''scanner:delete'',''scanner:list'',''scanner:read'',''scanner:update'',''security-hub:create'',''security-hub:list'',''system-volumes:read'',''user:create'',''user:delete'',''user:list'',''user:read'',''user:update'',''user-group:create'',''user-group:delete'',''user-group:list'',''user-group:read'',''user-group:update''].exists(p,
+                      p == self.resource + '':'' + self.action)'
                 maxItems: 100
                 type: array
                 x-kubernetes-list-type: atomic
