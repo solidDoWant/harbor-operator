@@ -63,6 +63,11 @@ func RobotKey(identity, projectName, robotName string) string {
 	return ProjectKey(identity, projectName) + "/robots/" + robotName
 }
 
+// RetentionKey is the status.harborKey of the tag retention policy of project projectName in the Harbor at identity.
+func RetentionKey(identity, projectName string) string {
+	return ProjectKey(identity, projectName) + "/retention"
+}
+
 // Claimant is what the ownership rule needs to know about a resource that claims a Harbor object.
 type Claimant struct {
 	UID               types.UID

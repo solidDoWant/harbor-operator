@@ -66,8 +66,14 @@ func IndexFields(ctx context.Context, indexer client.FieldIndexer) error {
 		return err
 	}
 
-	return indexer.IndexField(ctx, &harborv1alpha1.HarborProjectRobot{}, RobotProjectIndex, func(object client.Object) []string {
+	if err := indexer.IndexField(ctx, &harborv1alpha1.HarborProjectRobot{}, RobotProjectIndex, func(object client.Object) []string {
 		return []string{robotProjectKey(object.(*harborv1alpha1.HarborProjectRobot)).String()}
+	}); err != nil {
+		return err
+	}
+
+	return indexer.IndexField(ctx, &harborv1alpha1.HarborRetentionPolicy{}, RetentionProjectIndex, func(object client.Object) []string {
+		return []string{retentionProjectKey(object.(*harborv1alpha1.HarborRetentionPolicy)).String()}
 	})
 }
 

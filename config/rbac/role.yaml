@@ -50,6 +50,7 @@ rules:
   - harborconnections
   - harborprojectrobots
   - harborprojects
+  - harborretentionpolicies
   verbs:
   - get
   - list
@@ -62,6 +63,7 @@ rules:
   - harborconnections/finalizers
   - harborprojectrobots/finalizers
   - harborprojects/finalizers
+  - harborretentionpolicies/finalizers
   verbs:
   - update
 - apiGroups:
@@ -70,6 +72,7 @@ rules:
   - harborconnections/status
   - harborprojectrobots/status
   - harborprojects/status
+  - harborretentionpolicies/status
   verbs:
   - get
   - patch

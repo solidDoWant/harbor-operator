@@ -30,13 +30,16 @@ By default, a resource whose Harbor object already exists shows `AlreadyExists`.
 
 After adoption the operator makes the object match the spec, including values that were set in Harbor. Adoption gives a namespace control over an existing object. Leave `allowAdoption` off unless you need it. When the operator adopts a robot, it refreshes the robot secret at once, because Harbor never shows the old one.
 
+Policies are different. A `HarborRetentionPolicy` has no `adopt` field. It takes control of the retention policy that the project already has in Harbor and replaces its rules. A project has only one retention policy, and the namespace already controls the project. If you admit a namespace on a project, that namespace can replace the project's retention rules.
+
 ## Deletion
 
 The operator deletes a Harbor object only when the resource that owns it is deleted and its `deletionPolicy` is `Delete`. The default is `Delete`. You can change the default for a whole connection in `spec.defaults.deletionPolicy`. A resource can set its own value.
 
 - `Orphan` leaves the Harbor object in place and removes the resource.
+- When a `HarborRetentionPolicy` is deleted with `Delete`, the operator removes the rules and the schedule from the project's retention policy.
 - A project that has repositories cannot be deleted. The resource shows `DeleteBlocked` until the repositories are gone.
-- A project waits for robots that it admits. A connection waits for projects that it admits. Both show `DependentsExist`.
+- A project waits for robots and retention policies that it admits. A connection waits for projects that it admits. Both show `DependentsExist`.
 - If the namespace of the resource is no longer admitted when it is deleted, the operator removes the resource and does not touch Harbor.
 
 The operator never deletes an object that it did not create or adopt.

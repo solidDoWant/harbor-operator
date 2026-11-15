@@ -57,6 +57,7 @@ func (r *HarborProjectReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&corev1.Namespace{}, handler.EnqueueRequestsFromMapFunc(r.projectsInNamespace)).
 		Watches(&harborv1alpha1.HarborProject{}, handler.EnqueueRequestsFromMapFunc(r.otherClaimants)).
 		Watches(&harborv1alpha1.HarborProjectRobot{}, handler.EnqueueRequestsFromMapFunc(r.projectForRobot)).
+		Watches(&harborv1alpha1.HarborRetentionPolicy{}, handler.EnqueueRequestsFromMapFunc(r.projectForRetention)).
 		WithOptions(controller.Options{MaxConcurrentReconciles: 4, RateLimiter: r.rateLimiter()}).
 		Named("harborproject").
 		Complete(r)

@@ -134,7 +134,7 @@ Watches: `HarborProject` through a `spec.projectRef` index, `Namespace`, and pol
 | Project metadata `retention_id` unset | `POST /retentions` (scope `project`, ref = project ID, algorithm `or`); record `retentionID` | e2e |
 | `retention_id` set | `GET /retentions/{id}` first and require `scope.level == project` and `scope.ref == status.projectID`. On a mismatch: `Conflict` with a message, nothing written. Otherwise `PUT` the full desired policy when it differs. | e2e |
 | `schedule` doesn't parse | `InvalidSpec` (parse with `github.com/robfig/cron/v3` using a 6-field parser with seconds; never a hand-written regex) | unit |
-| Deleted, Delete | `PUT` the policy with zero rules and an empty schedule. If Harbor 2.13 refuses an empty rule list, `DELETE /retentions/{id}` instead (the first worker checks which on a live Harbor and records it here). | e2e |
+| Deleted, Delete | `PUT` the policy with zero rules and an empty schedule. Harbor accepts an empty rule list (checked on the test Harbor, chart 1.19.4), so the policy is never deleted with `DELETE /retentions/{id}`. | e2e |
 
 Mapping: rules use `action: retain`; the template parameter key equals the template name; selectors use `kind: doublestar`; `untagged` goes in the tag selector's `extras` JSON (built with `encoding/json`); an empty `schedule` is trigger `kind: Schedule` with `settings.cron: ""`. Rules are compared as an ordered list (Harbor keeps order); the cron as a string. CEL: `count` is forbidden with `always` and required and greater than 0 otherwise.
 

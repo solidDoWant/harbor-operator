@@ -61,6 +61,10 @@ func (r *HarborProjectReconciler) rateLimiter() workqueue.TypedRateLimiter[recon
 	return backoffLimiter(maxDelay)
 }
 
+func (r *HarborProjectReconciler) projectForRetention(_ context.Context, object client.Object) []reconcile.Request {
+	return []reconcile.Request{{NamespacedName: retentionProjectKey(object.(*harborv1alpha1.HarborRetentionPolicy))}}
+}
+
 func (r *HarborProjectReconciler) projectForRobot(_ context.Context, object client.Object) []reconcile.Request {
 	return []reconcile.Request{{NamespacedName: robotProjectKey(object.(*harborv1alpha1.HarborProjectRobot))}}
 }
@@ -89,9 +93,9 @@ func (r *HarborProjectReconciler) finalize(ctx context.Context, project *harborv
 			listed, suffix = listed[:maxListedDependents], fmt.Sprintf(" and %d more", len(dependents)-maxListedDependents)
 		}
 
-		// A deleted robot triggers a new reconcile through the robot watch.
+		// A deleted robot or policy triggers a new reconcile through its watch.
 		return reconcile.Result{}, r.setReady(ctx, project, metav1.ConditionFalse, harborv1alpha1.ReasonDependentsExist,
-			"still used by HarborProjectRobot "+strings.Join(listed, ", ")+suffix)
+			"still used by "+strings.Join(listed, ", ")+suffix)
 	}
 
 	key := connectionKey(project)
@@ -217,25 +221,45 @@ func deletionPolicy(project *harborv1alpha1.HarborProject, connection *harborv1a
 	return harborv1alpha1.DeletionPolicyDelete
 }
 
-// dependents lists "namespace/name" of the robots that reference the project from a namespace it admits.
+// dependents lists "Kind namespace/name" of the robots and retention policies that reference the project from a
+// namespace it admits.
 func (r *HarborProjectReconciler) dependents(ctx context.Context, project *harborv1alpha1.HarborProject) ([]string, error) {
+	match := client.MatchingFields{RobotProjectIndex: client.ObjectKeyFromObject(project).String()}
+
 	var robots harborv1alpha1.HarborProjectRobotList
-	if err := r.List(ctx, &robots, client.MatchingFields{RobotProjectIndex: client.ObjectKeyFromObject(project).String()}); err != nil {
+	if err := r.List(ctx, &robots, match); err != nil {
 		return nil, err
+	}
+
+	var retentions harborv1alpha1.HarborRetentionPolicyList
+	if err := r.List(ctx, &retentions, client.MatchingFields{RetentionProjectIndex: client.ObjectKeyFromObject(project).String()}); err != nil {
+		return nil, err
+	}
+
+	candidates := make([]client.Object, 0, len(robots.Items)+len(retentions.Items))
+	for index := range robots.Items {
+		candidates = append(candidates, &robots.Items[index])
+	}
+
+	for index := range retentions.Items {
+		candidates = append(candidates, &retentions.Items[index])
 	}
 
 	var names []string
 
-	for index := range robots.Items {
-		robot := &robots.Items[index]
-
-		admitted, err := access.Admits(ctx, r.Client, project.Spec.AllowedNamespaces, project.Namespace, robot.Namespace)
+	for _, candidate := range candidates {
+		admitted, err := access.Admits(ctx, r.Client, project.Spec.AllowedNamespaces, project.Namespace, candidate.GetNamespace())
 		if err != nil {
 			return nil, err
 		}
 
 		if admitted {
-			names = append(names, client.ObjectKeyFromObject(robot).String())
+			kind := "HarborProjectRobot"
+			if _, ok := candidate.(*harborv1alpha1.HarborRetentionPolicy); ok {
+				kind = "HarborRetentionPolicy"
+			}
+
+			names = append(names, kind+" "+client.ObjectKeyFromObject(candidate).String())
 		}
 	}
 

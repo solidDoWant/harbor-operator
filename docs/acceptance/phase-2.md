@@ -20,11 +20,11 @@ Same rules as phase 1. Approved for the owner by the operator on 2026-11-15.
 ## Tag retention
 
 - **AC-2-07 Retention create.** A `HarborRetentionPolicy` with two rules (keep the 5 most recently pushed `v*` tags; keep anything pulled in the last 30 days) and a daily schedule creates exactly that policy on the project.
-  Tests:
+  Tests: `internal/controller: TestRetentionPolicyCreatesExactlyTheSpecsPolicy`
 - **AC-2-08 Retention effect.** Running the policy (the test triggers a run through Harbor's API) on a project with 8 pushed `v*` tags leaves the 5 newest.
-  Tests:
+  Tests: `internal/controller: TestRetentionPolicyRunKeepsTheFiveNewestVersionTags`
 - **AC-2-09 Retention drift and ownership.** Rules added or changed in Harbor are reverted. A second retention resource for the same project reports `Conflict`. Deleting the resource removes the rules (or keeps them with `Orphan`).
-  Tests:
+  Tests: `internal/controller: TestRetentionPolicyRulesChangedInHarborArePutBack`, `internal/controller: TestSecondRetentionPolicyForTheSameProjectReportsConflict`, `internal/controller: TestDeletingRetentionPolicyFollowsItsDeletionPolicy/Delete removes the rules`, `internal/controller: TestDeletingRetentionPolicyFollowsItsDeletionPolicy/Orphan keeps the rules`
 
 ## Tag immutability
 
