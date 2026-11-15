@@ -3,8 +3,9 @@
 package controller_test
 
 import (
-	"context"
-	"path/filepath"
+	"crypto/rand"
+	"encoding/hex"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,101 +16,65 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/rest"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/config"
-	"sigs.k8s.io/controller-runtime/pkg/envtest"
-	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	harborv1alpha1 "github.com/solidDoWant/harbor-operator/api/v1alpha1"
 	"github.com/solidDoWant/harbor-operator/internal/controller"
 	"github.com/solidDoWant/harbor-operator/internal/harbor"
-	"github.com/solidDoWant/harbor-operator/internal/ownership"
-	"github.com/solidDoWant/harbor-operator/internal/scheme"
 	"github.com/solidDoWant/harbor-operator/test/harborfixture"
 )
 
-// startOperator runs an API server and the connection controller in-process and returns a client for it. withProjects
-// also runs the project controller.
-func startOperator(t *testing.T, withProjects ...bool) client.Client {
+// startOperator returns a client for the operator that TestMain started once for the whole package. The operator runs
+// every controller. Tests must keep to their own namespaces (see newNamespace) and never assert on global counts.
+// The withProjects argument is accepted for older call sites and ignored: every controller always runs.
+func startOperator(t *testing.T, _ ...bool) client.Client {
 	t.Helper()
 
-	return startOperatorLogging(t, logr.Logger{}, withProjects...)
+	if sharedClient == nil {
+		t.Skipf("envtest is not available: %v", sharedStartErr)
+	}
+
+	return sharedClient
 }
 
-// startOperatorLogging is startOperator with the operator's log sent to logger; the zero logger keeps the default.
-func startOperatorLogging(t *testing.T, logger logr.Logger, withProjects ...bool) client.Client {
+// newNamespace creates a namespace with a random name starting with prefix and returns the name. The suffix is random,
+// not derived from the test name, so repeated runs (-count) on the same API server never collide.
+func newNamespace(t *testing.T, cl client.Client, prefix string) string {
 	t.Helper()
 
-	return startOperatorWith(t, operatorOptions{logger: logger, withProjects: len(withProjects) > 0 && withProjects[0]})
+	suffix := make([]byte, 5)
+	_, err := rand.Read(suffix)
+	require.NoError(t, err)
+
+	name := strings.ToLower(prefix) + "-" + hex.EncodeToString(suffix)
+	require.NoError(t, cl.Create(t.Context(), &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: name}}))
+
+	return name
 }
 
-// operatorOptions change how startOperatorWith runs the operator.
+// operatorOptions change how startIsolatedOperator runs the operator.
 type operatorOptions struct {
 	// logger receives the operator's log; the zero logger keeps the default.
 	logger logr.Logger
-	// withProjects also runs the project, robot, system robot, retention policy and immutability policy controllers.
-	withProjects bool
 	// wrapRobotClient, when set, wraps the robot controller's client so a test can change what the controller reads.
 	wrapRobotClient func(client.Client) client.Client
 }
 
-// startOperatorWith is startOperator with options.
-func startOperatorWith(t *testing.T, options operatorOptions) client.Client {
+// startIsolatedOperator starts a private API server and operator for one test. It is the documented exception for
+// tests that need operator-wide settings the shared operator does not have: a different logger, or a wrapped client.
+func startIsolatedOperator(t *testing.T, options operatorOptions) client.Client {
 	t.Helper()
 
-	environment := &envtest.Environment{CRDDirectoryPaths: []string{filepath.Join("..", "..", "config", "crd", "bases")}, ErrorIfCRDPathMissing: true}
-
-	var (
-		restConfig *rest.Config
-		err        error
-	)
-
-	restConfig, err = environment.Start()
+	environment, restConfig, err := startEnvironment()
 	if err != nil {
 		t.Skipf("envtest is not available: %v", err)
 	}
 
 	t.Cleanup(func() { _ = environment.Stop() })
 
-	runtimeScheme, err := scheme.New()
+	stop, direct, err := runOperator(restConfig, options)
 	require.NoError(t, err)
-
-	manager, err := ctrl.NewManager(restConfig, ctrl.Options{Scheme: runtimeScheme, Logger: options.logger, Metrics: metricsserver.Options{BindAddress: "0"}, Controller: config.Controller{SkipNameValidation: ptr(true)}})
-	require.NoError(t, err)
-	require.NoError(t, controller.IndexFields(t.Context(), manager.GetFieldIndexer()))
-	clients := harbor.NewClientCache(manager.GetClient())
-	require.NoError(t, (&controller.HarborConnectionReconciler{Client: manager.GetClient(), Clients: clients}).SetupWithManager(manager))
-
-	if options.withProjects {
-		robotClient := manager.GetClient()
-		if options.wrapRobotClient != nil {
-			robotClient = options.wrapRobotClient(robotClient)
-		}
-
-		require.NoError(t, ownership.SetupIndexes(t.Context(), manager.GetFieldIndexer()))
-		require.NoError(t, (&controller.HarborProjectReconciler{Client: manager.GetClient(), Clients: clients, Recorder: manager.GetEventRecorder("harbor-operator"), MaxBackoff: 2 * time.Second}).SetupWithManager(manager))
-		require.NoError(t, (&controller.HarborProjectRobotReconciler{Client: robotClient, Clients: clients, Recorder: manager.GetEventRecorder("harbor-operator")}).SetupWithManager(manager))
-		require.NoError(t, (&controller.HarborSystemRobotReconciler{Client: manager.GetClient(), Clients: clients, Recorder: manager.GetEventRecorder("harbor-operator")}).SetupWithManager(manager))
-		require.NoError(t, (&controller.HarborRetentionPolicyReconciler{Client: manager.GetClient(), Clients: clients, Recorder: manager.GetEventRecorder("harbor-operator")}).SetupWithManager(manager))
-		require.NoError(t, (&controller.HarborImmutabilityPolicyReconciler{Client: manager.GetClient(), Clients: clients, Recorder: manager.GetEventRecorder("harbor-operator")}).SetupWithManager(manager))
-		require.NoError(t, (&controller.HarborRegistryReconciler{Client: manager.GetClient(), Clients: clients, Recorder: manager.GetEventRecorder("harbor-operator"), MaxBackoff: 2 * time.Second}).SetupWithManager(manager))
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-
-	go func() {
-		defer close(done)
-
-		_ = manager.Start(ctx)
-	}()
-
-	t.Cleanup(func() { cancel(); <-done })
-
-	direct, err := client.New(restConfig, client.Options{Scheme: runtimeScheme})
-	require.NoError(t, err)
+	t.Cleanup(stop)
 
 	return direct
 }

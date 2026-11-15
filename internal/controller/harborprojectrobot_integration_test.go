@@ -93,15 +93,18 @@ func readyRobotProjectWith(t *testing.T, options operatorOptions, useSystemRobot
 	projectName := harborfixture.UniqueName(t, "op")
 	t.Cleanup(func() { instance.DeleteProject(context.Background(), t, projectName) })
 
-	options.withProjects = true
-	cl := startOperatorWith(t, options)
+	// Only a test with its own logger or wrapped client needs a private operator; the rest share one.
+	cl := startOperator(t)
+	if options.wrapRobotClient != nil || options.logger.GetSink() != nil {
+		cl = startIsolatedOperator(t, options)
+	}
 
 	connectionInstance := *instance
 	if useSystemRobot {
 		connectionInstance.Username, connectionInstance.Password = instance.CreateSystemRobot(t, systemRobotPermissions())
 	}
 
-	connection := readyConnection(t, cl, &connectionInstance, "default", changeConnection)
+	connection := readyConnection(t, cl, &connectionInstance, newNamespace(t, cl, "robot"), changeConnection)
 
 	project := newProject("default", projectName, connection)
 	if changeProject != nil {
