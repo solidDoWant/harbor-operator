@@ -69,6 +69,11 @@ func ImmutabilityKey(identity, projectName string) string {
 	return ProjectKey(identity, projectName) + "/immutability"
 }
 
+// RegistryKey is the status.harborKey of a registry endpoint named registryName in the Harbor at identity.
+func RegistryKey(identity, registryName string) string {
+	return identity + "/registries/" + registryName
+}
+
 // Claimant is what the ownership rule needs to know about a resource that claims a Harbor object.
 type Claimant struct {
 	UID               types.UID

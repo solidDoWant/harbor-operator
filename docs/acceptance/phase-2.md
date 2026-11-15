@@ -5,17 +5,17 @@ Same rules as phase 1. Approved for the owner by the operator on 2026-11-15.
 ## Registries and proxy caches
 
 - **AC-2-01 Registry.** A `HarborRegistry` of type `github-ghcr` (and one of type `docker-registry` pointing at a registry inside the test cluster) creates a Harbor registry endpoint, reports Harbor's health check result, and becomes `Ready`.
-  Tests:
+  Tests: `internal/controller: TestRegistryIsCreatedReportsItsHealthAndBecomesReady`
 - **AC-2-02 Registry credentials.** A registry with a credentials Secret stores them in Harbor; changing the Secret updates Harbor. The credential never appears in status, events or logs.
-  Tests:
+  Tests: `internal/controller: TestRegistryCredentialsAreStoredAndFollowTheSecret`, `internal/controller: TestRegistryWithMissingOrIncompleteCredentialsWritesNothing`, `internal/harbor: TestRegistryErrorsNeverContainTheAccessSecret`
 - **AC-2-03 Registry drift and delete.** URL, type-specific settings and `insecure` changed in Harbor are put back. Deleting the resource deletes the endpoint (or keeps it with `Orphan`), and waits with `DependentsExist` while a proxy-cache project uses it.
-  Tests:
+  Tests: `internal/controller: TestRegistryDriftInHarborIsPutBack`, `internal/controller: TestRegistryDeletion`
 - **AC-2-04 Proxy-cache project.** A `HarborProject` with `proxyCache.registryRef` creates a proxy-cache project. Pulling `<harbor>/<project>/<path>:<tag>` through Harbor returns the upstream image (from the in-cluster upstream registry in tests).
-  Tests:
+  Tests: `internal/controller: TestProxyCacheProjectPullsTheUpstreamImage`, `internal/controller: TestProxyCacheProjectWaitsForItsRegistry`
 - **AC-2-05 Registry access.** A project in a namespace the registry's `allowedNamespaces` doesn't admit reports `NotAllowed` and nothing is created.
-  Tests:
+  Tests: `internal/controller: TestProxyCacheProjectInANamespaceTheRegistryDoesNotAdmit`
 - **AC-2-06 Proxy settings.** `speedLimitKbps` is applied and drift-corrected. Changing a project between proxy-cache and normal is refused by CRD validation (Harbor can't change it).
-  Tests:
+  Tests: `internal/controller: TestProxyCacheProjectDriftInHarborIsPutBack`, `api/v1alpha1: TestPhase2CRDImmutability/proxy cache cannot be added`, `api/v1alpha1: TestPhase2CRDImmutability/proxy cache cannot be removed`
 
 ## Tag retention
 

@@ -19,6 +19,8 @@ type ProjectSettings struct {
 	UseSystemAllowlist *bool
 	// CVEAllowlist replaces the project's own allowlist when set.
 	CVEAllowlist *CVEAllowlist
+	// ProxySpeedKbps is a proxy-cache project's pull speed limit; -1 is unlimited.
+	ProxySpeedKbps *int32
 }
 
 // CVEAllowlist is a project's list of CVE IDs allowed despite the severity gate.
@@ -32,6 +34,8 @@ type Project struct {
 	ID       int64
 	Name     string
 	Settings ProjectSettings
+	// RegistryID is the upstream registry of a proxy-cache project, 0 for a normal project.
+	RegistryID int64
 	// CreationTime is when Harbor created the project. Zero when Harbor did not report it.
 	CreationTime time.Time
 }
@@ -59,6 +63,21 @@ func stringBool(value *string) *bool {
 	return &parsed
 }
 
+func stringInt32(value *string) *int32 {
+	if value == nil {
+		return nil
+	}
+
+	parsed, err := strconv.ParseInt(*value, 10, 32)
+	if err != nil {
+		return nil
+	}
+
+	result := int32(parsed)
+
+	return &result
+}
+
 // metadata builds the Harbor metadata for the managed fields.
 func (s ProjectSettings) metadata() *models.ProjectMetadata {
 	metadata := &models.ProjectMetadata{
@@ -69,6 +88,11 @@ func (s ProjectSettings) metadata() *models.ProjectMetadata {
 	}
 	if s.Public != nil {
 		metadata.Public = strconv.FormatBool(*s.Public)
+	}
+
+	if s.ProxySpeedKbps != nil {
+		speed := strconv.FormatInt(int64(*s.ProxySpeedKbps), 10)
+		metadata.ProxySpeedKb = &speed
 	}
 
 	return metadata
@@ -114,7 +138,9 @@ func allowlistFromModel(model *models.CVEAllowlist) *CVEAllowlist {
 }
 
 func projectFromModel(model *models.Project) *Project {
-	project := &Project{ID: int64(model.ProjectID), Name: model.Name, CreationTime: time.Time(model.CreationTime).UTC()}
+	project := &Project{
+		ID: int64(model.ProjectID), Name: model.Name, RegistryID: model.RegistryID, CreationTime: time.Time(model.CreationTime).UTC(),
+	}
 
 	metadata := model.Metadata
 	if metadata == nil {
@@ -133,6 +159,7 @@ func projectFromModel(model *models.Project) *Project {
 		ScanOnPush:              stringBool(metadata.AutoScan),
 		UseSystemAllowlist:      stringBool(metadata.ReuseSysCVEAllowlist),
 		CVEAllowlist:            allowlistFromModel(model.CVEAllowlist),
+		ProxySpeedKbps:          stringInt32(metadata.ProxySpeedKb),
 	}
 
 	return project

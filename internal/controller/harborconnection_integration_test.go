@@ -92,6 +92,7 @@ func startOperatorWith(t *testing.T, options operatorOptions) client.Client {
 		require.NoError(t, (&controller.HarborProjectReconciler{Client: manager.GetClient(), Clients: clients, Recorder: manager.GetEventRecorder("harbor-operator"), MaxBackoff: 2 * time.Second}).SetupWithManager(manager))
 		require.NoError(t, (&controller.HarborProjectRobotReconciler{Client: robotClient, Clients: clients, Recorder: manager.GetEventRecorder("harbor-operator")}).SetupWithManager(manager))
 		require.NoError(t, (&controller.HarborImmutabilityPolicyReconciler{Client: manager.GetClient(), Clients: clients, Recorder: manager.GetEventRecorder("harbor-operator")}).SetupWithManager(manager))
+		require.NoError(t, (&controller.HarborRegistryReconciler{Client: manager.GetClient(), Clients: clients, Recorder: manager.GetEventRecorder("harbor-operator"), MaxBackoff: 2 * time.Second}).SetupWithManager(manager))
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

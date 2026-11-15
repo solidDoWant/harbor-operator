@@ -115,6 +115,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	registries := &controller.HarborRegistryReconciler{Client: mgr.GetClient(), Clients: clients, Recorder: mgr.GetEventRecorder("harbor-operator")}
+	if err := registries.SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to set up the HarborRegistry controller")
+		os.Exit(1)
+	}
+
 	robots := &controller.HarborProjectRobotReconciler{Client: mgr.GetClient(), Clients: clients, Recorder: mgr.GetEventRecorder("harbor-operator")}
 	if err := robots.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to set up the HarborProjectRobot controller")

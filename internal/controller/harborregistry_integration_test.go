@@ -1,0 +1,700 @@
+//go:build integration
+
+package controller_test
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/google/go-containerregistry/pkg/authn"
+	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/google/go-containerregistry/pkg/v1/random"
+	"github.com/google/go-containerregistry/pkg/v1/remote"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	harborv1alpha1 "github.com/solidDoWant/harbor-operator/api/v1alpha1"
+	"github.com/solidDoWant/harbor-operator/internal/controller"
+	"github.com/solidDoWant/harbor-operator/internal/harbor"
+	"github.com/solidDoWant/harbor-operator/test/harborfixture"
+	"github.com/solidDoWant/harbor-operator/test/leakscan"
+)
+
+// registrySetup is a running operator with a ready connection in the default namespace that admits every namespace,
+// for projects and for Harbor-wide kinds.
+type registrySetup struct {
+	instance *harborfixture.Harbor
+	admin    *harbor.Client
+	cl       client.Client
+	// upstreamURL is where Harbor reaches the plain registry in its cluster.
+	upstreamURL string
+	connection  *harborv1alpha1.HarborConnection
+	// registries and projects are the Harbor names deleted after the operator stops, so it cannot create them again.
+	registries, projects []string
+}
+
+func readyRegistrySetup(t *testing.T, logger *leakscan.Log, changeConnection func(*harborv1alpha1.HarborConnection)) *registrySetup {
+	t.Helper()
+
+	instance := harborfixture.FromEnv(t)
+
+	upstreamURL := os.Getenv("UPSTREAM_URL")
+	if upstreamURL == "" {
+		t.Skip("UPSTREAM_URL is not set: start Harbor with test/harbor/up.sh")
+	}
+
+	admin, err := harbor.NewClient(harbor.ConnectionConfig{URL: instance.URL, Username: instance.Username, Password: instance.Password})
+	require.NoError(t, err)
+
+	setup := &registrySetup{instance: instance, admin: admin, upstreamURL: upstreamURL}
+
+	// Registered before the operator starts, so it runs after the operator has stopped.
+	t.Cleanup(func() {
+		for _, projectName := range setup.projects {
+			instance.DeleteProject(context.Background(), t, projectName)
+		}
+
+		for _, registryName := range setup.registries {
+			if found, err := admin.GetRegistryByName(context.Background(), registryName); err == nil {
+				_ = admin.DeleteRegistry(context.Background(), found.ID)
+			}
+		}
+	})
+
+	options := operatorOptions{withProjects: true}
+	if logger != nil {
+		options.logger = logger.Logger()
+	}
+
+	cl := startOperatorWith(t, options)
+	connection := readyConnection(t, cl, instance, "default", func(connection *harborv1alpha1.HarborConnection) {
+		everything := harborv1alpha1.AllowedNamespaces{Selector: &metav1.LabelSelector{}}
+		connection.Spec.AllowedNamespaces = everything
+		connection.Spec.SystemAllowedNamespaces = everything
+
+		if changeConnection != nil {
+			changeConnection(connection)
+		}
+	})
+
+	setup.cl, setup.connection = cl, connection
+
+	return setup
+}
+
+// harborRegistryName returns a unique Harbor registry name for the test. The registry, and the proxy-cache projects
+// named in projects, are deleted when the test ends.
+func (s *registrySetup) harborRegistryName(t *testing.T, suffix string, projects ...string) string {
+	t.Helper()
+
+	registryName := harborfixture.UniqueName(t, "reg"+suffix)
+	s.registries = append(s.registries, registryName)
+	s.projects = append(s.projects, projects...)
+
+	return registryName
+}
+
+func (s *registrySetup) newRegistry(namespace, name, harborName string) *harborv1alpha1.HarborRegistry {
+	return &harborv1alpha1.HarborRegistry{
+		ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name},
+		Spec: harborv1alpha1.HarborRegistrySpec{
+			ConnectionRef:  harborv1alpha1.ObjectReference{Namespace: s.connection.Namespace, Name: s.connection.Name},
+			Name:           harborName,
+			Type:           "docker-registry",
+			URL:            s.upstreamURL,
+			ResyncInterval: &metav1.Duration{Duration: 2 * time.Second},
+		},
+	}
+}
+
+func (s *registrySetup) newProxyProject(namespace, harborName string, registry client.ObjectKey) *harborv1alpha1.HarborProject {
+	project := newProject(namespace, harborName, s.connection)
+	project.Spec.ProxyCache = &harborv1alpha1.ProxyCacheSpec{RegistryRef: harborv1alpha1.ObjectReference{Namespace: registry.Namespace, Name: registry.Name}}
+
+	return project
+}
+
+func (s *registrySetup) namespace(t *testing.T, name string) {
+	t.Helper()
+	require.NoError(t, s.cl.Create(t.Context(), &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: name}}))
+}
+
+func awaitRegistry(t *testing.T, cl client.Client, key client.ObjectKey, status metav1.ConditionStatus, reason string) *harborv1alpha1.HarborRegistry {
+	t.Helper()
+
+	registry := &harborv1alpha1.HarborRegistry{}
+
+	require.Eventually(t, func() bool {
+		if err := cl.Get(t.Context(), key, registry); err != nil {
+			return false
+		}
+
+		condition := meta.FindStatusCondition(registry.Status.Conditions, harborv1alpha1.ConditionReady)
+
+		return condition != nil && condition.Status == status && condition.Reason == reason && condition.ObservedGeneration == registry.Generation
+	}, projectWait, 200*time.Millisecond, "waiting for Ready=%s %s, have %+v", status, reason, registry.Status.Conditions)
+
+	return registry
+}
+
+func awaitHarborRegistry(t *testing.T, admin *harbor.Client, registryName string, check func(*harbor.Registry) bool, message string) {
+	t.Helper()
+
+	require.Eventually(t, func() bool {
+		found, err := admin.GetRegistryByName(t.Context(), registryName)
+		return err == nil && check(found)
+	}, projectWait, 200*time.Millisecond, message)
+}
+
+func registryAbsent(t *testing.T, admin *harbor.Client, registryName string) {
+	t.Helper()
+
+	_, err := admin.GetRegistryByName(t.Context(), registryName)
+	assert.True(t, harbor.IsNotFound(err), "no Harbor registry %q should exist, got %v", registryName, err)
+}
+
+func registryCredentials(namespace, name, accessKey, accessSecret string) *corev1.Secret {
+	return &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name},
+		Data:       map[string][]byte{"accessKey": []byte(accessKey), "accessSecret": []byte(accessSecret)},
+	}
+}
+
+func updateRegistry(t *testing.T, cl client.Client, key client.ObjectKey, change func(*harborv1alpha1.HarborRegistry)) {
+	t.Helper()
+
+	require.Eventually(t, func() bool {
+		registry := &harborv1alpha1.HarborRegistry{}
+		if err := cl.Get(t.Context(), key, registry); err != nil {
+			return false
+		}
+
+		change(registry)
+
+		return cl.Update(t.Context(), registry) == nil
+	}, 10*time.Second, 100*time.Millisecond)
+}
+
+func TestRegistryIsCreatedReportsItsHealthAndBecomesReady(t *testing.T) {
+	setup := readyRegistrySetup(t, nil, nil)
+
+	t.Run("docker-registry upstream in the cluster", func(t *testing.T) {
+		harborName := setup.harborRegistryName(t, "")
+		registry := setup.newRegistry("default", "upstream", harborName)
+		registry.Spec.Description = "in-cluster upstream"
+		require.NoError(t, setup.cl.Create(t.Context(), registry))
+
+		ready := awaitRegistry(t, setup.cl, client.ObjectKeyFromObject(registry), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
+		assert.Equal(t, harborv1alpha1.RegistryHealthHealthy, ready.Status.Health)
+		assert.NotZero(t, ready.Status.RegistryID)
+		assert.Nil(t, ready.Status.CreatePending)
+		awaitEvent(t, setup.cl, ready, harborv1alpha1.EventReasonHealthChanged)
+
+		found, err := setup.admin.GetRegistry(t.Context(), ready.Status.RegistryID)
+		require.NoError(t, err)
+		assert.Equal(t, harborName, found.Name)
+		assert.Equal(t, "docker-registry", found.Type)
+		assert.Equal(t, setup.upstreamURL, found.URL)
+		assert.Equal(t, "in-cluster upstream", found.Description)
+	})
+
+	t.Run("github-ghcr", func(t *testing.T) {
+		harborName := setup.harborRegistryName(t, "")
+		registry := setup.newRegistry("default", "ghcr", harborName)
+		registry.Spec.Type = "github-ghcr"
+		registry.Spec.URL = "https://ghcr.io"
+		require.NoError(t, setup.cl.Create(t.Context(), registry))
+
+		// CI has no outbound access, so only Harbor accepting the type is checked, not the upstream's health.
+		ready := awaitRegistry(t, setup.cl, client.ObjectKeyFromObject(registry), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
+		assert.NotEmpty(t, ready.Status.Health)
+
+		found, err := setup.admin.GetRegistry(t.Context(), ready.Status.RegistryID)
+		require.NoError(t, err)
+		assert.Equal(t, "github-ghcr", found.Type)
+	})
+
+}
+
+func TestRegistryCredentialsAreStoredAndFollowTheSecret(t *testing.T) {
+	log := &leakscan.Log{}
+	setup := readyRegistrySetup(t, log, nil)
+	harborName := setup.harborRegistryName(t, "")
+
+	require.NoError(t, setup.cl.Create(t.Context(), registryCredentials("default", "upstream-creds", "first-user", "first-access-secret-value")))
+
+	registry := setup.newRegistry("default", "upstream", harborName)
+	registry.Spec.CredentialsSecretRef = &harborv1alpha1.LocalSecretReference{Name: "upstream-creds"}
+	require.NoError(t, setup.cl.Create(t.Context(), registry))
+	key := client.ObjectKeyFromObject(registry)
+	awaitRegistry(t, setup.cl, key, metav1.ConditionTrue, harborv1alpha1.ReasonReady)
+
+	awaitHarborRegistry(t, setup.admin, harborName, func(found *harbor.Registry) bool { return found.AccessKey == "first-user" }, "Harbor stores the access key")
+
+	// A credential changed in Harbor is put back.
+	found, err := setup.admin.GetRegistryByName(t.Context(), harborName)
+	require.NoError(t, err)
+	require.NoError(t, setup.admin.UpdateRegistry(t.Context(), found.ID, harbor.RegistrySpec{
+		Name: found.Name, URL: found.URL, Description: found.Description, Insecure: found.Insecure,
+		Credential: &harbor.RegistryCredential{AccessKey: "changed-in-ui", AccessSecret: "changed-in-ui-secret"},
+	}))
+	awaitHarborRegistry(t, setup.admin, harborName, func(found *harbor.Registry) bool { return found.AccessKey == "first-user" }, "the credential is put back")
+
+	// A changed Secret updates Harbor.
+	require.Eventually(t, func() bool {
+		secret := &corev1.Secret{}
+		if err := setup.cl.Get(t.Context(), client.ObjectKey{Namespace: "default", Name: "upstream-creds"}, secret); err != nil {
+			return false
+		}
+
+		secret.Data["accessKey"] = []byte("second-user")
+		secret.Data["accessSecret"] = []byte("second-access-secret-value")
+
+		return setup.cl.Update(t.Context(), secret) == nil
+	}, 10*time.Second, 100*time.Millisecond)
+	awaitHarborRegistry(t, setup.admin, harborName, func(found *harbor.Registry) bool { return found.AccessKey == "second-user" }, "the new Secret reaches Harbor")
+
+	secrets := map[string]string{
+		"first access secret": "first-access-secret-value", "second access secret": "second-access-secret-value",
+		"connection password": setup.instance.Password,
+	}
+	leaks, err := leakscan.Scan(t.Context(), setup.cl, log, []client.ObjectList{&harborv1alpha1.HarborRegistryList{}, &harborv1alpha1.HarborConnectionList{}}, secrets)
+	require.NoError(t, err)
+	assert.Empty(t, leaks, "registry credentials leaked outside Kubernetes Secrets")
+}
+
+func TestRegistryWithMissingOrIncompleteCredentialsWritesNothing(t *testing.T) {
+	setup := readyRegistrySetup(t, nil, nil)
+
+	tests := []struct {
+		name   string
+		secret *corev1.Secret
+	}{
+		{name: "Secret missing"},
+		{name: "accessSecret missing", secret: &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "incomplete"},
+			Data:       map[string][]byte{"accessKey": []byte("user")},
+		}},
+	}
+
+	for index, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			harborName := setup.harborRegistryName(t, "")
+			secretName := "absent"
+
+			if test.secret != nil {
+				require.NoError(t, setup.cl.Create(t.Context(), test.secret))
+				secretName = test.secret.Name
+			}
+
+			registry := setup.newRegistry("default", fmt.Sprintf("registry-%d", index), harborName)
+			registry.Spec.CredentialsSecretRef = &harborv1alpha1.LocalSecretReference{Name: secretName}
+			require.NoError(t, setup.cl.Create(t.Context(), registry))
+
+			awaitRegistry(t, setup.cl, client.ObjectKeyFromObject(registry), metav1.ConditionFalse, harborv1alpha1.ReasonCredentialsInvalid)
+			registryAbsent(t, setup.admin, harborName)
+		})
+	}
+}
+
+func TestRegistryDriftInHarborIsPutBack(t *testing.T) {
+	setup := readyRegistrySetup(t, nil, nil)
+	harborName := setup.harborRegistryName(t, "")
+
+	registry := setup.newRegistry("default", "upstream", harborName)
+	registry.Spec.Description = "managed"
+	require.NoError(t, setup.cl.Create(t.Context(), registry))
+	ready := awaitRegistry(t, setup.cl, client.ObjectKeyFromObject(registry), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
+
+	require.NoError(t, setup.admin.UpdateRegistry(t.Context(), ready.Status.RegistryID, harbor.RegistrySpec{
+		// Harbor checks that a new URL answers, so the drift points at the same upstream under another name.
+		Name: harborName, URL: "http://upstream.upstream.svc:5000", Description: "changed in the UI", Insecure: true,
+	}))
+
+	awaitHarborRegistry(t, setup.admin, harborName, func(found *harbor.Registry) bool {
+		return found.URL == setup.upstreamURL && found.Description == "managed" && !found.Insecure
+	}, "url, description and insecure are put back")
+}
+
+func TestRegistryInANamespaceTheConnectionAdmitsOnlyForProjects(t *testing.T) {
+	setup := readyRegistrySetup(t, nil, func(connection *harborv1alpha1.HarborConnection) {
+		connection.Spec.SystemAllowedNamespaces = harborv1alpha1.AllowedNamespaces{}
+	})
+	setup.namespace(t, "team")
+	harborName := setup.harborRegistryName(t, "")
+
+	registry := setup.newRegistry("team", "upstream", harborName)
+	require.NoError(t, setup.cl.Create(t.Context(), registry))
+
+	awaitRegistry(t, setup.cl, client.ObjectKeyFromObject(registry), metav1.ConditionFalse, harborv1alpha1.ReasonNotAllowed)
+	registryAbsent(t, setup.admin, harborName)
+}
+
+func TestRegistryDeletion(t *testing.T) {
+	setup := readyRegistrySetup(t, nil, nil)
+
+	t.Run("policy Delete deletes the Harbor registry", func(t *testing.T) {
+		harborName := setup.harborRegistryName(t, "")
+		registry := setup.newRegistry("default", "delete", harborName)
+		require.NoError(t, setup.cl.Create(t.Context(), registry))
+		awaitRegistry(t, setup.cl, client.ObjectKeyFromObject(registry), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
+
+		require.NoError(t, setup.cl.Delete(t.Context(), registry))
+		awaitRegistryGone(t, setup.cl, client.ObjectKeyFromObject(registry))
+		registryAbsent(t, setup.admin, harborName)
+	})
+
+	t.Run("policy Orphan keeps the Harbor registry", func(t *testing.T) {
+		harborName := setup.harborRegistryName(t, "")
+		registry := setup.newRegistry("default", "orphan", harborName)
+		registry.Spec.DeletionPolicy = harborv1alpha1.DeletionPolicyOrphan
+		require.NoError(t, setup.cl.Create(t.Context(), registry))
+		awaitRegistry(t, setup.cl, client.ObjectKeyFromObject(registry), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
+
+		require.NoError(t, setup.cl.Delete(t.Context(), registry))
+		awaitRegistryGone(t, setup.cl, client.ObjectKeyFromObject(registry))
+
+		_, err := setup.admin.GetRegistryByName(t.Context(), harborName)
+		require.NoError(t, err, "the orphaned Harbor registry stays")
+	})
+
+	for _, policy := range []harborv1alpha1.DeletionPolicy{harborv1alpha1.DeletionPolicyDelete, harborv1alpha1.DeletionPolicyOrphan} {
+		t.Run("waits for an admitted proxy-cache project under "+string(policy), func(t *testing.T) {
+			projectName := harborfixture.UniqueName(t, "proxy")
+			harborName := setup.harborRegistryName(t, "", projectName)
+			registry := setup.newRegistry("default", "used-"+strings.ToLower(string(policy)), harborName)
+			registry.Spec.DeletionPolicy = policy
+			require.NoError(t, setup.cl.Create(t.Context(), registry))
+			registryKey := client.ObjectKeyFromObject(registry)
+			awaitRegistry(t, setup.cl, registryKey, metav1.ConditionTrue, harborv1alpha1.ReasonReady)
+
+			project := setup.newProxyProject("default", projectName, registryKey)
+			project.Name = registry.Name
+			project.Spec.DeletionPolicy = harborv1alpha1.DeletionPolicyDelete
+			project.Spec.Public = ptr(false)
+			require.NoError(t, setup.cl.Create(t.Context(), project))
+			awaitProject(t, setup.cl, client.ObjectKeyFromObject(project), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
+
+			require.NoError(t, setup.cl.Delete(t.Context(), registry))
+			held := awaitRegistry(t, setup.cl, registryKey, metav1.ConditionFalse, harborv1alpha1.ReasonDependentsExist)
+			assert.Contains(t, meta.FindStatusCondition(held.Status.Conditions, harborv1alpha1.ConditionReady).Message, "default/"+project.Name)
+			assert.Contains(t, held.Finalizers, controller.RegistryFinalizer)
+
+			// The project keeps reconciling while its registry is being deleted.
+			_, err := setup.admin.GetProjectByName(t.Context(), projectName)
+			require.NoError(t, err)
+			require.NoError(t, setup.admin.UpdateProjectMetadata(t.Context(), projectName, harbor.ProjectSettings{Public: ptr(true)}))
+			require.Eventually(t, func() bool {
+				found, err := setup.admin.GetProjectByName(t.Context(), projectName)
+				return err == nil && found.Settings.Public != nil && !*found.Settings.Public
+			}, projectWait, 200*time.Millisecond, "the project is still reconciled")
+
+			// Deleting the project lets the registry go.
+			require.NoError(t, setup.cl.Delete(t.Context(), project))
+			awaitGone(t, setup.cl, client.ObjectKeyFromObject(project), "the proxy-cache project goes")
+			awaitRegistryGone(t, setup.cl, registryKey)
+
+			_, err = setup.admin.GetRegistryByName(t.Context(), harborName)
+			assert.Equal(t, policy == harborv1alpha1.DeletionPolicyDelete, harbor.IsNotFound(err), "Harbor registry deleted only under Delete, got %v", err)
+		})
+	}
+
+	t.Run("Harbor refusing the delete is DeleteBlocked", func(t *testing.T) {
+		projectName := harborfixture.UniqueName(t, "byhand")
+		harborName := setup.harborRegistryName(t, "", projectName)
+		registry := setup.newRegistry("default", "blocked", harborName)
+		require.NoError(t, setup.cl.Create(t.Context(), registry))
+		ready := awaitRegistry(t, setup.cl, client.ObjectKeyFromObject(registry), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
+
+		// A proxy-cache project made in Harbor, not by a resource, makes Harbor refuse the delete.
+		_, err := setup.admin.CreateProxyCacheProject(t.Context(), projectName, harbor.ProjectSettings{}, nil, ready.Status.RegistryID)
+		require.NoError(t, err)
+
+		require.NoError(t, setup.cl.Delete(t.Context(), registry))
+		blocked := awaitRegistry(t, setup.cl, client.ObjectKeyFromObject(registry), metav1.ConditionFalse, harborv1alpha1.ReasonDeleteBlocked)
+		assert.NotEmpty(t, meta.FindStatusCondition(blocked.Status.Conditions, harborv1alpha1.ConditionReady).Message, "Harbor's message is reported")
+
+		setup.instance.DeleteProject(t.Context(), t, projectName)
+		awaitRegistryGone(t, setup.cl, client.ObjectKeyFromObject(registry))
+		registryAbsent(t, setup.admin, harborName)
+	})
+}
+
+func awaitRegistryGone(t *testing.T, cl client.Client, key client.ObjectKey) {
+	t.Helper()
+
+	require.Eventually(t, func() bool {
+		return cl.Get(t.Context(), key, &harborv1alpha1.HarborRegistry{}) != nil
+	}, projectWait, 200*time.Millisecond, "the HarborRegistry should be gone")
+}
+
+func TestConnectionDeletionWaitsForAdmittedRegistries(t *testing.T) {
+	setup := readyRegistrySetup(t, nil, func(connection *harborv1alpha1.HarborConnection) {
+		connection.Spec.SystemAllowedNamespaces = harborv1alpha1.AllowedNamespaces{Names: []string{"admitted"}}
+	})
+
+	for _, namespace := range []string{"admitted", "outsider"} {
+		setup.namespace(t, namespace)
+	}
+
+	held := func(namespace string) *harborv1alpha1.HarborRegistry {
+		registry := setup.newRegistry(namespace, "upstream", setup.harborRegistryName(t, "-"+namespace))
+		registry.Finalizers = []string{"test/hold"}
+		require.NoError(t, setup.cl.Create(t.Context(), registry))
+
+		return registry
+	}
+
+	admitted, outsider := held("admitted"), held("outsider")
+
+	require.NoError(t, setup.cl.Delete(t.Context(), setup.connection))
+
+	connection := awaitReady(t, setup.cl, client.ObjectKeyFromObject(setup.connection), metav1.ConditionFalse, harborv1alpha1.ReasonDependentsExist)
+	message := meta.FindStatusCondition(connection.Status.Conditions, harborv1alpha1.ConditionReady).Message
+	assert.Contains(t, message, "HarborRegistry admitted/upstream")
+	assert.NotContains(t, message, "outsider/upstream", "registries in namespaces the connection does not admit for Harbor-wide kinds are ignored")
+
+	for _, registry := range []*harborv1alpha1.HarborRegistry{admitted, outsider} {
+		require.NoError(t, setup.cl.Get(t.Context(), client.ObjectKeyFromObject(registry), registry))
+		registry.Finalizers = nil
+		require.NoError(t, setup.cl.Update(t.Context(), registry))
+		require.NoError(t, setup.cl.Delete(t.Context(), registry))
+	}
+
+	require.Eventually(t, func() bool {
+		var current harborv1alpha1.HarborConnection
+		return client.IgnoreNotFound(setup.cl.Get(t.Context(), client.ObjectKeyFromObject(setup.connection), &current)) == nil && current.Name == ""
+	}, 60*time.Second, 200*time.Millisecond, "connection should be gone")
+}
+
+// pushUpstream pushes a small random image to the plain registry in Harbor's cluster and returns its digest.
+func pushUpstream(t *testing.T, repository, tag string) string {
+	t.Helper()
+
+	host := os.Getenv("UPSTREAM_REGISTRY")
+	if host == "" {
+		t.Skip("UPSTREAM_REGISTRY is not set: recreate the cluster with test/harbor/up.sh")
+	}
+
+	image, err := random.Image(64, 1)
+	require.NoError(t, err)
+
+	reference, err := name.ParseReference(fmt.Sprintf("%s/%s:%s", host, repository, tag), name.Insecure)
+	require.NoError(t, err)
+	require.NoError(t, remote.Write(reference, image, remote.WithContext(t.Context())))
+
+	digest, err := image.Digest()
+	require.NoError(t, err)
+
+	return digest.String()
+}
+
+func TestProxyCacheProjectPullsTheUpstreamImage(t *testing.T) {
+	setup := readyRegistrySetup(t, nil, nil)
+	projectName := harborfixture.UniqueName(t, "proxy")
+	harborName := setup.harborRegistryName(t, "", projectName)
+
+	registry := setup.newRegistry("default", "upstream", harborName)
+	require.NoError(t, setup.cl.Create(t.Context(), registry))
+	ready := awaitRegistry(t, setup.cl, client.ObjectKeyFromObject(registry), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
+
+	project := setup.newProxyProject("default", projectName, client.ObjectKeyFromObject(registry))
+	project.Spec.ProxyCache.SpeedLimitKbps = ptr(int32(2048))
+	require.NoError(t, setup.cl.Create(t.Context(), project))
+	awaitProject(t, setup.cl, client.ObjectKeyFromObject(project), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
+
+	found, err := setup.admin.GetProjectByName(t.Context(), projectName)
+	require.NoError(t, err)
+	assert.Equal(t, ready.Status.RegistryID, found.RegistryID, "the project is a proxy cache of the registry")
+	require.NotNil(t, found.Settings.ProxySpeedKbps)
+	assert.Equal(t, int32(2048), *found.Settings.ProxySpeedKbps)
+
+	digest := pushUpstream(t, "pulled/image", "v1")
+
+	reference, err := name.ParseReference(fmt.Sprintf("%s/%s/pulled/image:v1", setup.instance.Registry(t), projectName), name.Insecure)
+	require.NoError(t, err)
+
+	pulled, err := remote.Image(reference, remote.WithContext(t.Context()),
+		remote.WithAuth(&authn.Basic{Username: setup.instance.Username, Password: setup.instance.Password}))
+	require.NoError(t, err)
+
+	pulledDigest, err := pulled.Digest()
+	require.NoError(t, err)
+	assert.Equal(t, digest, pulledDigest.String(), "Harbor returns the upstream image")
+}
+
+func TestProxyCacheProjectDriftInHarborIsPutBack(t *testing.T) {
+	setup := readyRegistrySetup(t, nil, nil)
+	projectName := harborfixture.UniqueName(t, "proxy")
+	harborName := setup.harborRegistryName(t, "", projectName)
+	otherName := setup.harborRegistryName(t, "other")
+
+	registry := setup.newRegistry("default", "upstream", harborName)
+	require.NoError(t, setup.cl.Create(t.Context(), registry))
+	ready := awaitRegistry(t, setup.cl, client.ObjectKeyFromObject(registry), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
+
+	project := setup.newProxyProject("default", projectName, client.ObjectKeyFromObject(registry))
+	project.Spec.ProxyCache.SpeedLimitKbps = ptr(int32(-1))
+	require.NoError(t, setup.cl.Create(t.Context(), project))
+	awaitProject(t, setup.cl, client.ObjectKeyFromObject(project), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
+
+	t.Run("speed limit", func(t *testing.T) {
+		require.NoError(t, setup.admin.UpdateProjectMetadata(t.Context(), projectName, harbor.ProjectSettings{ProxySpeedKbps: ptr(int32(10))}))
+
+		require.Eventually(t, func() bool {
+			found, err := setup.admin.GetProjectByName(t.Context(), projectName)
+			return err == nil && found.Settings.ProxySpeedKbps != nil && *found.Settings.ProxySpeedKbps == -1
+		}, projectWait, 200*time.Millisecond, "proxy_speed_kb is put back")
+	})
+
+	t.Run("registry", func(t *testing.T) {
+		other, err := setup.admin.CreateRegistry(t.Context(), harbor.RegistrySpec{Name: otherName, Type: "docker-registry", URL: setup.upstreamURL})
+		require.NoError(t, err)
+		require.NoError(t, setup.admin.SetProjectRegistry(t.Context(), projectName, other.ID))
+
+		require.Eventually(t, func() bool {
+			found, err := setup.admin.GetProjectByName(t.Context(), projectName)
+			return err == nil && found.RegistryID == ready.Status.RegistryID
+		}, projectWait, 200*time.Millisecond, "registry_id is put back")
+	})
+}
+
+func TestProxyCacheProjectWaitsForItsRegistry(t *testing.T) {
+	setup := readyRegistrySetup(t, nil, nil)
+	projectName := harborfixture.UniqueName(t, "proxy")
+	harborName := setup.harborRegistryName(t, "", projectName)
+
+	project := setup.newProxyProject("default", projectName, client.ObjectKey{Namespace: "default", Name: "later"})
+	require.NoError(t, setup.cl.Create(t.Context(), project))
+
+	waiting := awaitProject(t, setup.cl, client.ObjectKeyFromObject(project), metav1.ConditionFalse, harborv1alpha1.ReasonRegistryNotReady)
+	reference := meta.FindStatusCondition(waiting.Status.Conditions, harborv1alpha1.ConditionReferenceResolved)
+	require.NotNil(t, reference)
+	assert.Equal(t, harborv1alpha1.ReasonRegistryNotReady, reference.Reason)
+
+	_, err := setup.admin.GetProjectByName(t.Context(), projectName)
+	assert.True(t, harbor.IsNotFound(err), "nothing is created while the registry is missing, got %v", err)
+
+	registry := setup.newRegistry("default", "later", harborName)
+	require.NoError(t, setup.cl.Create(t.Context(), registry))
+	ready := awaitRegistry(t, setup.cl, client.ObjectKeyFromObject(registry), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
+
+	awaitProject(t, setup.cl, client.ObjectKeyFromObject(project), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
+
+	found, err := setup.admin.GetProjectByName(t.Context(), projectName)
+	require.NoError(t, err)
+	assert.Equal(t, ready.Status.RegistryID, found.RegistryID)
+}
+
+func TestProxyCacheProjectInANamespaceTheRegistryDoesNotAdmit(t *testing.T) {
+	setup := readyRegistrySetup(t, nil, nil)
+	setup.namespace(t, "team")
+	projectName := harborfixture.UniqueName(t, "proxy")
+	harborName := setup.harborRegistryName(t, "", projectName)
+
+	registry := setup.newRegistry("default", "upstream", harborName)
+	require.NoError(t, setup.cl.Create(t.Context(), registry))
+	awaitRegistry(t, setup.cl, client.ObjectKeyFromObject(registry), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
+
+	project := setup.newProxyProject("team", projectName, client.ObjectKeyFromObject(registry))
+	require.NoError(t, setup.cl.Create(t.Context(), project))
+
+	awaitProject(t, setup.cl, client.ObjectKeyFromObject(project), metav1.ConditionFalse, harborv1alpha1.ReasonNotAllowed)
+
+	_, err := setup.admin.GetProjectByName(t.Context(), projectName)
+	assert.True(t, harbor.IsNotFound(err), "nothing is created for a namespace the registry does not admit, got %v", err)
+
+	// The registry does not wait for a project it does not admit.
+	require.NoError(t, setup.cl.Delete(t.Context(), registry))
+	awaitRegistryGone(t, setup.cl, client.ObjectKeyFromObject(registry))
+}
+
+func TestProxyCacheProjectWithItsRegistryInAnotherHarbor(t *testing.T) {
+	setup := readyRegistrySetup(t, nil, nil)
+	projectName := harborfixture.UniqueName(t, "proxy")
+
+	// The registry's connection does not exist, so the operator leaves the claim written here alone.
+	registry := setup.newRegistry("default", "elsewhere", "elsewhere")
+	registry.Spec.ConnectionRef = harborv1alpha1.ObjectReference{Name: "other-harbor"}
+	require.NoError(t, setup.cl.Create(t.Context(), registry))
+	awaitRegistry(t, setup.cl, client.ObjectKeyFromObject(registry), metav1.ConditionFalse, harborv1alpha1.ReasonNotFound)
+
+	require.Eventually(t, func() bool {
+		current := &harborv1alpha1.HarborRegistry{}
+		if err := setup.cl.Get(t.Context(), client.ObjectKeyFromObject(registry), current); err != nil {
+			return false
+		}
+
+		current.Status.HarborKey = "https://other-harbor.example/registries/elsewhere"
+		current.Status.RegistryID = 1
+
+		return setup.cl.Status().Update(t.Context(), current) == nil
+	}, 10*time.Second, 100*time.Millisecond)
+
+	project := setup.newProxyProject("default", projectName, client.ObjectKeyFromObject(registry))
+	require.NoError(t, setup.cl.Create(t.Context(), project))
+	setup.projects = append(setup.projects, projectName)
+
+	awaitProject(t, setup.cl, client.ObjectKeyFromObject(project), metav1.ConditionFalse, harborv1alpha1.ReasonRegistryOnOtherHarbor)
+
+	_, err := setup.admin.GetProjectByName(t.Context(), projectName)
+	assert.True(t, harbor.IsNotFound(err), "nothing is created, got %v", err)
+}
+
+func TestProxyCacheProjectAdoptionOfAProjectInTheOtherModeIsRefused(t *testing.T) {
+	setup := readyRegistrySetup(t, nil, func(connection *harborv1alpha1.HarborConnection) { connection.Spec.AllowAdoption = true })
+
+	tests := []struct {
+		name  string
+		proxy bool
+	}{
+		{name: "normal Harbor project, proxy-cache spec", proxy: false},
+		{name: "proxy-cache Harbor project, normal spec", proxy: true},
+	}
+
+	for index, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			projectName := harborfixture.UniqueName(t, "adopt")
+			harborName := setup.harborRegistryName(t, "", projectName)
+
+			registry := setup.newRegistry("default", fmt.Sprintf("upstream-%d", index), harborName)
+			require.NoError(t, setup.cl.Create(t.Context(), registry))
+			ready := awaitRegistry(t, setup.cl, client.ObjectKeyFromObject(registry), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
+
+			var registryID int64
+			if test.proxy {
+				registryID = ready.Status.RegistryID
+			}
+
+			_, err := setup.admin.CreateProxyCacheProject(t.Context(), projectName, harbor.ProjectSettings{Public: ptr(false)}, nil, registryID)
+			require.NoError(t, err)
+
+			project := newProject("default", projectName, setup.connection)
+			project.Name = fmt.Sprintf("adopt-%d", index)
+			project.Spec.Adopt = true
+			project.Spec.Public = ptr(true)
+
+			if !test.proxy {
+				project.Spec.ProxyCache = &harborv1alpha1.ProxyCacheSpec{RegistryRef: harborv1alpha1.ObjectReference{Name: registry.Name}}
+			}
+
+			require.NoError(t, setup.cl.Create(t.Context(), project))
+
+			refused := awaitProject(t, setup.cl, client.ObjectKeyFromObject(project), metav1.ConditionFalse, harborv1alpha1.ReasonInvalidSpec)
+			assert.Contains(t, readyMessage(refused), "proxy-cache mode can't be changed")
+			assert.Zero(t, refused.Status.ProjectID, "the project is not adopted")
+
+			found, err := setup.admin.GetProjectByName(t.Context(), projectName)
+			require.NoError(t, err)
+			assert.False(t, *found.Settings.Public, "nothing is written to the Harbor project")
+		})
+	}
+}

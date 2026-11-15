@@ -7,6 +7,10 @@
 #
 # Harbor is exposed on a NodePort that kind maps to a free host port, and
 # externalURL matches it so the registry token service works for pushes.
+#
+# The cluster also runs a plain registry (namespace upstream) that proxy-cache
+# tests use as their upstream. Harbor reaches it inside the cluster at
+# UPSTREAM_URL; tests push to it from the host at UPSTREAM_REGISTRY.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
@@ -15,6 +19,8 @@ node_image="mirror.gcr.io/kindest/node:v1.35.8@sha256:07b2536e30b803ed61d1677a79
 chart="oci://ghcr.io/home-operations/charts-mirror/harbor"
 chart_version="1.19.4"
 node_port=30002
+upstream_node_port=30005
+upstream_image="ghcr.io/distribution/distribution:3.1.2@sha256:d106962e6fe3fa69c178cec77eeeee5edb626b8df6535b7bd6b95e658a0a5ca9"
 admin_password="Harbor12345"
 env_file="build/harbor/${cluster}.env"
 mkdir -p build/harbor
@@ -23,6 +29,7 @@ log() { echo "harbor-up: $*" >&2; }
 
 if ! kind get clusters 2>/dev/null | grep -qx "$cluster"; then
 	port="${HARBOR_HOST_PORT:-$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')}"
+	upstream_port="$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"
 	log "creating kind cluster $cluster (host port $port)"
 	kind create cluster --name "$cluster" --image "$node_image" --wait 120s --config <(
 		cat <<YAML
@@ -33,6 +40,10 @@ nodes:
     extraPortMappings:
       - containerPort: ${node_port}
         hostPort: ${port}
+        listenAddress: 127.0.0.1
+        protocol: TCP
+      - containerPort: ${upstream_node_port}
+        hostPort: ${upstream_port}
         listenAddress: 127.0.0.1
         protocol: TCP
 YAML
@@ -58,11 +69,59 @@ for _ in $(seq 1 120); do
 done
 curl -fsS -o /dev/null "${url}/api/v2.0/ping"
 
+log "starting the upstream registry"
+kubectl --context "$kubectl_ctx" apply -f - >&2 <<YAML
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: upstream
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: upstream
+  namespace: upstream
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: upstream}
+  template:
+    metadata:
+      labels: {app: upstream}
+    spec:
+      containers:
+        - name: registry
+          image: ${upstream_image}
+          ports:
+            - containerPort: 5000
+          readinessProbe:
+            httpGet: {path: /v2/, port: 5000}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: upstream
+  namespace: upstream
+spec:
+  type: NodePort
+  selector: {app: upstream}
+  ports:
+    - port: 5000
+      targetPort: 5000
+      nodePort: ${upstream_node_port}
+YAML
+kubectl --context "$kubectl_ctx" -n upstream rollout status deployment/upstream --timeout 5m >&2
+
+# A cluster made by an older version of this script has no host port for the upstream.
+upstream_host="$(docker port "${cluster}-control-plane" "${upstream_node_port}/tcp" 2>/dev/null | head -1 | sed 's/.*://' || true)"
+
 cat >"$env_file" <<ENV
 HARBOR_URL=${url}
 HARBOR_ADMIN_USER=admin
 HARBOR_ADMIN_PASSWORD=${admin_password}
 HARBOR_CLUSTER=${cluster}
+UPSTREAM_URL=http://upstream.upstream.svc.cluster.local:5000
+UPSTREAM_REGISTRY=${upstream_host:+127.0.0.1:${upstream_host}}
 ENV
 log "ready: ${env_file}"
 echo "$env_file"
