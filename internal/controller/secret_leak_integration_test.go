@@ -20,7 +20,7 @@ var scannedKinds = []client.ObjectList{&harborv1alpha1.HarborConnectionList{}, &
 
 func TestNoSecretAppearsInStatusEventsOrLogsDuringTheRobotLifecycle(t *testing.T) {
 	log := &leakscan.Log{}
-	setup := readyRobotProjectLogging(t, log.Logger(), func(connection *harborv1alpha1.HarborConnection) { connection.Spec.AllowAdoption = true }, nil)
+	setup := readyRobotProjectLogging(t, log.Logger(), false, func(connection *harborv1alpha1.HarborConnection) { connection.Spec.AllowAdoption = true }, nil)
 	registry := setup.instance.Registry(t)
 	secrets := map[string]string{"connection password": setup.instance.Password}
 
@@ -74,7 +74,7 @@ func TestNoSecretAppearsInStatusEventsOrLogsDuringTheRobotLifecycle(t *testing.T
 
 func TestScanFailsWhenTheOperatorLogsARobotSecret(t *testing.T) {
 	log := &leakscan.Log{}
-	setup := readyRobotProjectLogging(t, log.Logger(), nil, nil)
+	setup := readyRobotProjectLogging(t, log.Logger(), false, nil, nil)
 
 	robot := ciRobot("default", setup.project)
 	require.NoError(t, setup.cl.Create(t.Context(), robot))

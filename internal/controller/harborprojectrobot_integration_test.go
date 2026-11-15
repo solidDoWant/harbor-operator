@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-
+	"github.com/goharbor/go-client/pkg/sdk/v2.0/models"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/v1/random"
@@ -44,11 +44,37 @@ type robotSetup struct {
 func readyRobotProject(t *testing.T, changeConnection func(*harborv1alpha1.HarborConnection), changeProject func(*harborv1alpha1.HarborProject)) *robotSetup {
 	t.Helper()
 
-	return readyRobotProjectLogging(t, logr.Logger{}, changeConnection, changeProject)
+	return readyRobotProjectLogging(t, logr.Logger{}, false, changeConnection, changeProject)
 }
 
-// readyRobotProjectLogging is readyRobotProject with the operator's log sent to logger.
-func readyRobotProjectLogging(t *testing.T, logger logr.Logger, changeConnection func(*harborv1alpha1.HarborConnection), changeProject func(*harborv1alpha1.HarborProject)) *robotSetup {
+// systemRobotPermissions are the permissions the admin docs list for the operator's system robot, with push and pull
+// on all projects.
+func systemRobotPermissions() []*models.RobotPermission {
+	access := func(resource string, actions ...string) []*models.Access {
+		result := make([]*models.Access, 0, len(actions))
+		for _, action := range actions {
+			result = append(result, &models.Access{Resource: resource, Action: action, Effect: "allow"})
+		}
+
+		return result
+	}
+
+	return []*models.RobotPermission{
+		{Kind: "system", Namespace: "/", Access: append(append(access("project", "create", "list"),
+			access("quota", "read", "update")...), access("robot", "create", "read", "list", "delete")...)},
+		{Kind: "project", Namespace: "*", Access: append(append(access("project", "read", "update", "delete"),
+			access("robot", "create", "read", "list", "delete")...), access("repository", "push", "pull")...)},
+	}
+}
+
+// readyRobotProjectWithSystemRobot is readyRobotProject, with the connection signing in as a new system robot when
+// useSystemRobot is set.
+func readyRobotProjectWithSystemRobot(t *testing.T, useSystemRobot bool, changeConnection func(*harborv1alpha1.HarborConnection), changeProject func(*harborv1alpha1.HarborProject)) *robotSetup {
+	return readyRobotProjectLogging(t, logr.Logger{}, useSystemRobot, changeConnection, changeProject)
+}
+
+// readyRobotProjectLogging is readyRobotProjectWithSystemRobot with the operator's log sent to logger.
+func readyRobotProjectLogging(t *testing.T, logger logr.Logger, useSystemRobot bool, changeConnection func(*harborv1alpha1.HarborConnection), changeProject func(*harborv1alpha1.HarborProject)) *robotSetup {
 	t.Helper()
 
 	instance := harborfixture.FromEnv(t)
@@ -59,7 +85,13 @@ func readyRobotProjectLogging(t *testing.T, logger logr.Logger, changeConnection
 	t.Cleanup(func() { instance.DeleteProject(context.Background(), t, projectName) })
 
 	cl := startOperatorLogging(t, logger, true)
-	connection := readyConnection(t, cl, instance, "default", changeConnection)
+
+	connectionInstance := *instance
+	if useSystemRobot {
+		connectionInstance.Username, connectionInstance.Password = instance.CreateSystemRobot(t, systemRobotPermissions())
+	}
+
+	connection := readyConnection(t, cl, &connectionInstance, "default", changeConnection)
 
 	project := newProject("default", projectName, connection)
 	if changeProject != nil {
@@ -218,6 +250,84 @@ func TestRobotDriftInHarborIsPutBack(t *testing.T) {
 
 	username, password := dockerCredentials(t, setup.cl, "default", "ci-dockerconfig", setup.instance.Registry(t))
 	require.NoError(t, push(t, setup.instance, username, password, setup.project.Spec.Name, "app"), "the robot's Secret still works")
+}
+
+// driftRobotInHarbor changes the robot's description, permissions, duration and disabled state in Harbor as an admin.
+func driftRobotInHarbor(t *testing.T, setup *robotSetup, id int64) {
+	t.Helper()
+
+	require.NoError(t, setup.admin.UpdateRobot(t.Context(), id, setup.project.Spec.Name, harbor.RobotSpec{
+		Description: "changed in the UI",
+		Duration:    30,
+		Disabled:    true,
+		Permissions: []harbor.RobotAccess{{Resource: "repository", Action: "pull"}, {Resource: "artifact", Action: "delete"}},
+	}))
+}
+
+func TestRobotDriftInHarborIsPutBackByReplacingTheRobotWithASystemRobotConnection(t *testing.T) {
+	setup := readyRobotProjectWithSystemRobot(t, true, nil, nil)
+
+	robot := ciRobot("default", setup.project)
+	require.NoError(t, setup.cl.Create(t.Context(), robot))
+	key := client.ObjectKeyFromObject(robot)
+	ready := awaitRobot(t, setup.cl, key, metav1.ConditionTrue, harborv1alpha1.ReasonReady)
+
+	username, old := dockerCredentials(t, setup.cl, "default", "ci-dockerconfig", setup.instance.Registry(t))
+	oldID := ready.Status.RobotID
+	driftRobotInHarbor(t, setup, oldID)
+
+	replaced := &harborv1alpha1.HarborProjectRobot{}
+
+	require.Eventually(t, func() bool {
+		return setup.cl.Get(t.Context(), key, replaced) == nil && replaced.Status.RobotID != 0 && replaced.Status.RobotID != oldID
+	}, projectWait, 500*time.Millisecond, "waiting for status.robotID to change")
+	awaitEvent(t, setup.cl, replaced, harborv1alpha1.EventReasonReplaced)
+
+	found, err := setup.admin.GetRobot(t.Context(), replaced.Status.RobotID)
+	require.NoError(t, err)
+	assert.Equal(t, "pushes from CI", found.Description)
+	assert.EqualValues(t, -1, found.Duration)
+	assert.False(t, found.Disabled)
+	assert.ElementsMatch(t, []harbor.RobotAccess{{Resource: "repository", Action: "push"}, {Resource: "repository", Action: "pull"}}, found.Permissions)
+
+	_, password := awaitNewDockerPassword(t, setup, "ci-dockerconfig", old)
+	require.NoError(t, push(t, setup.instance, username, password, setup.project.Spec.Name, "app"), "the rewritten Secret works")
+}
+
+func TestRobotSecretRenewalReplacesTheRobotWithASystemRobotConnection(t *testing.T) {
+	tests := []struct {
+		name  string
+		renew func(t *testing.T, setup *robotSetup, key client.ObjectKey)
+	}{
+		{name: "Secret deleted", renew: func(t *testing.T, setup *robotSetup, _ client.ObjectKey) {
+			require.NoError(t, setup.cl.Delete(t.Context(), &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "ci-dockerconfig"}}))
+		}},
+		{name: "rotate changed", renew: func(t *testing.T, setup *robotSetup, key client.ObjectKey) {
+			updateRobot(t, setup.cl, key, func(robot *harborv1alpha1.HarborProjectRobot) { robot.Spec.Secret.Rotate = "second" })
+		}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			setup := readyRobotProjectWithSystemRobot(t, true, nil, nil)
+
+			robot := ciRobot("default", setup.project)
+			robot.Spec.Secret.Rotate = "first"
+			require.NoError(t, setup.cl.Create(t.Context(), robot))
+			key := client.ObjectKeyFromObject(robot)
+			ready := awaitRobot(t, setup.cl, key, metav1.ConditionTrue, harborv1alpha1.ReasonReady)
+
+			username, old := dockerCredentials(t, setup.cl, "default", "ci-dockerconfig", setup.instance.Registry(t))
+			test.renew(t, setup, key)
+
+			newUsername, password := awaitNewDockerPassword(t, setup, "ci-dockerconfig", old)
+			require.NoError(t, push(t, setup.instance, newUsername, password, setup.project.Spec.Name, "app"), "the new secret works")
+			require.Error(t, push(t, setup.instance, username, old, setup.project.Spec.Name, "app"), "the old secret no longer works")
+
+			renewed := awaitRobot(t, setup.cl, key, metav1.ConditionTrue, harborv1alpha1.ReasonReady)
+			assert.NotEqual(t, ready.Status.RobotID, renewed.Status.RobotID, "the robot is replaced")
+		})
+	}
 }
 
 func TestRobotAdoptsAnExistingHarborRobot(t *testing.T) {
