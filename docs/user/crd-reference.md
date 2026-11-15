@@ -70,6 +70,7 @@ Every field of the `harbor.soliddowant.dev/v1alpha1` resources. A field marked `
 | `status.conditions[].reason` | string | yes | reason contains a programmatic identifier indicating the reason for the condition's last transition. Producers of specific condition types may define expected values and meanings for this field, and whether the values are considered a guaranteed API. The value should be a CamelCase string. This field may not be empty. |
 | `status.conditions[].status` | string | yes | status of the condition, one of True, False, Unknown. One of `True`, `False`, `Unknown`. |
 | `status.conditions[].type` | string | yes | type of condition in CamelCase or in foo.example.com/CamelCase. |
+| `status.createPending` | time |  | CreatePending is set just before the operator asks Harbor to create the robot, and cleared once its Secrets hold the new secret. A robot found in Harbor counts as this resource's own interrupted create only when it was created no earlier than this time, less a clock-skew allowance. |
 | `status.expiresAt` | time |  | ExpiresAt is when the robot expires. Unset means never. |
 | `status.harborKey` | string |  | HarborKey is the Harbor identity, project name and robot name this resource claims. |
 | `status.harborName` | string |  | HarborName is the robot's name as Harbor returned it, including Harbor's prefix. |
@@ -110,6 +111,7 @@ Every field of the `harbor.soliddowant.dev/v1alpha1` resources. A field marked `
 | `status.conditions[].reason` | string | yes | reason contains a programmatic identifier indicating the reason for the condition's last transition. Producers of specific condition types may define expected values and meanings for this field, and whether the values are considered a guaranteed API. The value should be a CamelCase string. This field may not be empty. |
 | `status.conditions[].status` | string | yes | status of the condition, one of True, False, Unknown. One of `True`, `False`, `Unknown`. |
 | `status.conditions[].type` | string | yes | type of condition in CamelCase or in foo.example.com/CamelCase. |
+| `status.createPending` | time |  | CreatePending is set just before the operator asks Harbor to create the project, and cleared once the ID is recorded. A project found in Harbor counts as this resource's own interrupted create only when it was created no earlier than this time, less a clock-skew allowance. |
 | `status.harborKey` | string |  | HarborKey is the Harbor identity, object type and Harbor name this resource claims. |
 | `status.harborName` | string |  | HarborName is the project's name in Harbor. |
 | `status.observedGeneration` | integer |  | ObservedGeneration is the last generation reconciled. |

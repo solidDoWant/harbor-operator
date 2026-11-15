@@ -185,7 +185,7 @@ func TestRobotWithPushAndPullCanPushOnlyToItsProject(t *testing.T) {
 	require.NoError(t, setup.cl.Create(t.Context(), robot))
 
 	ready := awaitRobot(t, setup.cl, client.ObjectKeyFromObject(robot), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
-	assert.Empty(t, ready.Annotations[harborv1alpha1.AnnotationCreatePending], "the create-pending annotation is cleared once the Secrets are written")
+	assert.Nil(t, ready.Status.CreatePending, "the create marker is cleared once the Secrets are written")
 
 	found, err := setup.admin.GetRobot(t.Context(), ready.Status.RobotID)
 	require.NoError(t, err)

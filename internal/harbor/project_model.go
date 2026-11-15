@@ -32,6 +32,8 @@ type Project struct {
 	ID       int64
 	Name     string
 	Settings ProjectSettings
+	// CreationTime is when Harbor created the project. Zero when Harbor did not report it.
+	CreationTime time.Time
 }
 
 func boolString(value *bool) *string {
@@ -112,7 +114,7 @@ func allowlistFromModel(model *models.CVEAllowlist) *CVEAllowlist {
 }
 
 func projectFromModel(model *models.Project) *Project {
-	project := &Project{ID: int64(model.ProjectID), Name: model.Name}
+	project := &Project{ID: int64(model.ProjectID), Name: model.Name, CreationTime: time.Time(model.CreationTime).UTC()}
 
 	metadata := model.Metadata
 	if metadata == nil {

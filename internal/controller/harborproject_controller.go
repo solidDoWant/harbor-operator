@@ -252,6 +252,10 @@ func (r *HarborProjectReconciler) sync(ctx context.Context, state *projectReconc
 	name := projectName(project)
 	recreate := false
 
+	if err := removeLegacyCreatePending(ctx, r.Client, project); err != nil {
+		return reconcile.Result{}, err
+	}
+
 	if project.Status.ProjectID != 0 {
 		found, err := state.harbor.GetProject(ctx, int64(project.Status.ProjectID))
 
@@ -281,7 +285,7 @@ func (r *HarborProjectReconciler) sync(ctx context.Context, state *projectReconc
 		return r.harborFailed(ctx, state, err)
 	}
 
-	_, ownCreate := project.Annotations[harborv1alpha1.AnnotationCreatePending]
+	ownCreate := isOwnCreate(project.Status.CreatePending, found.CreationTime)
 
 	switch {
 	case ownCreate:
@@ -310,10 +314,10 @@ func (r *HarborProjectReconciler) create(ctx context.Context, state *projectReco
 	project := state.project
 	name := projectName(project)
 
-	if _, ok := project.Annotations[harborv1alpha1.AnnotationCreatePending]; !ok {
-		metav1.SetMetaDataAnnotation(&project.ObjectMeta, harborv1alpha1.AnnotationCreatePending, time.Now().UTC().Format(time.RFC3339))
+	if project.Status.CreatePending == nil {
+		project.Status.CreatePending = &metav1.Time{Time: time.Now().UTC().Truncate(time.Second)}
 
-		if err := r.Update(ctx, project); err != nil {
+		if err := r.updateStatus(ctx, project); err != nil {
 			return reconcile.Result{}, err
 		}
 	}
@@ -339,22 +343,13 @@ func (r *HarborProjectReconciler) create(ctx context.Context, state *projectReco
 	return r.update(ctx, state, created)
 }
 
-// recordID writes the project ID to status, then clears the create-pending annotation.
+// recordID writes the project ID to status and clears the create marker.
 func (r *HarborProjectReconciler) recordID(ctx context.Context, project *harborv1alpha1.HarborProject, id int64) error {
 	project.Status.ProjectID = int32(id) //nolint:gosec // Harbor project IDs are 32-bit
 	project.Status.HarborName = projectName(project)
+	project.Status.CreatePending = nil
 
-	if err := r.updateStatus(ctx, project); err != nil {
-		return err
-	}
-
-	if _, ok := project.Annotations[harborv1alpha1.AnnotationCreatePending]; !ok {
-		return nil
-	}
-
-	delete(project.Annotations, harborv1alpha1.AnnotationCreatePending)
-
-	return r.Update(ctx, project)
+	return r.updateStatus(ctx, project)
 }
 
 // update writes the spec's fields that differ in Harbor, and only those.

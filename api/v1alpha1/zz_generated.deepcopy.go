@@ -333,6 +333,10 @@ func (in *HarborProjectRobotStatus) DeepCopyInto(out *HarborProjectRobotStatus) 
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
+	if in.CreatePending != nil {
+		in, out := &in.CreatePending, &out.CreatePending
+		*out = (*in).DeepCopy()
+	}
 	if in.LastRotated != nil {
 		in, out := &in.LastRotated, &out.LastRotated
 		*out = (*in).DeepCopy()
@@ -399,6 +403,10 @@ func (in *HarborProjectStatus) DeepCopyInto(out *HarborProjectStatus) {
 		for i := range *in {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
+	}
+	if in.CreatePending != nil {
+		in, out := &in.CreatePending, &out.CreatePending
+		*out = (*in).DeepCopy()
 	}
 }
 

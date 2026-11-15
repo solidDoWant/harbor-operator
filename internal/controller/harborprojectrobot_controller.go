@@ -344,6 +344,10 @@ func (r *HarborProjectRobotReconciler) sync(ctx context.Context, state *robotRec
 	name := robotName(robot)
 	recreate := false
 
+	if err := removeLegacyCreatePending(ctx, r.Client, robot); err != nil {
+		return reconcile.Result{}, err
+	}
+
 	if robot.Status.RobotID != 0 {
 		found, err := state.harbor.GetRobot(ctx, robot.Status.RobotID)
 
@@ -373,7 +377,7 @@ func (r *HarborProjectRobotReconciler) sync(ctx context.Context, state *robotRec
 		return r.harborFailed(ctx, state, err)
 	}
 
-	_, ownCreate := robot.Annotations[harborv1alpha1.AnnotationCreatePending]
+	ownCreate := isOwnCreate(robot.Status.CreatePending, found.CreationTime)
 
 	switch {
 	case ownCreate:
@@ -425,7 +429,7 @@ func (r *HarborProjectRobotReconciler) create(ctx context.Context, state *robotR
 func (r *HarborProjectRobotReconciler) createRobot(ctx context.Context, state *robotReconcile) (*harbor.Robot, bool, reconcile.Result, error) {
 	robot := state.robot
 
-	if err := r.markPending(ctx, robot, harborv1alpha1.AnnotationCreatePending); err != nil {
+	if err := r.markCreatePending(ctx, robot); err != nil {
 		return nil, true, reconcile.Result{}, err
 	}
 
@@ -441,12 +445,12 @@ func (r *HarborProjectRobotReconciler) createRobot(ctx context.Context, state *r
 		return nil, true, reconcile.Result{}, err
 	}
 
-	// Until the Secrets hold the new secret the create-pending annotation stays, so an interrupted write refreshes it.
+	// Until the Secrets hold the new secret the create marker stays, so an interrupted write refreshes it.
 	if conflict, err := r.writeSecrets(ctx, state, created.Name, created.Secret, ""); conflict || err != nil {
 		return nil, true, reconcile.Result{RequeueAfter: state.resync}, err
 	}
 
-	if err := r.clearPending(ctx, robot, harborv1alpha1.AnnotationCreatePending, harborv1alpha1.AnnotationSecretRefreshPending); err != nil {
+	if err := r.clearPending(ctx, robot); err != nil {
 		return nil, true, reconcile.Result{}, err
 	}
 
@@ -513,7 +517,7 @@ func (r *HarborProjectRobotReconciler) update(ctx context.Context, state *robotR
 // the name of that Secret. found is false when the secret must be refreshed: an interrupted create or refresh, a
 // changed secret.rotate, or no owned Secret whose data matches its hash annotation.
 func (r *HarborProjectRobotReconciler) currentSecret(ctx context.Context, robot *harborv1alpha1.HarborProjectRobot) (string, string, bool, error) {
-	_, createPending := robot.Annotations[harborv1alpha1.AnnotationCreatePending]
+	createPending := robot.Status.CreatePending != nil
 	_, refreshPending := robot.Annotations[harborv1alpha1.AnnotationSecretRefreshPending]
 
 	if createPending || refreshPending || robot.Spec.Secret.Rotate != robot.Status.ObservedRotate {
@@ -576,7 +580,7 @@ func (r *HarborProjectRobotReconciler) refreshSecret(ctx context.Context, state 
 		return reconcile.Result{}, err
 	}
 
-	if err := r.clearPending(ctx, robot, harborv1alpha1.AnnotationCreatePending, harborv1alpha1.AnnotationSecretRefreshPending); err != nil {
+	if err := r.clearPending(ctx, robot); err != nil {
 		return reconcile.Result{}, err
 	}
 
@@ -610,7 +614,7 @@ func (r *HarborProjectRobotReconciler) secretConflict(ctx context.Context, robot
 func (r *HarborProjectRobotReconciler) replace(ctx context.Context, state *robotReconcile, current *harbor.Robot) (reconcile.Result, error) {
 	robot := state.robot
 
-	if err := r.markPending(ctx, robot, harborv1alpha1.AnnotationCreatePending); err != nil {
+	if err := r.markCreatePending(ctx, robot); err != nil {
 		return reconcile.Result{}, err
 	}
 
@@ -748,21 +752,34 @@ func (r *HarborProjectRobotReconciler) markPending(ctx context.Context, robot *h
 	return r.Update(ctx, robot)
 }
 
-// clearPending removes the pending annotations that are set.
-func (r *HarborProjectRobotReconciler) clearPending(ctx context.Context, robot *harborv1alpha1.HarborProjectRobot, annotations ...string) error {
-	changed := false
+// markCreatePending records in status, which namespace users cannot write, that a create call is about to be made,
+// unless it is already recorded.
+func (r *HarborProjectRobotReconciler) markCreatePending(ctx context.Context, robot *harborv1alpha1.HarborProjectRobot) error {
+	if robot.Status.CreatePending != nil {
+		return nil
+	}
 
-	for _, annotation := range annotations {
-		if _, ok := robot.Annotations[annotation]; ok {
-			delete(robot.Annotations, annotation)
+	robot.Status.CreatePending = &metav1.Time{Time: time.Now().UTC().Truncate(time.Second)}
 
-			changed = true
+	return r.updateStatus(ctx, robot)
+}
+
+// clearPending clears the create marker and the secret-refresh-pending annotation. Status is written first: an update
+// of the resource replaces the in-memory status with the stored one.
+func (r *HarborProjectRobotReconciler) clearPending(ctx context.Context, robot *harborv1alpha1.HarborProjectRobot) error {
+	if robot.Status.CreatePending != nil {
+		robot.Status.CreatePending = nil
+
+		if err := r.updateStatus(ctx, robot); err != nil {
+			return err
 		}
 	}
 
-	if !changed {
+	if _, ok := robot.Annotations[harborv1alpha1.AnnotationSecretRefreshPending]; !ok {
 		return nil
 	}
+
+	delete(robot.Annotations, harborv1alpha1.AnnotationSecretRefreshPending)
 
 	return r.Update(ctx, robot)
 }

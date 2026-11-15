@@ -170,7 +170,7 @@ func TestProjectIsCreatedWithTheSpecSettings(t *testing.T) {
 		UseSystemAllowlist:      ptr(false),
 		CVEAllowlist:            &harbor.CVEAllowlist{Items: []string{"CVE-2024-0001", "CVE-2024-0002"}, ExpiresAt: &expires},
 	}, found.Settings)
-	assert.Empty(t, ready.Annotations[harborv1alpha1.AnnotationCreatePending], "the create-pending annotation is cleared once the ID is recorded")
+	assert.Nil(t, ready.Status.CreatePending, "the create marker is cleared once the ID is recorded")
 }
 
 func TestProjectFollowsSpecChanges(t *testing.T) {
