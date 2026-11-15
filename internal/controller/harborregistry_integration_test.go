@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -221,7 +222,6 @@ func TestRegistryIsCreatedReportsItsHealthAndBecomesReady(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "github-ghcr", found.Type)
 	})
-
 }
 
 func TestRegistryCredentialsAreStoredAndFollowTheSecret(t *testing.T) {
@@ -555,15 +555,71 @@ func TestProxyCacheProjectDriftInHarborIsPutBack(t *testing.T) {
 		}, projectWait, 200*time.Millisecond, "proxy_speed_kb is put back")
 	})
 
-	t.Run("registry", func(t *testing.T) {
-		other, err := setup.admin.CreateRegistry(t.Context(), harbor.RegistrySpec{Name: otherName, Type: "docker-registry", URL: setup.upstreamURL})
-		require.NoError(t, err)
-		require.NoError(t, setup.admin.SetProjectRegistry(t.Context(), projectName, other.ID))
+	t.Run("registry re-created with a new ID", func(t *testing.T) {
+		// Harbor keeps a proxy-cache project's registry, so the project reports it and writes nothing else.
+		require.NoError(t, setup.cl.Delete(t.Context(), registry))
+		require.Eventually(t, func() bool {
+			current := &harborv1alpha1.HarborRegistry{}
+			if err := setup.cl.Get(t.Context(), client.ObjectKeyFromObject(registry), current); err != nil {
+				return apierrors.IsNotFound(err)
+			}
+
+			// The project holds the registry's deletion, so drop the finalizer as a forced deletion would.
+			current.Finalizers = nil
+
+			return setup.cl.Update(t.Context(), current) == nil
+		}, projectWait, 200*time.Millisecond)
+		awaitRegistryGone(t, setup.cl, client.ObjectKeyFromObject(registry))
+
+		recreated := setup.newRegistry("default", "upstream", otherName)
+		require.NoError(t, setup.cl.Create(t.Context(), recreated))
+		newer := awaitRegistry(t, setup.cl, client.ObjectKeyFromObject(recreated), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
+		require.NotEqual(t, ready.Status.RegistryID, newer.Status.RegistryID)
+
+		refused := awaitProject(t, setup.cl, client.ObjectKeyFromObject(project), metav1.ConditionFalse, harborv1alpha1.ReasonInvalidSpec)
+		condition := meta.FindStatusCondition(refused.Status.Conditions, harborv1alpha1.ConditionReady)
+		require.NotNil(t, condition)
+		assert.Contains(t, condition.Message, fmt.Sprintf("registry ID %d", ready.Status.RegistryID))
+		assert.Contains(t, condition.Message, fmt.Sprintf("ID %d", newer.Status.RegistryID))
+
+		// Drift in Harbor and a spec change: neither is written while Harbor keeps the old registry.
+		require.NoError(t, setup.admin.UpdateProjectMetadata(t.Context(), projectName, harbor.ProjectSettings{ProxySpeedKbps: ptr(int32(20))}))
+
+		var generation int64
 
 		require.Eventually(t, func() bool {
-			found, err := setup.admin.GetProjectByName(t.Context(), projectName)
-			return err == nil && found.RegistryID == ready.Status.RegistryID
-		}, projectWait, 200*time.Millisecond, "registry_id is put back")
+			current := &harborv1alpha1.HarborProject{}
+			if err := setup.cl.Get(t.Context(), client.ObjectKeyFromObject(project), current); err != nil {
+				return false
+			}
+
+			current.Spec.Public = ptr(true)
+			if err := setup.cl.Update(t.Context(), current); err != nil {
+				return false
+			}
+
+			generation = current.Generation
+
+			return true
+		}, projectWait, 200*time.Millisecond)
+
+		require.Eventually(t, func() bool {
+			current := &harborv1alpha1.HarborProject{}
+			if err := setup.cl.Get(t.Context(), client.ObjectKeyFromObject(project), current); err != nil {
+				return false
+			}
+
+			condition := meta.FindStatusCondition(current.Status.Conditions, harborv1alpha1.ConditionReady)
+
+			return condition != nil && condition.ObservedGeneration == generation && condition.Reason == harborv1alpha1.ReasonInvalidSpec
+		}, projectWait, 200*time.Millisecond, "the spec change is reconciled and still reports InvalidSpec")
+
+		found, err := setup.admin.GetProjectByName(t.Context(), projectName)
+		require.NoError(t, err)
+		assert.Equal(t, ready.Status.RegistryID, found.RegistryID, "Harbor keeps the project's registry")
+		require.NotNil(t, found.Settings.ProxySpeedKbps)
+		assert.Equal(t, int32(20), *found.Settings.ProxySpeedKbps, "proxy_speed_kb is not written while the registry differs")
+		assert.False(t, found.Settings.Public != nil && *found.Settings.Public, "public is not written while the registry differs")
 	})
 }
 

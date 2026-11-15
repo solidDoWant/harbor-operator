@@ -83,6 +83,7 @@ These reasons are added to the ones in [the main example](example.md#read-the-st
 | `RegistryOnOtherHarbor` | The registry is in another Harbor than the project's connection. | Use a registry in the same Harbor. |
 | `NotAllowed` | The registry does not admit the namespace of the project, or the connection does not admit the namespace of the registry in `systemAllowedNamespaces`. | Ask the owner of the registry or the admin. |
 | `InvalidSpec` with "proxy-cache mode can't be changed" | You adopt a Harbor project, and one of the two is a cache and the other is not. | Use another project name. |
+| `InvalidSpec` with "Harbor can't change the proxy-cache registry of an existing project" | The registry resource now has another Harbor ID than the project in Harbor. This happens when you delete and create the registry again. Harbor accepts the change of registry but keeps the old one. The operator then writes nothing else to the project. | Delete the project and create it again. |
 
 ## Delete the resources
 

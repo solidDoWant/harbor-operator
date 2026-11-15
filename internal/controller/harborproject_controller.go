@@ -452,6 +452,21 @@ func (r *HarborProjectReconciler) update(ctx context.Context, state *projectReco
 		if err := state.harbor.SetProjectRegistry(ctx, current.Name, state.registryID); err != nil {
 			return r.harborFailed(ctx, state, err)
 		}
+
+		// Harbor answers this PUT with success but may keep the old registry. Read it back, and write nothing else
+		// while the project still points elsewhere.
+		after, err := state.harbor.GetProject(ctx, current.ID)
+		if err != nil {
+			return r.harborFailed(ctx, state, err)
+		}
+
+		if after.RegistryID != state.registryID {
+			message := fmt.Sprintf("Harbor can't change the proxy-cache registry of an existing project (it keeps registry ID %d; the registry resource has ID %d)", after.RegistryID, state.registryID)
+
+			return reconcile.Result{}, r.setReady(ctx, project, metav1.ConditionFalse, harborv1alpha1.ReasonInvalidSpec, message)
+		}
+
+		current = after
 	}
 
 	if diff, changed := projectSettingsDiff(desiredProjectSettings(&project.Spec), current.Settings); changed {
