@@ -20,3 +20,16 @@ Harbor doesn't let a robot change another robot or refresh its secret. When a ro
 A Harbor local user with the system administrator role can do everything, and the operator changes robots in place instead of replacing them. Use it if replacing robots is a problem for you.
 
 The integration tests in `test/harborfixture` check the robot limits on Harbor 2.15.
+
+## Check that the connection works
+
+Run `kubectl get harborconnection`. The `Ready` column shows `True` when Harbor accepts the credentials. The `Reason` column tells you what is wrong when it does not:
+
+| Reason | Meaning | Fix |
+|---|---|---|
+| `CredentialsInvalid` | The Secret is missing, is in another namespace, or has no `username` or `password` key. | Create the Secret in the connection's namespace with both keys. |
+| `Unauthorized` | Harbor does not accept the username and password. | Correct the Secret. |
+| `HarborUnavailable` | The operator cannot reach Harbor, or Harbor answered with a server error. | Check the URL, the network and Harbor itself. The operator tries again with a growing delay. |
+| `DependentsExist` | You deleted the connection while a project still uses it. | Delete those projects first. The message lists up to five. Projects in namespaces the connection does not admit do not count. |
+
+When you change the Secret, the operator checks the credentials again at once. You do not need to restart it.

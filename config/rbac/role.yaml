@@ -6,6 +6,15 @@ metadata:
 rules:
 - apiGroups:
   - ""
+  resources:
+  - namespaces
+  - secrets
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
   - events.k8s.io
   resources:
   - events
@@ -23,4 +32,36 @@ rules:
   - list
   - patch
   - update
+  - watch
+- apiGroups:
+  - harbor.soliddowant.dev
+  resources:
+  - harborconnections
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - harbor.soliddowant.dev
+  resources:
+  - harborconnections/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - harbor.soliddowant.dev
+  resources:
+  - harborconnections/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - harbor.soliddowant.dev
+  resources:
+  - harborprojects
+  verbs:
+  - get
+  - list
   - watch
