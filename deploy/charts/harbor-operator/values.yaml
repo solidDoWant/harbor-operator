@@ -52,6 +52,20 @@ metrics:
     interval: ""
     # -- CA bundle file in the scraper pod that verifies the serving certificate. Leave empty to skip verification, because the certificate is self-signed.
     caFile: ""
+grafanaDashboard:
+  configMap:
+    # -- Render a ConfigMap with the dashboard for Grafana's dashboard sidecar.
+    enabled: false
+    # -- Labels on the dashboard ConfigMap. The sidecar selects ConfigMaps by this label.
+    labels:
+      grafana_dashboard: "1"
+  grafanaOperator:
+    # -- Render a grafana-operator GrafanaDashboard with the dashboard inline.
+    enabled: false
+    # -- Selects the Grafana instances that get the dashboard.
+    instanceSelector:
+      matchLabels:
+        dashboards: grafana
 resources:
   requests:
     # -- CPU request. There is no CPU limit.

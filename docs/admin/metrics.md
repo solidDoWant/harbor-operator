@@ -26,3 +26,14 @@ The chart can also make the scrape object for you. Both objects scrape the metri
 The operator makes its own serving certificate, so the objects skip certificate checks by default. To check it, set `caFile` on the object to a CA bundle file inside the scraper pod.
 
 All three options need `metrics.secure` to be `true`. The chart fails to render if it is not. The scrape objects need their CRDs in the cluster. The chart does not install them.
+
+## Dashboard
+
+The chart ships a Grafana dashboard. It is off by default. Turn on one of two options:
+
+- `grafanaDashboard.configMap.enabled` renders a ConfigMap for Grafana's dashboard sidecar. The labels come from `grafanaDashboard.configMap.labels`. The default is `grafana_dashboard: "1"`.
+- `grafanaDashboard.grafanaOperator.enabled` renders a grafana-operator `GrafanaDashboard`. Set `grafanaDashboard.grafanaOperator.instanceSelector` to select your Grafana instances.
+
+The dashboard has a `datasource` variable, so it works with Prometheus or VictoriaMetrics. Its `namespace` variable is the namespace where the operator runs. Your scraper must collect the operator's metrics with a `namespace` label.
+
+The panels show resources that are not `Ready` by kind and reason, Harbor API latency and errors by operation, drift corrections, registries by health, reconcile errors and duration, work queue depth, and the operator's memory and restarts.
