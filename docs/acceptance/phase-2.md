@@ -45,4 +45,4 @@ Same rules as phase 1. Approved for the owner by the operator on 2026-11-15.
 ## Shipping
 
 - **AC-2-15 Docs.** `docs/user/` has worked examples of a pull-through cache for ghcr.io and of retention and immutability policies; reference docs cover every new field.
-  Tests:
+  Tests: `internal/controller: TestUserDocGuidesBecomeReady/the pull-through cache example`, `internal/controller: TestUserDocGuidesBecomeReady/the retention example`, `internal/controller: TestUserDocGuidesBecomeReady/the immutability example`

@@ -15,6 +15,7 @@ A `HarborRegistry` is a Harbor-wide object. The connection must admit your names
 
 ## A cache for ghcr.io
 
+<!-- example:proxy-cache -->
 ```yaml
 apiVersion: harbor.soliddowant.dev/v1alpha1
 kind: HarborRegistry

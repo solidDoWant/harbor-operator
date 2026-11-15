@@ -6,6 +6,7 @@ An immutable tag is a tag that nobody can push over or delete. A `HarborImmutabi
 
 ## The resource
 
+<!-- example:immutability -->
 ```yaml
 apiVersion: harbor.soliddowant.dev/v1alpha1
 kind: HarborImmutabilityPolicy
