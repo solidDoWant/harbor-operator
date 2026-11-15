@@ -4,7 +4,7 @@ Same rules as phase 1. Approved for the owner by the operator on 2026-11-15.
 
 - **AC-3-01 Harbor versions.** The e2e suite passes against the two most recent Harbor minor releases (CI matrix).
   Tests:
-- **AC-3-02 Metrics.** The metrics endpoint exposes, per kind, the count of resources by `Ready` reason and a histogram of Harbor API call latency by operation and result. Labels are fixed enums or kind names only (no object names, no namespaces).
+- **AC-3-02 Metrics.** The metrics endpoint exposes, per kind, the count of resources by `Ready` reason, a histogram of Harbor API call latency by operation and result, and the count of registries by upstream health (`healthy`, `unhealthy`, `unknown`). Labels are fixed enums or kind names only (no object names, no namespaces).
   Tests:
 - **AC-3-03 Events.** Create, update (drift corrected), recreate, adopt, delete and every error reason emit a Kubernetes event on the resource.
   Tests:
@@ -19,4 +19,8 @@ Same rules as phase 1. Approved for the owner by the operator on 2026-11-15.
 - **AC-3-08 CI chart example.** `docs/user/` contains a Helm template snippet for a CI chart (namespace, project, push robot, retention policy) that the e2e suite renders and applies successfully.
   Tests:
 - **AC-3-09 Troubleshooting docs.** `docs/admin/troubleshooting.md` covers every condition reason with its cause and fix; a generated CRD reference covers every field.
+  Tests:
+- **AC-3-10 Scraping.** With the chart's options on, it renders a `VMServiceScrape` or a `ServiceMonitor` for the metrics Service, and a ClusterRole allowing `get` on `/metrics` bound to the service accounts given in values. A scraper using one of those service accounts gets the metrics from the secure endpoint; one without gets 403.
+  Tests:
+- **AC-3-11 Dashboard.** The chart can ship a Grafana dashboard, either as a ConfigMap for Grafana's dashboard sidecar or as a grafana-operator `GrafanaDashboard`. It shows: resources not `Ready` by kind and reason, Harbor API latency and error rate by operation, drift corrections, registry upstream health, reconcile errors and duration, and work queue depth. Every query in it uses only metrics the operator exports.
   Tests:
