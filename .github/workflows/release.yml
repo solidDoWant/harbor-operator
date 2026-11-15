@@ -7,8 +7,6 @@ name: release
 #   - the Helm chart oci://ghcr.io/soliddowant/charts/harbor-operator;
 #   - the GitHub release v<version>, with the CHANGELOG.md section of the
 #     version as its notes.
-# The image and chart steps are skipped until the image build and the chart
-# exist, so the workflow keeps its shape from the start.
 on:
   push:
     tags:
@@ -50,16 +48,11 @@ jobs:
         run: |
           nix develop -c make build-images VERSION="$VERSION" PUSH_ALL=true
           image="ghcr.io/soliddowant/harbor-operator:$VERSION"
-          if ! nix develop -c crane digest "$image" >/dev/null 2>&1; then
-            echo "::warning::$image was not pushed (no image build yet); skipping the image"
-            exit 0
-          fi
           case "$VERSION" in
             *-*) ;;
             *) nix develop -c crane tag "$image" latest ;;
           esac
       - name: Push the chart
-        if: hashFiles('deploy/charts/harbor-operator/Chart.yaml') != ''
         run: |
           nix develop -c helm package deploy/charts/harbor-operator --version "$VERSION" --app-version "$VERSION" --destination build/chart
           nix develop -c helm push "build/chart/harbor-operator-$VERSION.tgz" oci://ghcr.io/soliddowant/charts

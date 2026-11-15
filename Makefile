@@ -50,6 +50,7 @@ test: ## Run unit tests: Go (race detector; GO_TEST_JSON=file also writes the go
 	./scripts/acceptance-scoreboard_test.py
 	./scripts/check-images_test.py
 	./scripts/check-tracking-ids_test.py
+	./scripts/release_test.sh
 
 .PHONY: test-guard
 test-guard: ## Fail if HEAD deletes, unlists or skips a test named on a `Tests:` line of a checklist since its merge base with BASE (default origin/master; CI passes the PR labels).
@@ -97,7 +98,7 @@ build: ## Build bin/harbor-operator.
 	CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -o "$(BIN_DIR)/harbor-operator" ./cmd/harbor-operator
 
 .PHONY: build-images
-build-images: ## Build the image ghcr.io/soliddowant/harbor-operator:$(VERSION) for linux/amd64 and arm64; PUSH_ALL=true also pushes (releases only). A stub until the image build exists.
+build-images: ## Build the image ghcr.io/soliddowant/harbor-operator:$(VERSION) for linux/amd64 and arm64; PUSH_ALL=true also pushes (releases only).
 	VERSION="$(VERSION)" PUSH_ALL="$(or $(PUSH_ALL),false)" ./scripts/build-images.sh
 
 .PHONY: clean
