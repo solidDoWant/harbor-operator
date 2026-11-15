@@ -39,6 +39,9 @@ type HarborProjectReconciler struct {
 	Clients *harbor.ClientCache
 	// Recorder emits events on the resource.
 	Recorder events.EventRecorder
+	// WatchNamespaces lists the namespaces the operator watches; empty means all. A reference into any other
+	// namespace is not admitted.
+	WatchNamespaces access.WatchedNamespaces
 	// MaxBackoff caps the retry delay of a failing reconcile; tests lower it. Zero means 5 minutes.
 	MaxBackoff time.Duration
 	// Wakeups receives the connection when a Harbor call fails as unavailable. Nil sends nothing.
@@ -176,6 +179,13 @@ func (r *HarborProjectReconciler) resolve(ctx context.Context, project *harborv1
 	key := connectionKey(project)
 	connection := &harborv1alpha1.HarborConnection{}
 
+	if !r.WatchNamespaces.Watches(key.Namespace) {
+		message := access.NotWatchedMessage(key.Namespace)
+		r.setReferenceResolved(project, metav1.ConditionFalse, harborv1alpha1.ReasonNotAllowed, message)
+
+		return stop(harborv1alpha1.ReasonNotAllowed, message)
+	}
+
 	if err := r.Get(ctx, key, connection); err != nil {
 		if !apierrors.IsNotFound(err) {
 			return nil, reconcile.Result{}, err
@@ -272,6 +282,10 @@ func (r *HarborProjectReconciler) resolveRegistry(ctx context.Context, project *
 	key := projectRegistryKey(project)
 	registry := &harborv1alpha1.HarborRegistry{}
 
+	if !r.WatchNamespaces.Watches(key.Namespace) {
+		return 0, harborv1alpha1.ReasonNotAllowed, access.NotWatchedMessage(key.Namespace), nil
+	}
+
 	if err := r.Get(ctx, key, registry); err != nil {
 		if apierrors.IsNotFound(err) {
 			return 0, "", "", nil
@@ -316,6 +330,10 @@ func (r *HarborProjectReconciler) registryNotReady(ctx context.Context, state *p
 
 // admitted reports whether a claimant's connection admits the claimant's namespace.
 func (r *HarborProjectReconciler) admitted(ctx context.Context, claimant *harborv1alpha1.HarborProject) (bool, error) {
+	if !r.WatchNamespaces.Watches(connectionKey(claimant).Namespace) {
+		return false, nil
+	}
+
 	connection := &harborv1alpha1.HarborConnection{}
 	if err := r.Get(ctx, connectionKey(claimant), connection); err != nil {
 		if apierrors.IsNotFound(err) {

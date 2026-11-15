@@ -84,6 +84,13 @@ func (r *HarborProjectReconciler) finalize(ctx context.Context, project *harborv
 	key := connectionKey(project)
 	connection := &harborv1alpha1.HarborConnection{}
 
+	if !r.WatchNamespaces.Watches(key.Namespace) {
+		r.Recorder.Eventf(project, nil, corev1.EventTypeWarning, harborv1alpha1.ReasonNotAllowed, "Delete",
+			"%s; the Harbor project is left in place", access.NotWatchedMessage(key.Namespace))
+
+		return reconcile.Result{}, r.release(ctx, project)
+	}
+
 	if err := r.Get(ctx, key, connection); err != nil {
 		if !apierrors.IsNotFound(err) {
 			return reconcile.Result{}, err

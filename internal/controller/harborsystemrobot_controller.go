@@ -43,6 +43,9 @@ type HarborSystemRobotReconciler struct {
 	Recorder events.EventRecorder
 	// Wakeups receives the connection when a Harbor call fails as unavailable. Nil sends nothing.
 	Wakeups ConnectionWakeups
+	// WatchNamespaces lists the namespaces the operator watches; empty means all. A reference into any other
+	// namespace is not admitted.
+	WatchNamespaces access.WatchedNamespaces
 }
 
 // +kubebuilder:rbac:groups=harbor.soliddowant.dev,resources=harborsystemrobots,verbs=get;list;watch;update;patch
@@ -307,6 +310,13 @@ func (r *HarborSystemRobotReconciler) resolve(ctx context.Context, robot *harbor
 	key := systemRobotConnectionKey(robot)
 	connection := &harborv1alpha1.HarborConnection{}
 
+	if !r.WatchNamespaces.Watches(key.Namespace) {
+		message := access.NotWatchedMessage(key.Namespace)
+		setReferenceResolved(resource, metav1.ConditionFalse, harborv1alpha1.ReasonNotAllowed, message)
+
+		return stop(harborv1alpha1.ReasonNotAllowed, message)
+	}
+
 	if err := r.Get(ctx, key, connection); err != nil {
 		if !apierrors.IsNotFound(err) {
 			return nil, reconcile.Result{}, err
@@ -419,6 +429,10 @@ func projectIDs(ctx context.Context, harborClient *harbor.Client, names []string
 
 // admitted reports whether a robot's connection admits the robot's namespace for system-wide kinds.
 func (r *HarborSystemRobotReconciler) admitted(ctx context.Context, robot *harborv1alpha1.HarborSystemRobot) (bool, error) {
+	if !r.WatchNamespaces.Watches(systemRobotConnectionKey(robot).Namespace) {
+		return false, nil
+	}
+
 	connection := &harborv1alpha1.HarborConnection{}
 	if err := r.Get(ctx, systemRobotConnectionKey(robot), connection); err != nil {
 		if apierrors.IsNotFound(err) {
@@ -483,6 +497,13 @@ func (r *HarborSystemRobotReconciler) finalize(ctx context.Context, robot *harbo
 
 	key := systemRobotConnectionKey(robot)
 	connection := &harborv1alpha1.HarborConnection{}
+
+	if !r.WatchNamespaces.Watches(key.Namespace) {
+		r.Recorder.Eventf(robot, nil, corev1.EventTypeWarning, harborv1alpha1.ReasonNotAllowed, "Delete",
+			"%s; the Harbor robot is left in place", access.NotWatchedMessage(key.Namespace))
+
+		return lifecycle.release(ctx, resource)
+	}
 
 	if err := r.Get(ctx, key, connection); err != nil {
 		if !apierrors.IsNotFound(err) {

@@ -5,6 +5,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
+
+	"github.com/solidDoWant/harbor-operator/internal/access"
 )
 
 func TestCacheOptionsLimitTheCacheToTheWatchedNamespaces(t *testing.T) {
@@ -25,7 +27,7 @@ func TestCacheOptionsLimitTheCacheToTheWatchedNamespaces(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			assert.Equal(t, test.want, cacheOptions(test.watchNamespaces).DefaultNamespaces)
+			assert.Equal(t, test.want, cacheOptions(access.ParseWatchedNamespaces(test.watchNamespaces)).DefaultNamespaces)
 		})
 	}
 }
