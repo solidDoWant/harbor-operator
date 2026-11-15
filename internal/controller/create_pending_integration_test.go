@@ -272,8 +272,12 @@ func TestProjectWhoseCreateHarborRefusedDoesNotTakeOverAProjectMadeLater(t *test
 	require.NoError(t, cl.Create(t.Context(), project))
 	key := client.ObjectKeyFromObject(project)
 
-	refused := awaitProject(t, cl, key, metav1.ConditionFalse, harborv1alpha1.ReasonForbidden)
-	assert.Nil(t, refused.Status.CreatePending, "a create Harbor refused leaves no marker")
+	// Each retry sets the marker again just before its create call, so wait for a moment between retries.
+	awaitProject(t, cl, key, metav1.ConditionFalse, harborv1alpha1.ReasonForbidden)
+	require.Eventually(t, func() bool {
+		refused := &harborv1alpha1.HarborProject{}
+		return cl.Get(t.Context(), key, refused) == nil && refused.Status.CreatePending == nil
+	}, projectWait, 50*time.Millisecond, "a create Harbor refused leaves no marker")
 
 	existing, err := admin.CreateProject(t.Context(), name, harbor.ProjectSettings{Public: ptr(false)}, nil)
 	require.NoError(t, err)
@@ -303,8 +307,12 @@ func TestRobotWhoseCreateHarborRefusedDoesNotTakeOverARobotMadeLater(t *testing.
 	require.NoError(t, setup.cl.Create(t.Context(), robot))
 	key := client.ObjectKeyFromObject(robot)
 
-	refused := awaitRobot(t, setup.cl, key, metav1.ConditionFalse, harborv1alpha1.ReasonForbidden)
-	assert.Nil(t, refused.Status.CreatePending, "a create Harbor refused leaves no marker")
+	// Each retry sets the marker again just before its create call, so wait for a moment between retries.
+	awaitRobot(t, setup.cl, key, metav1.ConditionFalse, harborv1alpha1.ReasonForbidden)
+	require.Eventually(t, func() bool {
+		refused := &harborv1alpha1.HarborProjectRobot{}
+		return setup.cl.Get(t.Context(), key, refused) == nil && refused.Status.CreatePending == nil
+	}, projectWait, 50*time.Millisecond, "a create Harbor refused leaves no marker")
 
 	// The robot can push, so a push with its secret shows that the secret was not refreshed.
 	existing, err := setup.admin.CreateRobot(t.Context(), setup.project.Spec.Name, harbor.RobotSpec{
