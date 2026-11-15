@@ -3,11 +3,14 @@
 package controller_test
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"strings"
 	"testing"
 	"time"
+
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/go-logr/logr"
 
@@ -44,8 +47,43 @@ func newNamespace(t *testing.T, cl client.Client, prefix string) string {
 
 	name := strings.ToLower(prefix) + "-" + randomHex(t, 5)
 	require.NoError(t, cl.Create(t.Context(), &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: name}}))
+	// Cleanups run last-in first-out, so this runs before cleanups registered earlier that delete Harbor objects.
+	t.Cleanup(func() { abandonNamespace(cl, name) })
 
 	return name
+}
+
+// abandonNamespace removes every operator resource in the namespace without running their finalizers, so the shared
+// operator stops reconciling them and cannot recreate the Harbor objects a test cleanup is about to delete.
+// Envtest has no namespace controller, so deleting the Namespace itself would not do this.
+func abandonNamespace(cl client.Client, namespace string) {
+	ctx := context.Background()
+	lists := []client.ObjectList{
+		&harborv1alpha1.HarborImmutabilityPolicyList{}, &harborv1alpha1.HarborRetentionPolicyList{},
+		&harborv1alpha1.HarborProjectRobotList{}, &harborv1alpha1.HarborSystemRobotList{},
+		&harborv1alpha1.HarborProjectList{}, &harborv1alpha1.HarborRegistryList{}, &harborv1alpha1.HarborConnectionList{},
+	}
+
+	for _, list := range lists {
+		if cl.List(ctx, list, client.InNamespace(namespace)) != nil {
+			continue
+		}
+
+		items, err := meta.ExtractList(list)
+		if err != nil {
+			continue
+		}
+
+		for _, item := range items {
+			object, ok := item.(client.Object)
+			if !ok {
+				continue
+			}
+
+			_ = cl.Patch(ctx, object, client.RawPatch(types.MergePatchType, []byte(`{"metadata":{"finalizers":null}}`)))
+			_ = cl.Delete(ctx, object)
+		}
+	}
 }
 
 // randomHex returns 2*length random hex characters.
@@ -129,6 +167,11 @@ func awaitReady(t *testing.T, cl client.Client, key client.ObjectKey, status met
 	return &connection
 }
 
+// unknownUser is a Harbor user that does not exist. Failed sign-ins for a real account such as the admin lock it out,
+// and the shared operator keeps retrying a bad credential for as long as the connection exists, which would lock the
+// admin out for every other test.
+const unknownUser = "no-such-user"
+
 func TestConnectionBecomesReadyWithValidCredentials(t *testing.T) {
 	t.Parallel()
 	instance := harborfixture.FromEnv(t)
@@ -153,7 +196,7 @@ func TestConnectionReportsBadCredentials(t *testing.T) {
 	cl := startOperator(t)
 	namespace := newNamespace(t, cl, "conn")
 
-	require.NoError(t, cl.Create(t.Context(), credentials(namespace, "wrong-password", instance.Username, "not-the-password")))
+	require.NoError(t, cl.Create(t.Context(), credentials(namespace, "wrong-password", unknownUser, "not-the-password")))
 	require.NoError(t, cl.Create(t.Context(), &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "no-password"}, StringData: map[string]string{"username": "admin"}}))
 
 	for name, test := range map[string]struct {
@@ -166,6 +209,7 @@ func TestConnectionReportsBadCredentials(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
+
 			connection := newConnection(namespace, "conn-"+test.secret, instance.URL, test.secret)
 			require.NoError(t, cl.Create(t.Context(), connection))
 			awaitReady(t, cl, client.ObjectKeyFromObject(connection), metav1.ConditionFalse, test.reason)
@@ -179,7 +223,7 @@ func TestConnectionRevalidatesWhenCredentialsSecretChanges(t *testing.T) {
 	cl := startOperator(t)
 	namespace := newNamespace(t, cl, "conn")
 
-	secret := credentials(namespace, "harbor-creds", instance.Username, "not-the-password")
+	secret := credentials(namespace, "harbor-creds", unknownUser, "not-the-password")
 	require.NoError(t, cl.Create(t.Context(), secret))
 
 	connection := newConnection(namespace, "harbor", instance.URL, "harbor-creds")

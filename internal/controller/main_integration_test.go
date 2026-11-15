@@ -3,13 +3,14 @@
 package controller_test
 
 import (
-	"github.com/go-logr/logr"
 	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/go-logr/logr"
 
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"

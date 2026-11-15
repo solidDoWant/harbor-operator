@@ -81,6 +81,7 @@ Provisioned through `flake.nix` (Go, golangci-lint, controller-gen, envtest bina
 
 - `testify` (`require` + `assert`), table-driven tests with a `require.ErrorAssertionFunc` field defaulting to `require.NoError`. Full-word loop variables. Always `t.Context()`.
 - Integration tests use `//go:build integration` (envtest and the shared test Harbor, controllers in-process); e2e tests use `//go:build e2e` (kind, Harbor from its chart, the operator from this repo's chart). Both skip cleanly when their dependencies are absent.
+- Controller integration tests share one envtest and operator (`TestMain` in `internal/controller`). Each test makes its own namespaces with `newNamespace`, calls `t.Parallel()`, and never asserts on global counts. A test that changes Harbor-wide state or uses a fixed Harbor name stays serial with a one-line comment why; one that needs its own logger or client wrapper uses `startIsolatedOperator`. Never sign in to Harbor as a real user with a wrong password: failures lock the account for every test.
 - One Harbor per test run. Isolate tests by unique Harbor names (a hash of `t.Name()`), and clean up what you create.
 - Tests never depend on wall-clock speed or scheduling order. Anything timing-sensitive passes `-count=50 -race`. Wait on conditions with deadlines (`require.Eventually`), never fixed sleeps.
 

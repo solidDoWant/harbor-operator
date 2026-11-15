@@ -10,7 +10,6 @@ import (
 	"github.com/goharbor/go-client/pkg/sdk/v2.0/client/artifact"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -217,6 +216,7 @@ func TestSecondRetentionPolicyForTheSameProjectReportsConflict(t *testing.T) {
 
 func TestDeletingRetentionPolicyFollowsItsDeletionPolicy(t *testing.T) {
 	t.Parallel()
+
 	tests := []struct {
 		name     string
 		policy   harborv1alpha1.DeletionPolicy
@@ -261,8 +261,7 @@ func TestRetentionPolicyInANamespaceTheProjectDoesNotAdmit(t *testing.T) {
 	t.Parallel()
 	setup := readyRobotProject(t, nil, nil)
 
-	namespace := harborfixture.UniqueName(t, "policies")
-	require.NoError(t, setup.cl.Create(t.Context(), &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}))
+	namespace := newNamespace(t, setup.cl, "policies")
 
 	policy := keepVersionsAndRecentPulls(namespace, "retention", setup.project)
 	require.NoError(t, setup.cl.Create(t.Context(), policy))

@@ -14,7 +14,6 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -170,6 +169,7 @@ func TestImmutabilityRulesChangedInHarborArePutBack(t *testing.T) {
 
 func TestImmutabilityPolicyDeletion(t *testing.T) {
 	t.Parallel()
+
 	for _, test := range []struct {
 		name        string
 		policy      harborv1alpha1.DeletionPolicy
@@ -211,8 +211,7 @@ func TestImmutabilityPolicyInANamespaceTheProjectDoesNotAdmit(t *testing.T) {
 	t.Parallel()
 	setup := readyRobotProject(t, nil, nil)
 
-	namespace := harborfixture.UniqueName(t, "policies")
-	require.NoError(t, setup.cl.Create(t.Context(), &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}))
+	namespace := newNamespace(t, setup.cl, "policies")
 
 	policy := immutabilityPolicy(namespace, setup.project, immutabilityRule("v*", false))
 	require.NoError(t, setup.cl.Create(t.Context(), policy))
@@ -257,7 +256,7 @@ func TestProjectDeletionWaitsForItsImmutabilityPolicy(t *testing.T) {
 
 	require.NoError(t, setup.cl.Delete(t.Context(), setup.project))
 	waiting := awaitProject(t, setup.cl, client.ObjectKeyFromObject(setup.project), metav1.ConditionFalse, harborv1alpha1.ReasonDependentsExist)
-	assert.Contains(t, meta.FindStatusCondition(waiting.Status.Conditions, harborv1alpha1.ConditionReady).Message, "HarborImmutabilityPolicy default/immutable-tags")
+	assert.Contains(t, meta.FindStatusCondition(waiting.Status.Conditions, harborv1alpha1.ConditionReady).Message, "HarborImmutabilityPolicy "+setup.project.Namespace+"/immutable-tags")
 
 	require.NoError(t, setup.cl.Delete(t.Context(), policy))
 	require.Eventually(t, func() bool {

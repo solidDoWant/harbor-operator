@@ -16,10 +16,14 @@ import (
 	"github.com/solidDoWant/harbor-operator/test/leakscan"
 )
 
-var scannedKinds = []client.ObjectList{&harborv1alpha1.HarborConnectionList{}, &harborv1alpha1.HarborProjectList{}, &harborv1alpha1.HarborProjectRobotList{}}
+// scannedKinds returns fresh lists on every call because a list is filled in place and tests run in parallel.
+func scannedKinds() []client.ObjectList {
+	return []client.ObjectList{&harborv1alpha1.HarborConnectionList{}, &harborv1alpha1.HarborProjectList{}, &harborv1alpha1.HarborProjectRobotList{}}
+}
 
 func TestNoSecretAppearsInStatusEventsOrLogsDuringTheRobotLifecycle(t *testing.T) {
 	t.Parallel()
+
 	log := &leakscan.Log{}
 	setup := readyRobotProjectLogging(t, log.Logger(), false, func(connection *harborv1alpha1.HarborConnection) { connection.Spec.AllowAdoption = true }, nil)
 	registry := setup.instance.Registry(t)
@@ -67,7 +71,7 @@ func TestNoSecretAppearsInStatusEventsOrLogsDuringTheRobotLifecycle(t *testing.T
 		require.NotEmpty(t, value, label)
 	}
 
-	found, err := leakscan.Scan(t.Context(), setup.cl, log, scannedKinds, secrets)
+	found, err := leakscan.Scan(t.Context(), setup.cl, log, scannedKinds(), secrets)
 	require.NoError(t, err)
 	assert.Empty(t, found, "secrets leaked outside Kubernetes Secrets")
 	assert.NotEmpty(t, log.String(), "the operator log was captured")
@@ -75,6 +79,7 @@ func TestNoSecretAppearsInStatusEventsOrLogsDuringTheRobotLifecycle(t *testing.T
 
 func TestScanFailsWhenTheOperatorLogsARobotSecret(t *testing.T) {
 	t.Parallel()
+
 	log := &leakscan.Log{}
 	setup := readyRobotProjectLogging(t, log.Logger(), false, nil, nil)
 
@@ -85,7 +90,7 @@ func TestScanFailsWhenTheOperatorLogsARobotSecret(t *testing.T) {
 	_, password := dockerCredentials(t, setup.cl, setup.project.Namespace, "ci-dockerconfig", setup.instance.Registry(t))
 	log.Logger().Info("deliberate leak", "password", password)
 
-	found, err := leakscan.Scan(t.Context(), setup.cl, log, scannedKinds, map[string]string{"robot secret": password})
+	found, err := leakscan.Scan(t.Context(), setup.cl, log, scannedKinds(), map[string]string{"robot secret": password})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"operator log contains robot secret"}, found)
 }

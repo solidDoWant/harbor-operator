@@ -24,7 +24,7 @@ import (
 var exampleBlock = regexp.MustCompile("(?s)<!-- example:project-and-robot -->\n```yaml\n(.*?)\n```")
 
 func TestUserDocExampleBecomesReady(t *testing.T) {
-	t.Parallel()
+	// Serial: the example names a fixed Harbor project that other docs tests also use.
 	page, err := os.ReadFile(filepath.Join("..", "..", "docs", "user", "example.md"))
 	require.NoError(t, err)
 

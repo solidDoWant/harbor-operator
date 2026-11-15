@@ -253,7 +253,6 @@ func restrictProjectCreation(t *testing.T, instance *harborfixture.Harbor, value
 
 func TestProjectWhoseCreateHarborRefusedDoesNotTakeOverAProjectMadeLater(t *testing.T) {
 	// Serial: it restricts project creation Harbor-wide, which would fail other tests that create projects as a non-admin.
-
 	instance, admin, name := projectHarbor(t)
 	cl := startOperator(t, true)
 	ns := newNamespace(t, cl, "pending")
