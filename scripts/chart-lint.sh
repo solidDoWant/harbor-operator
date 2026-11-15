@@ -1,12 +1,10 @@
 #!/usr/bin/env bash
 # Lints the Helm chart without a cluster (`make chart-lint`, part of
-# `make lint`). Skipped, with a message, until the chart exists.
+# `make lint`): helm lint, then a render with the default values.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
 chart=deploy/charts/harbor-operator
-if [[ ! -f "$chart/Chart.yaml" ]]; then
-	echo "chart-lint: no chart at $chart yet; skipped"
-	exit 0
-fi
 helm lint --strict "$chart"
+helm template harbor-operator "$chart" --namespace harbor-operator >/dev/null
+echo "chart-lint: passed"
