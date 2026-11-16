@@ -1,5 +1,52 @@
 # Changelog
 
+## 0.3.0
+
+harbor-operator is a Kubernetes operator that configures an existing Harbor registry through custom resources. It does not install Harbor. This release makes the operator easier to run: it adds metrics, a Grafana dashboard, Kubernetes events for every change, a namespace limit, a network policy and new guides. It also changes how the operator behaves while Harbor is down. To install or upgrade, run `helm upgrade --install harbor-operator oci://ghcr.io/soliddowant/charts/harbor-operator --version 0.3.0 --namespace harbor-operator --create-namespace`. The [install guide](https://github.com/solidDoWant/harbor-operator/blob/v0.3.0/docs/admin/install.md) tells you how to connect the operator to Harbor.
+
+### Upgrade notes
+
+- If your nodes need the old CPU request, set `resources.requests.cpu: 100m`. The default CPU request is now `10m`, because the operator uses little CPU. ([#113](https://github.com/solidDoWant/harbor-operator/pull/113))
+
+All new chart values are off or empty by default. An upgrade from 0.2.0 needs no other change.
+
+### Monitoring
+
+- The operator exports metrics: the number of resources for each kind and `Ready` reason (`harbor_operator_resources`), the time of each Harbor request (`harbor_operator_harbor_requests_seconds`), the number of registries for each health state (`harbor_operator_registry_health`), and the number of changes in Harbor that the operator put back (`harbor_operator_drift_corrections_total`). The [metrics guide](https://github.com/solidDoWant/harbor-operator/blob/v0.3.0/docs/admin/metrics.md) lists them. ([#110](https://github.com/solidDoWant/harbor-operator/pull/110), [#130](https://github.com/solidDoWant/harbor-operator/pull/130))
+- The chart can create a `ServiceMonitor` for the Prometheus Operator or a `VMServiceScrape` for VictoriaMetrics. It can also create a ClusterRole that lets your scraper read the secure metrics endpoint. Set `metrics.serviceMonitor.enabled`, `metrics.vmServiceScrape.enabled` and `metrics.reader.enabled`. ([#122](https://github.com/solidDoWant/harbor-operator/pull/122))
+- The chart can install a Grafana dashboard, as a ConfigMap for the Grafana sidecar or as a `GrafanaDashboard` for the grafana-operator. Set `grafanaDashboard.configMap.enabled` or `grafanaDashboard.grafanaOperator.enabled`. ([#119](https://github.com/solidDoWant/harbor-operator/pull/119))
+- Every kind emits a Kubernetes event when the operator creates, changes, deletes or orphans a Harbor object. To orphan an object is to leave it in Harbor when you delete its resource. A `HarborConnection` also emits events now. The [events page](https://github.com/solidDoWant/harbor-operator/blob/v0.3.0/docs/user/events.md) lists them. ([#114](https://github.com/solidDoWant/harbor-operator/pull/114))
+
+### Deployment
+
+- The new `watchNamespaces` chart value limits the operator to the namespaces in the list. When you set it, the chart gives the operator a Role in each of those namespaces instead of one ClusterRole for the whole cluster. ([#117](https://github.com/solidDoWant/harbor-operator/pull/117))
+- If a resource names a connection, project or registry in a namespace that the operator does not watch, the status shows `NotAllowed`. When you delete such a resource, the operator leaves its Harbor object in place. ([#124](https://github.com/solidDoWant/harbor-operator/pull/124))
+- The chart can create a NetworkPolicy and a PodDisruptionBudget. The NetworkPolicy lets the operator connect only to the Kubernetes API server, Harbor and the cluster DNS. Set `networkPolicy.enabled` and `networkPolicy.apiServer.cidrs`, or `podDisruptionBudget.enabled`. ([#113](https://github.com/solidDoWant/harbor-operator/pull/113))
+
+### Fixes
+
+- While Harbor is down, resources show `HarborUnavailable` and the operator does not send requests to Harbor for them. The connection tries Harbor again after 5 seconds, and waits longer after each failure, up to 5 minutes. When Harbor is back, all resources become ready without help. ([#121](https://github.com/solidDoWant/harbor-operator/pull/121))
+- If Harbor resets the network connection, the operator no longer tries again in a tight loop. It waits as described above. ([#129](https://github.com/solidDoWant/harbor-operator/pull/129))
+- The `harbor_operator_drift_corrections_total` metric is now exported, so the drift panel of the dashboard shows data. ([#130](https://github.com/solidDoWant/harbor-operator/pull/130))
+
+### Documentation
+
+- A new troubleshooting guide tells admins what each condition reason means and what to do. ([#115](https://github.com/solidDoWant/harbor-operator/pull/115))
+- A new example shows a Helm chart that gives a CI pipeline its own Harbor project and robot. Tests run this example. ([#118](https://github.com/solidDoWant/harbor-operator/pull/118))
+
+Internal work: tests against the two latest Harbor versions (2.14 and 2.15), a test of the chart upgrade from 0.2.0, test fixes and the answers to the design review ([#109](https://github.com/solidDoWant/harbor-operator/pull/109), [#111](https://github.com/solidDoWant/harbor-operator/pull/111), [#120](https://github.com/solidDoWant/harbor-operator/pull/120), [#123](https://github.com/solidDoWant/harbor-operator/pull/123), [#126](https://github.com/solidDoWant/harbor-operator/pull/126)).
+
+### Known issues
+
+`govulncheck` reports the same nine advisories as in 0.2.0, in libraries that the operator includes. The operator cannot reach any of them, for the reasons below. Dependency updates will remove them.
+
+- GO-2026-6865 (`github.com/klauspost/compress`): only a test package of the Prometheus library uses this module. The operator binary does not contain it.
+- GO-2026-6859 (Go `net/http`, HTTP/1 server crash): the crash needs a handler that uses `MaxBytesReader`. The health and metrics endpoints of the operator do not use it.
+- GO-2026-6603, GO-2026-6612 and GO-2026-6617 (`golang.org/x/net`, HTTP/2 server): the operator runs no HTTP/2 server. The metrics endpoint accepts only HTTP/1.1 unless you set `--enable-http2`, and the chart does not set it.
+- GO-2026-6610 (`golang.org/x/net`, malformed HTTP/2 headers): the risk applies to a reverse proxy. The operator is not a proxy.
+- GO-2026-6611 (`golang.org/x/net`, HTTP/2 CPU use): the operator uses HTTP/2 only as a client of the Kubernetes API server, which the operator trusts. It connects to Harbor over HTTP/1.1.
+- GO-2026-6348 (`google.golang.org/grpc`) and GO-2026-6505 (`go.opentelemetry.io/otel` trace exporter): the operator makes no gRPC connections and starts no trace exporter. These packages are only linked in through Kubernetes libraries.
+
 ## 0.2.0
 
 harbor-operator is a Kubernetes operator that configures an existing Harbor registry through custom resources. It does not install Harbor. This release adds pull-through caches, tag retention and tag immutability policies, and system robot accounts. It also fixes four problems in 0.1.0. To install or upgrade, run `helm upgrade --install harbor-operator oci://ghcr.io/soliddowant/charts/harbor-operator --version 0.2.0 --namespace harbor-operator --create-namespace`. The chart also installs the new custom resource definitions. The [install guide](https://github.com/solidDoWant/harbor-operator/blob/v0.2.0/docs/admin/install.md) tells you how to connect the operator to Harbor.
