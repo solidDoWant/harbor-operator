@@ -234,30 +234,30 @@ func (t systemRobotTarget) isOwn(found *harbor.Robot, name string) bool {
 	return found.Level == harbor.LevelSystem && harbor.IsSystemRobotName(found.Name, name)
 }
 
-// missingPermissions checks system grants at Harbor's root scope and project grants in each named project. Harbor
-// cannot report what the connection holds in every project at once, so a grant on "*" always counts as missing: the
-// robot is then never deleted on the chance that it can be created again.
+// missingPermissions checks system grants at system scope and project grants in each named project. Harbor cannot
+// report what the connection holds in every project at once, so a grant on "*" always counts as missing: the robot is
+// then never deleted on the chance that it can be created again.
 func (t systemRobotTarget) missingPermissions(ctx context.Context, harborClient *harbor.Client, spec harbor.RobotSpec) ([]string, error) {
+	ids := make([]int64, 0, len(t.projectIDs))
+	for _, id := range t.projectIDs {
+		ids = append(ids, id)
+	}
+
+	held, err := harborClient.ReadHeldPermissions(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+
 	var names []string
 
 	for _, grant := range spec.Grants {
 		switch {
 		case grant.Kind == harbor.LevelSystem:
-			missing, err := harborClient.MissingPermissions(ctx, "/", grant.Access)
-			if err != nil {
-				return nil, err
-			}
-
-			names = append(names, accessNames(missing, "system: ")...)
+			names = append(names, accessNames(held.MissingSystem(grant.Access), "system: ")...)
 		case grant.Namespace == allProjects:
 			names = append(names, accessNames(grant.Access, "every project: ")...)
 		default:
-			missing, err := harborClient.MissingPermissions(ctx, harbor.ProjectScope(t.projectIDs[grant.Namespace]), grant.Access)
-			if err != nil {
-				return nil, err
-			}
-
-			names = append(names, accessNames(missing, "project "+grant.Namespace+": ")...)
+			names = append(names, accessNames(held.MissingInProject(t.projectIDs[grant.Namespace], grant.Access), "project "+grant.Namespace+": ")...)
 		}
 	}
 

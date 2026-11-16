@@ -172,12 +172,12 @@ func (t projectRobotTarget) isOwn(found *harbor.Robot, name string) bool {
 }
 
 func (t projectRobotTarget) missingPermissions(ctx context.Context, harborClient *harbor.Client, spec harbor.RobotSpec) ([]string, error) {
-	missing, err := harborClient.MissingPermissions(ctx, harbor.ProjectScope(t.projectID), spec.Permissions)
+	held, err := harborClient.ReadHeldPermissions(ctx, []int64{t.projectID})
 	if err != nil {
 		return nil, err
 	}
 
-	return accessNames(missing, ""), nil
+	return accessNames(held.MissingInProject(t.projectID, spec.Permissions), ""), nil
 }
 
 // accessNames lists permissions as "resource action", each after prefix.
