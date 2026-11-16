@@ -57,6 +57,7 @@ type HarborConnectionReconciler struct {
 // +kubebuilder:rbac:groups=harbor.soliddowant.dev,resources=harborprojects,verbs=get;list;watch
 // +kubebuilder:rbac:groups=harbor.soliddowant.dev,resources=harborprojectrobots,verbs=get;list;watch
 // +kubebuilder:rbac:groups=harbor.soliddowant.dev,resources=harborimmutabilitypolicies,verbs=get;list;watch
+// +kubebuilder:rbac:groups=harbor.soliddowant.dev,resources=harborretentionpolicies,verbs=get;list;watch
 // +kubebuilder:rbac:groups=harbor.soliddowant.dev,resources=harborregistries,verbs=get;list;watch
 // +kubebuilder:rbac:groups=harbor.soliddowant.dev,resources=harborsystemrobots,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
@@ -144,15 +145,41 @@ func (r *HarborConnectionReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	builder := ctrl.NewControllerManagedBy(mgr).
 		For(&harborv1alpha1.HarborConnection{}).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.connectionsForSecret)).
-		Watches(&harborv1alpha1.HarborProject{}, handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
-			return r.ifTerminating(ctx, connectionKey(object.(*harborv1alpha1.HarborProject)))
-		})).
-		Watches(&harborv1alpha1.HarborRegistry{}, handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
-			return r.ifTerminating(ctx, registryConnectionKey(object.(*harborv1alpha1.HarborRegistry)))
-		})).
-		Watches(&harborv1alpha1.HarborSystemRobot{}, handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
-			return r.ifTerminating(ctx, systemRobotConnectionKey(object.(*harborv1alpha1.HarborSystemRobot)))
-		})).
+		// A dependent's creation re-checks the connection's permissions; other changes matter only while it is
+		// being deleted.
+		Watches(&harborv1alpha1.HarborProject{}, onCreateOrTerminating(
+			func(_ context.Context, project *harborv1alpha1.HarborProject) []reconcile.Request {
+				return always(connectionKey(project))
+			},
+			func(ctx context.Context, project *harborv1alpha1.HarborProject) []reconcile.Request {
+				return r.ifTerminating(ctx, connectionKey(project))
+			})).
+		Watches(&harborv1alpha1.HarborRegistry{}, onCreateOrTerminating(
+			func(_ context.Context, registry *harborv1alpha1.HarborRegistry) []reconcile.Request {
+				return always(registryConnectionKey(registry))
+			},
+			func(ctx context.Context, registry *harborv1alpha1.HarborRegistry) []reconcile.Request {
+				return r.ifTerminating(ctx, registryConnectionKey(registry))
+			})).
+		Watches(&harborv1alpha1.HarborSystemRobot{}, onCreateOrTerminating(
+			func(_ context.Context, robot *harborv1alpha1.HarborSystemRobot) []reconcile.Request {
+				return always(systemRobotConnectionKey(robot))
+			},
+			func(ctx context.Context, robot *harborv1alpha1.HarborSystemRobot) []reconcile.Request {
+				return r.ifTerminating(ctx, systemRobotConnectionKey(robot))
+			})).
+		Watches(&harborv1alpha1.HarborProjectRobot{}, onCreateOrTerminating(
+			func(ctx context.Context, robot *harborv1alpha1.HarborProjectRobot) []reconcile.Request {
+				return r.connectionOfProject(ctx, robotProjectKey(robot))
+			}, never[*harborv1alpha1.HarborProjectRobot])).
+		Watches(&harborv1alpha1.HarborRetentionPolicy{}, onCreateOrTerminating(
+			func(ctx context.Context, policy *harborv1alpha1.HarborRetentionPolicy) []reconcile.Request {
+				return r.connectionOfProject(ctx, retentionProjectKey(policy))
+			}, never[*harborv1alpha1.HarborRetentionPolicy])).
+		Watches(&harborv1alpha1.HarborImmutabilityPolicy{}, onCreateOrTerminating(
+			func(ctx context.Context, policy *harborv1alpha1.HarborImmutabilityPolicy) []reconcile.Request {
+				return r.connectionOfProject(ctx, policyProjectKey(policy))
+			}, never[*harborv1alpha1.HarborImmutabilityPolicy])).
 		// The probe of a Harbor that is down backs off like every other reconcile, so it is asked at most once per
 		// step.
 		WithOptions(controller.Options{RateLimiter: backoffLimiter(0)})
@@ -247,7 +274,9 @@ func (r *HarborConnectionReconciler) Reconcile(ctx context.Context, request reco
 		connection.Status.RegistryHost = harbor.HostOf(identity)
 	}
 
-	if err := r.setCondition(ctx, &connection, metav1.ConditionTrue, harborv1alpha1.ReasonReady, "Harbor accepted the credentials"); err != nil {
+	permissions := r.checkPermissions(ctx, &connection, harborClient)
+
+	if err := r.setConditions(ctx, &connection, metav1.ConditionTrue, harborv1alpha1.ReasonReady, "Harbor accepted the credentials", &permissions); err != nil {
 		return reconcile.Result{}, err
 	}
 
@@ -317,6 +346,18 @@ func (r *HarborConnectionReconciler) setNotReady(ctx context.Context, connection
 }
 
 func (r *HarborConnectionReconciler) setCondition(ctx context.Context, connection *harborv1alpha1.HarborConnection, status metav1.ConditionStatus, reason, message string) error {
+	return r.setConditions(ctx, connection, status, reason, message, nil)
+}
+
+// setConditions writes Ready and PermissionsSufficient. Without a permission check result, PermissionsSufficient is
+// Unknown with Ready's reason: the permissions are checked only while the connection is ready.
+func (r *HarborConnectionReconciler) setConditions(ctx context.Context, connection *harborv1alpha1.HarborConnection, status metav1.ConditionStatus, reason, message string, permissions *permissionsResult) error {
+	if permissions == nil {
+		permissions = &permissionsResult{status: metav1.ConditionUnknown, reason: reason, message: message}
+	}
+
+	emitPermissionsEvent := r.setPermissionsCondition(connection, *permissions)
+
 	previous := meta.FindStatusCondition(connection.Status.Conditions, harborv1alpha1.ConditionReady)
 	changed := previous == nil || previous.Status != status || previous.Reason != reason || previous.Message != message
 
@@ -328,6 +369,8 @@ func (r *HarborConnectionReconciler) setCondition(ctx context.Context, connectio
 	if err := r.Status().Update(ctx, connection); err != nil {
 		return err
 	}
+
+	emitPermissionsEvent()
 
 	if changed {
 		eventType := corev1.EventTypeNormal

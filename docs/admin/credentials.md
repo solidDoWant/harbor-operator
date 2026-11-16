@@ -61,6 +61,8 @@ Harbor's chart renders `<release>-core` again on every upgrade. If the password 
 
 The robot needs every permission for the kinds you use. The list is made from the operator's code, so it stays correct. See [Permissions each resource kind needs](required-permissions.md). Add every permission that any robot resource in your cluster asks for, for CI robots usually `repository` push and pull. Harbor lets a robot create robots only with permissions it holds itself, and answers `403` otherwise.
 
+Each `HarborConnection` reports a `PermissionsSufficient` condition. It is `False` with reason [`InsufficientPermissions`](troubleshooting.md#insufficientpermissions) when the credential lacks a permission that the resources using the connection need, and the message lists the missing permissions. Project permissions are checked only in projects that already exist in Harbor. The condition is not part of `Ready`.
+
 The operator checks the permissions of the connection against the kinds that use it. The `PermissionsSufficient` condition lists what is missing. The check covers only projects that exist.
 
 ### Move from a robot you made by hand
