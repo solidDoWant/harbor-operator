@@ -10,4 +10,7 @@ type RequiredPermission struct {
 	Action   string
 	// UserCredentialsOnly is true when robot credentials do not need it: they replace robots instead of updating them.
 	UserCredentialsOnly bool
+	// ContentDeletionOnly is true when only deleting a project with its contents needs it: the connection allows
+	// content deletion and a project on it has the effective deletion policy DeleteWithContents.
+	ContentDeletionOnly bool
 }

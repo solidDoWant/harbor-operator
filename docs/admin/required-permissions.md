@@ -2,7 +2,7 @@
 
 This page is generated from the Harbor client code by `make generate`. Do not edit it by hand.
 
-The connection's Harbor credential must hold every permission listed for the kinds you use. A system scope permission applies to all of Harbor. A project scope permission applies in the projects the operator manages. A permission marked "user credentials only" is not needed when the credential is a robot, because the operator replaces a robot instead of updating it.
+The connection's Harbor credential must hold every permission listed for the kinds you use. A system scope permission applies to all of Harbor. A project scope permission applies in the projects the operator manages. A permission marked "user credentials only" is not needed when the credential is a robot, because the operator replaces a robot instead of updating it. A permission marked "deleting contents only" is needed only when the connection allows content deletion and a project on it has `deletionPolicy: DeleteWithContents`.
 
 | Kind | Scope | Permission | Needed when |
 | --- | --- | --- | --- |
@@ -12,6 +12,8 @@ The connection's Harbor credential must hold every permission listed for the kin
 | `HarborProject` | project | `project:delete` | always |
 | `HarborProject` | project | `project:read` | always |
 | `HarborProject` | project | `project:update` | always |
+| `HarborProject` | project | `repository:delete` | deleting contents only |
+| `HarborProject` | project | `repository:list` | deleting contents only |
 | `HarborProjectRobot` | project | `robot:create` | always |
 | `HarborProjectRobot` | project | `robot:delete` | always |
 | `HarborProjectRobot` | project | `robot:list` | always |

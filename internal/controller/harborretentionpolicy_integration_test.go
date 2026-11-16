@@ -223,6 +223,7 @@ func TestDeletingRetentionPolicyFollowsItsDeletionPolicy(t *testing.T) {
 		wantKept bool
 	}{
 		{name: "Delete removes the rules", policy: harborv1alpha1.DeletionPolicyDelete},
+		{name: "DeleteWithContents removes the rules like Delete", policy: harborv1alpha1.DeletionPolicyDeleteWithContents},
 		{name: "Orphan keeps the rules", policy: harborv1alpha1.DeletionPolicyOrphan, wantKept: true},
 	}
 

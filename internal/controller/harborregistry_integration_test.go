@@ -435,6 +435,18 @@ func TestRegistryDeletion(t *testing.T) {
 		registryAbsent(t, setup.admin, harborName)
 	})
 
+	t.Run("policy DeleteWithContents deletes the Harbor registry like Delete", func(t *testing.T) {
+		harborName := setup.harborRegistryName(t, "")
+		registry := setup.newRegistry(setup.ownNamespace, "delete-with-contents", harborName)
+		registry.Spec.DeletionPolicy = harborv1alpha1.DeletionPolicyDeleteWithContents
+		require.NoError(t, setup.cl.Create(t.Context(), registry))
+		awaitRegistry(t, setup.cl, client.ObjectKeyFromObject(registry), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
+
+		require.NoError(t, setup.cl.Delete(t.Context(), registry))
+		awaitRegistryGone(t, setup.cl, client.ObjectKeyFromObject(registry))
+		registryAbsent(t, setup.admin, harborName)
+	})
+
 	t.Run("policy Orphan keeps the Harbor registry", func(t *testing.T) {
 		harborName := setup.harborRegistryName(t, "")
 		registry := setup.newRegistry(setup.ownNamespace, "orphan", harborName)

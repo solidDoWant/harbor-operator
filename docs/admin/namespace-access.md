@@ -42,13 +42,23 @@ The operator deletes a Harbor object only when the resource that owns it is dele
 
 - `Orphan` leaves the Harbor object in place and removes the resource.
 - When a `HarborRetentionPolicy` is deleted with `Delete`, the operator removes the rules and the schedule from the project's retention policy.
-- A project that has repositories cannot be deleted. The resource shows `DeleteBlocked` until the repositories are gone.
+- A project that has repositories cannot be deleted. The resource shows `DeleteBlocked` until the repositories are gone. The exception is `DeleteWithContents`, described in the next section.
 - A project waits for robots and retention policies that it admits. A registry waits for proxy-cache projects that it admits, also with `Orphan`. A connection waits for projects that its `allowedNamespaces` admits, and for registries that its `systemAllowedNamespaces` admits. All show `DependentsExist`.
 - You can delete a connection before the resources that use it. The connection waits with `DependentsExist`. When you then delete those resources, the operator still uses the connection to apply their `deletionPolicy` in Harbor. After the last one goes, the connection goes. If Harbor cannot be reached or rejects the credentials, the resources wait.
 - A registry that a project or replication rule in Harbor still uses cannot be deleted. The resource shows `DeleteBlocked` with the message from Harbor.
 - If the namespace of the resource is no longer admitted when it is deleted, the operator removes the resource and does not touch Harbor.
 
 The operator never deletes an object that it did not create or adopt.
+
+## Deleting the images of a project
+
+A project with `deletionPolicy: DeleteWithContents` asks the operator to delete every repository in the project, and then the project. The operator does this only if the connection sets `allowContentDeletion: true`. The default is `false`. With `false`, the project waits with `DeleteBlocked` like a project with `Delete`, and the operator writes a `ContentDeletionNotAllowed` event.
+
+Set `allowContentDeletion: true` only if you agree that the admitted namespaces can delete their images. The images are deleted permanently. Nobody can get them back.
+
+Do not combine `allowContentDeletion` and `allowAdoption` unless you trust every admitted namespace with every project that it can adopt. Together, they let an admitted namespace adopt an existing project and then delete all of its images. `spec.defaults.deletionPolicy: DeleteWithContents` on the connection also applies to adopted projects.
+
+The credential of the connection needs project scope `repository:list` and `repository:delete` for this. See [required permissions](required-permissions.md).
 
 ## Security model
 

@@ -133,12 +133,12 @@ func (r *HarborProjectReconciler) finalize(ctx context.Context, project *harborv
 		return r.deleteFailed(ctx, project, reason, message)
 	}
 
-	return r.deleteOwned(ctx, project, harborClient, identity)
+	return r.deleteOwned(ctx, project, connection, harborClient, identity)
 }
 
 // deleteOwned deletes the Harbor project by ID when the ID still names this resource's own project, and releases the
 // resource once it is gone.
-func (r *HarborProjectReconciler) deleteOwned(ctx context.Context, project *harborv1alpha1.HarborProject, harborClient *harbor.Client, identity string) (reconcile.Result, error) {
+func (r *HarborProjectReconciler) deleteOwned(ctx context.Context, project *harborv1alpha1.HarborProject, connection *harborv1alpha1.HarborConnection, harborClient *harbor.Client, identity string) (reconcile.Result, error) {
 	name := projectName(project)
 
 	harborKey := ownership.ProjectKey(identity, name)
@@ -173,6 +173,10 @@ func (r *HarborProjectReconciler) deleteOwned(ctx context.Context, project *harb
 
 	if err := harborClient.DeleteProjectByID(ctx, id); err != nil && !harbor.IsNotFound(err) {
 		reason, _ := harbor.MapError(err)
+		if reason == harbor.ReasonDeleteBlocked && deletionPolicy(project, connection) == harborv1alpha1.DeletionPolicyDeleteWithContents {
+			return r.deleteContents(ctx, project, connection, harborClient, err)
+		}
+
 		return r.deleteFailed(ctx, project, reason, err.Error())
 	}
 
