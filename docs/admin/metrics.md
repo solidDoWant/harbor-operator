@@ -33,7 +33,7 @@ All three options need `metrics.secure` to be `true`. The chart fails to render 
 The chart ships a Grafana dashboard. It is off by default. Turn on one of two options:
 
 - `grafanaDashboard.configMap.enabled` renders a ConfigMap for Grafana's dashboard sidecar. The labels come from `grafanaDashboard.configMap.labels`. The default is `grafana_dashboard: "1"`.
-- `grafanaDashboard.grafanaOperator.enabled` renders a grafana-operator `GrafanaDashboard`. Set `grafanaDashboard.grafanaOperator.instanceSelector` to select your Grafana instances.
+- `grafanaDashboard.grafanaOperator.enabled` renders a grafana-operator `GrafanaDashboard`. You must set `grafanaDashboard.grafanaOperator.instanceSelector` to select your Grafana instances. The chart has no default selector, and it fails to render without one.
 
 The dashboard has a `datasource` variable, so it works with Prometheus or VictoriaMetrics. Its `namespace` variable is the namespace where the operator runs. Your scraper must collect the operator's metrics with a `namespace` label.
 

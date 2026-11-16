@@ -33,7 +33,7 @@ For: admins who install harbor-operator with its Helm chart.
 | `grafanaDashboard.configMap.labels` | `""` | Labels on the dashboard ConfigMap. The sidecar selects ConfigMaps by this label. |
 | `grafanaDashboard.grafanaOperator.enabled` | `false` | Render a grafana-operator GrafanaDashboard with the dashboard inline. |
 | `grafanaDashboard.grafanaOperator.allowCrossNamespaceImport` | `false` | Let grafana-operator import the dashboard into a Grafana instance in another namespace. Set it to true when the operator does not run in the namespace of the Grafana instance. |
-| `grafanaDashboard.grafanaOperator.instanceSelector` | `""` | Selects the Grafana instances that get the dashboard. |
+| `grafanaDashboard.grafanaOperator.instanceSelector` | `{}` | Selects the Grafana instances that get the dashboard. Required when the Grafana operator dashboard is enabled: `helm template` fails without it. There is no default label, and your selector is used as you write it. |
 | `resources.requests.cpu` | `10m` | CPU request. There is no CPU limit. |
 | `resources.requests.memory` | `128Mi` | Memory request. |
 | `resources.limits.memory` | `128Mi` | Memory limit. Keep it equal to the memory request. |
