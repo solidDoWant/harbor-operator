@@ -2,7 +2,10 @@ package harbor
 
 import (
 	"errors"
+	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/go-openapi/runtime"
@@ -106,7 +109,7 @@ func wrapError(err error, password string) error {
 		if status != 0 {
 			message = http.StatusText(status)
 		} else {
-			message = err.Error()
+			message = stableNetworkMessage(err)
 		}
 	}
 
@@ -115,6 +118,25 @@ func wrapError(err error, password string) error {
 	}
 
 	return &Error{StatusCode: status, Message: message}
+}
+
+// stableNetworkMessage describes a transport failure without the client's
+// ephemeral source address, so the text is the same on every attempt. A
+// changing text would make each status write look like a new condition.
+func stableNetworkMessage(err error) string {
+	var opErr *net.OpError
+	if !errors.As(err, &opErr) {
+		return err.Error()
+	}
+
+	message := opErr.Op + ": " + fmt.Sprint(opErr.Err)
+
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		message = fmt.Sprintf("%s %q: %s", urlErr.Op, urlErr.URL, message)
+	}
+
+	return message
 }
 
 // IsNotFound reports whether err is a Harbor 404.

@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 
 	"github.com/go-openapi/runtime"
@@ -95,4 +96,25 @@ func TestIsRefusedOnlyForAnAnswerThatTheRequestWasNotCarriedOut(t *testing.T) {
 			assert.Equal(t, test.refused, IsRefused(test.err))
 		})
 	}
+}
+
+func TestWrapErrorGivesNetworkFailuresAStableMessage(t *testing.T) {
+	failure := func(sourcePort int) error {
+		return &url.Error{Op: "Get", URL: "http://harbor.example:8080/api/v2.0/systeminfo", Err: &net.OpError{
+			Op:     "read",
+			Net:    "tcp",
+			Source: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: sourcePort},
+			Addr:   &net.TCPAddr{IP: net.IPv4(10, 0, 0, 1), Port: 8080},
+			Err:    errors.New("connection reset by peer"),
+		}}
+	}
+
+	first := wrapError(failure(41588), "pw")
+	second := wrapError(failure(52000), "pw")
+
+	require.Error(t, first)
+	assert.Equal(t, first.Error(), second.Error())
+	assert.NotContains(t, first.Error(), "41588")
+	assert.Contains(t, first.Error(), "connection reset by peer")
+	assert.Contains(t, first.Error(), "http://harbor.example:8080/api/v2.0/systeminfo")
 }
