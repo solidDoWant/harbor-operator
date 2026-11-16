@@ -72,3 +72,34 @@ func TestSystemRobotPermissionsDocListsEveryPair(t *testing.T) {
 		}
 	}
 }
+
+func TestSystemRobotProjectPermissionsMatchCRD(t *testing.T) {
+	crd, err := os.ReadFile(filepath.Join("..", "..", "config", "crd", "bases", "harbor.soliddowant.dev_harborsystemrobots.yaml"))
+	require.NoError(t, err)
+
+	require.Contains(t, v1alpha1.SystemRobotProjectPermissions["project"], "delete")
+
+	for resource, actions := range v1alpha1.SystemRobotProjectPermissions {
+		for _, action := range actions {
+			require.Contains(t, string(crd), "'"+resource+":"+action+"'")
+		}
+	}
+}
+
+func TestProjectRobotCRDRefusesProjectPermissions(t *testing.T) {
+	crd, err := os.ReadFile(filepath.Join("..", "..", "config", "crd", "bases", "harbor.soliddowant.dev_harborprojectrobots.yaml"))
+	require.NoError(t, err)
+
+	for _, action := range []string{"read", "update", "delete"} {
+		require.NotContains(t, string(crd), "'project:"+action+"'")
+	}
+}
+
+func TestSystemRobotProjectPermissionsDocListsProject(t *testing.T) {
+	doc, err := os.ReadFile(filepath.Join("..", "..", "docs", "user", "robot-permissions.md"))
+	require.NoError(t, err)
+
+	_, extra, found := strings.Cut(string(doc), "### Extra project access for system robots")
+	require.True(t, found)
+	require.Contains(t, extra, "| `project` | `delete`, `read`, `update` |")
+}

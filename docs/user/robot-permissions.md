@@ -41,7 +41,7 @@ permissions:
 
 ## System robot permissions
 
-A `HarborSystemRobot` lists system-level access in `spec.systemPermissions`. Each entry has a `resource` and an `action`. The API server rejects an entry that is not in this table. Project access in `spec.projectPermissions` uses the project table above.
+A `HarborSystemRobot` lists system-level access in `spec.systemPermissions`. Each entry has a `resource` and an `action`. The API server rejects an entry that is not in this table. Project access in `spec.projectPermissions` uses the project table above, plus the extra entry in the next section.
 
 The table is Harbor 2.15's documented list for system robots. It was not read from a running Harbor's `GET /api/v2.0/permissions`, because no Harbor was available when it was written.
 
@@ -70,3 +70,11 @@ The table is Harbor 2.15's documented list for system robots. It was not read fr
 | `system-volumes` | `read` |
 | `user` | `create`, `delete`, `list`, `read`, `update` |
 | `user-group` | `create`, `delete`, `list`, `read`, `update` |
+
+### Extra project access for system robots
+
+A system robot may also hold these permissions in `spec.projectPermissions`. A project robot cannot. A tenant must not be able to create a robot that edits or deletes the project its `HarborProject` owns.
+
+| Resource | Actions |
+| --- | --- |
+| `project` | `delete`, `read`, `update` |

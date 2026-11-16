@@ -17,6 +17,20 @@ type SystemRobotAccess struct {
 	Action string `json:"action"`
 }
 
+// SystemRobotProjectAccess is one permission a system robot holds in projects. It allows everything a project robot
+// may hold, plus project read, update and delete, which only a system robot may be granted.
+// +kubebuilder:validation:XValidation:rule="['accessory:list','artifact-label:create','artifact-label:delete','artifact:delete','artifact:list','artifact:read','configuration:read','configuration:update','export-cve:create','export-cve:read','immutable-tag:create','immutable-tag:delete','immutable-tag:list','immutable-tag:update','label:create','label:delete','label:list','label:read','label:update','log:list','member:create','member:delete','member:list','member:read','member:update','metadata:create','metadata:delete','metadata:list','metadata:read','metadata:update','notification-policy:create','notification-policy:delete','notification-policy:list','notification-policy:read','notification-policy:update','preheat-policy:create','preheat-policy:delete','preheat-policy:list','preheat-policy:read','preheat-policy:update','project:delete','project:read','project:update','quota:read','repository:create','repository:delete','repository:list','repository:pull','repository:push','repository:read','repository:update','robot:create','robot:delete','robot:list','robot:read','robot:update','sbom:create','sbom:read','sbom:stop','scan:create','scan:read','scan:stop','scanner-pull:read','tag-retention:create','tag-retention:delete','tag-retention:list','tag-retention:operate','tag-retention:read','tag-retention:update','tag:create','tag:delete','tag:list'].exists(p, p == self.resource + ':' + self.action)",message="resource and action must be a pair from the list in docs/user/robot-permissions.md"
+type SystemRobotProjectAccess struct {
+	// Resource is a Harbor resource, for example repository.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=32
+	Resource string `json:"resource"`
+	// Action is a Harbor action, for example push.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=32
+	Action string `json:"action"`
+}
+
 // ProjectPermission grants project-level access in one or more projects.
 type ProjectPermission struct {
 	// Projects are Harbor project names. "*" means every project.
@@ -29,7 +43,7 @@ type ProjectPermission struct {
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=100
 	// +listType=atomic
-	Access []RobotAccess `json:"access"`
+	Access []SystemRobotProjectAccess `json:"access"`
 }
 
 // HarborSystemRobotSpec is the desired state of a system robot account.

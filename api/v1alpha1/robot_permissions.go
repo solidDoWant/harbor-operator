@@ -52,3 +52,16 @@ var SystemRobotPermissions = map[string][]string{
 	"user":                {"create", "delete", "list", "read", "update"},
 	"user-group":          {"create", "delete", "list", "read", "update"},
 }
+
+// SystemRobotProjectPermissions lists the pairs a system robot may be granted in projects: everything a project
+// robot may hold, plus project read, update and delete. The CEL rule on SystemRobotProjectAccess carries the same list.
+var SystemRobotProjectPermissions = func() map[string][]string {
+	permissions := make(map[string][]string, len(RobotPermissions)+1)
+	for resource, actions := range RobotPermissions {
+		permissions[resource] = actions
+	}
+
+	permissions["project"] = []string{"delete", "read", "update"}
+
+	return permissions
+}()

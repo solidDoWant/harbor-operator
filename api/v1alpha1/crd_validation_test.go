@@ -103,6 +103,15 @@ func TestCRDValidation(t *testing.T) {
 		"unlisted resource": {rejected: true, object: robot("badresource", func(r *v1alpha1.HarborProjectRobot) {
 			r.Spec.Permissions = []v1alpha1.RobotAccess{{Resource: "system", Action: "push"}}
 		})},
+		"project read refused": {rejected: true, object: robot("proj-read", func(r *v1alpha1.HarborProjectRobot) {
+			r.Spec.Permissions = []v1alpha1.RobotAccess{{Resource: "project", Action: "read"}}
+		})},
+		"project update refused": {rejected: true, object: robot("proj-update", func(r *v1alpha1.HarborProjectRobot) {
+			r.Spec.Permissions = []v1alpha1.RobotAccess{{Resource: "project", Action: "update"}}
+		})},
+		"project delete refused": {rejected: true, object: robot("proj-delete", func(r *v1alpha1.HarborProjectRobot) {
+			r.Spec.Permissions = []v1alpha1.RobotAccess{{Resource: "project", Action: "delete"}}
+		})},
 		"no permissions":      {rejected: true, object: robot("noperms", func(r *v1alpha1.HarborProjectRobot) { r.Spec.Permissions = nil })},
 		"duration -2":         {rejected: true, object: robot("durneg", func(r *v1alpha1.HarborProjectRobot) { r.Spec.Duration = -2 })},
 		"duration 1":          {object: robot("dur1", func(r *v1alpha1.HarborProjectRobot) { r.Spec.Duration = 1 })},

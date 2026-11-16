@@ -24,7 +24,7 @@ import (
 	"github.com/solidDoWant/harbor-operator/test/harborfixture"
 )
 
-var pullOnly = []harborv1alpha1.RobotAccess{{Resource: "repository", Action: "pull"}}
+var pullOnly = []harborv1alpha1.SystemRobotProjectAccess{{Resource: "repository", Action: "pull"}}
 
 // newSystemRobot is a system robot with a name unique to the test that pulls from every project and pushes to the
 // named projects. It is deleted from Harbor when the test ends, whatever its deletion policy.
@@ -40,7 +40,7 @@ func newSystemRobot(t *testing.T, setup *robotSetup, namespace string, pushProje
 
 	permissions := []harborv1alpha1.ProjectPermission{{Projects: []string{"*"}, Access: pullOnly}}
 	if len(pushProjects) > 0 {
-		permissions = append(permissions, harborv1alpha1.ProjectPermission{Projects: pushProjects, Access: pushPull})
+		permissions = append(permissions, harborv1alpha1.ProjectPermission{Projects: pushProjects, Access: []harborv1alpha1.SystemRobotProjectAccess{{Resource: "repository", Action: "push"}, {Resource: "repository", Action: "pull"}}})
 	}
 
 	return &harborv1alpha1.HarborSystemRobot{
@@ -456,4 +456,33 @@ func TestConnectionDeletionWaitsForAdmittedSystemRobots(t *testing.T) {
 		var current harborv1alpha1.HarborConnection
 		return client.IgnoreNotFound(cl.Get(t.Context(), client.ObjectKeyFromObject(connection), &current)) == nil && current.Name == ""
 	}, 60*time.Second, 200*time.Millisecond, "connection should be gone")
+}
+
+func TestSystemRobotWithProjectReadUpdateDeleteCanReadAndUpdateAProject(t *testing.T) {
+	t.Parallel()
+
+	setup := readyRobotProject(t, nil, nil)
+
+	robot := newSystemRobot(t, setup, setup.project.Namespace)
+	robot.Spec.ProjectPermissions = []harborv1alpha1.ProjectPermission{{
+		Projects: []string{setup.project.Spec.Name},
+		Access: []harborv1alpha1.SystemRobotProjectAccess{
+			{Resource: "project", Action: "read"},
+			{Resource: "project", Action: "update"},
+			{Resource: "project", Action: "delete"},
+		},
+	}}
+	require.NoError(t, setup.cl.Create(t.Context(), robot))
+
+	awaitSystemRobot(t, setup.cl, client.ObjectKeyFromObject(robot), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
+
+	username, password := dockerCredentials(t, setup.cl, setup.project.Namespace, "deployer-dockerconfig", setup.instance.Registry(t))
+	asRobot, err := harbor.NewClient(harbor.ConnectionConfig{URL: setup.instance.URL, Username: username, Password: password})
+	require.NoError(t, err)
+
+	_, err = asRobot.GetProjectByName(t.Context(), setup.project.Spec.Name)
+	require.NoError(t, err, "the robot reads the project")
+
+	public := true
+	require.NoError(t, asRobot.UpdateProjectMetadata(t.Context(), setup.project.Spec.Name, harbor.ProjectSettings{Public: &public}), "the robot updates the project")
 }
