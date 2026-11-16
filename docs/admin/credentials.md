@@ -27,7 +27,8 @@ kind: HarborSystemRobot
 metadata: {name: harbor-operator, namespace: harbor}
 spec:
   connectionRef: {name: harbor-admin}
-  systemPermissions: [...]    # the list in "Permissions the robot needs"
+  # Paste the output of `harbor-operator permissions` here. See "Permissions the robot needs".
+  systemPermissions: [...]
   projectPermissions: [...]
   secret:
     dockerConfigJSON: {enabled: false}
@@ -59,7 +60,22 @@ Harbor's chart renders `<release>-core` again on every upgrade. If the password 
 
 ### Permissions the robot needs
 
-The robot needs every permission for the kinds you use. The list is made from the operator's code, so it stays correct. See [Permissions each resource kind needs](required-permissions.md). Add every permission that any robot resource in your cluster asks for, for CI robots usually `repository` push and pull. Harbor lets a robot create robots only with permissions it holds itself, and answers `403` otherwise.
+The robot needs every permission for the kinds you use. The operator prints them as the permission fields of a `HarborSystemRobot` spec. Run the command from the image of the version you install:
+
+```sh
+docker run --rm ghcr.io/soliddowant/harbor-operator:<version> permissions
+```
+
+Paste the output into the `spec` of the robot. It sets `systemPermissions` and `projectPermissions` (for all projects). The list comes from the operator's code, so it stays correct. See also [Permissions each resource kind needs](required-permissions.md).
+
+| Flag | Default | Effect |
+|---|---|---|
+| `--kinds` | every kind | Comma-separated kinds to cover, for example `HarborProject,HarborRegistry`. |
+| `--content-deletion` | `true` | Include `repository` `list` and `delete`, which deleting a project with its contents needs. Use `--content-deletion=false` when no connection allows content deletion. |
+
+The output never has `robot` `update`. Only user credentials need it. Robot credentials replace robots instead.
+
+Add every permission that any robot resource in your cluster asks for to the pasted list, for CI robots usually `repository` push and pull. Harbor lets a robot create robots only with permissions it holds itself, and answers `403` otherwise.
 
 Each `HarborConnection` reports a `PermissionsSufficient` condition. It is `False` with reason [`InsufficientPermissions`](troubleshooting.md#insufficientpermissions) when the credential lacks a permission that the resources using the connection need, and the message lists the missing permissions. Project permissions are checked only in projects that already exist in Harbor. The condition is not part of `Ready`.
 
@@ -85,20 +101,9 @@ The operator checks the permissions of the connection against the kinds that use
 
 You can still make the robot yourself. It needs the permissions in [Permissions each resource kind needs](required-permissions.md), at two scopes. Create it through Harbor's API as a system administrator (the local `admin` user works, also in OIDC mode), because the web interface offers no `project` resource at the project scope.
 
-The robot needs permissions at two scopes:
+The robot needs the permissions that `harbor-operator permissions` prints, at the system scope and in all projects. Add every permission that any robot resource in your cluster asks for, for CI robots usually `repository` push and pull. Harbor only lets a robot create robots with permissions it holds itself, and answers `403` otherwise.
 
-| Scope | Resource | Actions |
-|---|---|---|
-| System | `project` | create, list |
-| System | `quota` | read, update |
-| System | `robot` | create, read, list, delete |
-| All projects | `project` | read, update, delete |
-| All projects | `robot` | create, read, list, delete |
-| All projects | `tag-retention` | create, read, update, delete (for `HarborRetentionPolicy`) |
-| All projects | `immutable-tag` | create, list, update, delete (for `HarborImmutabilityPolicy`) |
-| All projects | every permission any robot resource in your cluster asks for | for CI robots usually `repository` push and pull. Harbor only lets a robot create robots with permissions it holds itself, and answers `403` otherwise. |
-
-Example call:
+Example call. Fill in the two `access` lists from the output of the command. Each `resource` and `action` pair becomes one entry.
 
 ```sh
 curl -sS -u 'admin:<password>' -H 'Content-Type: application/json' \
@@ -106,20 +111,9 @@ curl -sS -u 'admin:<password>' -H 'Content-Type: application/json' \
   "name": "harbor-operator", "duration": -1, "level": "system", "disable": false,
   "permissions": [
     {"kind": "system", "namespace": "/", "access": [
-      {"resource": "project", "action": "create"}, {"resource": "project", "action": "list"},
-      {"resource": "quota", "action": "read"}, {"resource": "quota", "action": "update"},
-      {"resource": "robot", "action": "create"}, {"resource": "robot", "action": "read"},
-      {"resource": "robot", "action": "list"}, {"resource": "robot", "action": "delete"}]},
+      {"resource": "<resource>", "action": "<action>"}]},
     {"kind": "project", "namespace": "*", "access": [
-      {"resource": "project", "action": "read"}, {"resource": "project", "action": "update"},
-      {"resource": "project", "action": "delete"},
-      {"resource": "robot", "action": "create"}, {"resource": "robot", "action": "read"},
-      {"resource": "robot", "action": "list"}, {"resource": "robot", "action": "delete"},
-      {"resource": "repository", "action": "push"}, {"resource": "repository", "action": "pull"},
-      {"resource": "tag-retention", "action": "create"}, {"resource": "tag-retention", "action": "read"},
-      {"resource": "tag-retention", "action": "update"}, {"resource": "tag-retention", "action": "delete"},
-      {"resource": "immutable-tag", "action": "create"}, {"resource": "immutable-tag", "action": "list"},
-      {"resource": "immutable-tag", "action": "update"}, {"resource": "immutable-tag", "action": "delete"}]}
+      {"resource": "<resource>", "action": "<action>"}]}
   ]}'
 ```
 

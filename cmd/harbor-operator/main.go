@@ -28,6 +28,14 @@ import (
 var version = "0.0.0-dev"
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == permissionsSubcommand {
+		if err := runPermissions(os.Args[2:], os.Stdout, os.Stderr); err != nil {
+			os.Exit(2)
+		}
+
+		return
+	}
+
 	var (
 		metricsAddr          string
 		probeAddr            string
