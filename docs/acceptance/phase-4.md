@@ -22,3 +22,11 @@ Same rules as phase 1. Approved by the owner on 2026-11-16 (design: `docs/design
   Tests:
 - **AC-4-10 Docs.** The admin docs lead with the root-robot pattern, generate the permission list from the operator's code, and cover migrating from a hand-made robot. `make docs-check` passes.
   Tests:
+- **AC-4-11 Delete with contents.** A `HarborProject` with `deletionPolicy: DeleteWithContents`, on a connection with `allowContentDeletion: true`, that holds images in two repositories (one with a `/` in its name), is deleted together with its images, and the resource goes away.
+  Tests:
+- **AC-4-12 Not allowed by the connection.** The same project on a connection without `allowContentDeletion` reports `ContentDeletionNotAllowed` when deleted, deletes no image, and stays `DeleteBlocked` until the images are removed by hand.
+  Tests:
+- **AC-4-13 Resumes after a failure.** When Harbor fails partway through deleting the repositories, the resource reports what is left, and the deletion finishes by itself once Harbor answers again.
+  Tests:
+- **AC-4-14 Other kinds.** `DeleteWithContents` on a robot, policy or registry resource behaves exactly like `Delete`.
+  Tests:

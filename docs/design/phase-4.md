@@ -86,3 +86,33 @@ The admin connection needs no special flag. Its power is contained by its admiss
 ## 4. Docs
 
 `docs/admin/credentials.md` leads with the root-robot pattern above (with Harbor's chart Secret names: `existingSecretAdminPassword`'s Secret or `<release>-core`, key `HARBOR_ADMIN_PASSWORD`). The admin can still use a hand-made robot or user. A migration section covers adopting an existing hand-made robot. The caveat that Harbor's admin Secret holds only the *initial* admin password is stated: if it was changed in the UI, the admin connection turns `Unauthorized` and the operator keeps working on its current robot until the next rotation needs admin.
+
+## 5. Deleting a project's images (owner, 2026-11-16, issue #142)
+
+Harbor refuses to delete a project that still holds repositories. A CI chart that makes one project per repository then can't offboard a repository with `Delete`: the `HarborProject` stays `DeleteBlocked`, and so does its namespace. This section adds an explicit opt-in that empties the project first. It changes SPEC principle 4 for that opt-in only.
+
+### 5.1 API
+
+- New `DeletionPolicy` value **`DeleteWithContents`**. It is accepted wherever `deletionPolicy` is (resources and `HarborConnection.spec.defaults`). On `HarborProject` it means "delete every repository, then the project". On every other kind it means the same as `Delete`.
+- New `HarborConnection.spec.allowContentDeletion` (bool, default `false`). The opt-in on a resource takes effect only when its connection allows it, so an admitted namespace can't wipe images on a connection whose admin didn't agree. This matters most for adopted projects.
+
+### 5.2 Reconcile rows (project deletion, after the phase 1 deletion preamble)
+
+| Situation | Response | Test |
+|---|---|---|
+| Effective policy `DeleteWithContents`, connection `allowContentDeletion: false` | `Ready=False, ContentDeletionNotAllowed`. Nothing is deleted; the resource behaves like `Delete` (`DeleteBlocked` while images remain). Warning event once. | integration |
+| `DeleteWithContents`, allowed, project has repositories | List repositories (`GET /projects/{name}/repositories`, paginated), delete each (`DELETE /projects/{name}/repositories/{repo}`; 404 counts as deleted), then delete the project and remove the finalizer. Status message during the run: `deleting contents: N repositories left`. | integration |
+| A repository delete fails (5xx, network) partway | Keep the finalizer, `HarborUnavailable` with the count left, backoff. The next reconcile lists again and continues. | integration |
+| Repository delete answers 403 | `Ready=False, Forbidden` naming the missing permission (`repository:delete` at project scope); nothing else deleted. | integration |
+| Proxy-cache project | Same rows (cached repositories are deleted the same way). | integration |
+| Effective policy `DeleteWithContents` while the project is not owned (`Conflict`, `AlreadyExists`, no ID) | The phase 1 preamble applies first: nothing is deleted. | unit |
+
+Repository names in the path are URL-encoded twice, as Harbor requires for names containing `/` (`library%252Fapp`), through go-client's parameters. Never build the path by hand.
+
+### 5.3 Permissions
+
+`PermissionsSufficient` (section 2.4) adds project-scope `repository:delete` to the required set when any project using the connection has effective policy `DeleteWithContents` and the connection allows it.
+
+### 5.4 Docs
+
+The user docs say plainly that `DeleteWithContents` deletes every image in the project permanently and can't be undone. The admin docs explain `allowContentDeletion`.

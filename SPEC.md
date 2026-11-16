@@ -27,7 +27,7 @@ Non-negotiable. Tests enforce them, and only the owner can change them.
 1. **The custom resource is the source of truth.** For every field the spec sets, the operator makes Harbor match it, and puts back changes made in Harbor's UI or API (drift is overwritten). Fields the spec leaves unset are not touched.
 2. **A namespace reaches only what it was allowed to.** A resource can use a connection, project or registry only if that object's `allowedNamespaces` admits the resource's namespace. No resource can act on a Harbor object owned by another custom resource.
 3. **Secrets stay secret.** Robot secrets and connection credentials appear only in Kubernetes Secrets. They are never logged, never put in status, events or conditions, and never written to a namespace other than the one the spec names.
-4. **Nothing is deleted by surprise.** The operator deletes a Harbor object only when the custom resource that owns it is deleted and its `deletionPolicy` is `Delete`. It never deletes an object it did not create or adopt.
+4. **Nothing is deleted by surprise.** The operator deletes a Harbor object only when the custom resource that owns it is deleted and its `deletionPolicy` is `Delete` or `DeleteWithContents`. It never deletes an object it did not create or adopt. It deletes a project's images only under `DeleteWithContents`, which the connection must also allow.
 5. **Done means the owner's checklist passes.** Nobody raises the bar beyond the checklist and principles 1–4.
 
 ## 3. Target environment
@@ -124,7 +124,7 @@ The dockerconfigjson Secret holds an auth entry for the connection's registry ho
 
 - `deletionPolicy: Delete` (default, overridable by the connection's `defaults`) deletes the Harbor object when the custom resource is deleted; `Orphan` leaves it. Either way the operator only ever deletes by the ID in status, after checking that ID still names this resource's own object; with no ID it deletes nothing.
 - A resource whose reference is no longer admitted is orphaned when deleted: the finalizer goes and Harbor is untouched.
-- Harbor refuses to delete a project that still has repositories (HTTP 412). The operator reports `reason=DeleteBlocked` with Harbor's message and retries with backoff; it never deletes repositories itself. A 404 on delete counts as deleted.
+- Harbor refuses to delete a project that still has repositories (HTTP 412). With `Delete`, the operator reports `reason=DeleteBlocked` with Harbor's message and retries with backoff; it doesn't delete repositories. With `DeleteWithContents` (projects only, and only when the connection sets `allowContentDeletion`), it deletes every repository first, then the project (`docs/design/phase-4.md`). A 404 on delete counts as deleted.
 - Deleting a `HarborProject` (either policy) waits while robot or policy resources that the project admits still point at it (`reason=DependentsExist`). Resources it doesn't admit never hold it up. The same goes for a `HarborConnection` and the resources it admits.
 - If Harbor is unreachable or the connection's credentials are gone, deletion waits (finalizer kept) and retries. Admins delete the resources before deleting their namespace; removing a finalizer by hand gives up, and is documented, not automated.
 
