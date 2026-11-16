@@ -257,7 +257,7 @@ func (r *robotLifecycle) create(ctx context.Context, state *robotReconcile, recr
 
 	// The robot was created from the spec and its Secrets were just written with its secret, which the cache may not
 	// show yet; reading them back now would refresh the new secret for nothing.
-	return reconcile.Result{RequeueAfter: state.resync}, r.setReady(ctx, robot, metav1.ConditionTrue, harborv1alpha1.ReasonReady, "Harbor robot matches the spec")
+	return reconcile.Result{RequeueAfter: state.resync}, r.setSynced(ctx, robot)
 }
 
 // createRobot creates the robot, records it and writes its Secrets. done is true when the reconcile ends here.
@@ -355,7 +355,7 @@ func (r *robotLifecycle) update(ctx context.Context, state *robotReconcile, curr
 		return reconcile.Result{RequeueAfter: state.resync}, err
 	}
 
-	return reconcile.Result{RequeueAfter: state.resync}, r.setReady(ctx, robot, metav1.ConditionTrue, harborv1alpha1.ReasonReady, "Harbor robot matches the spec")
+	return reconcile.Result{RequeueAfter: state.resync}, r.setSynced(ctx, robot)
 }
 
 // currentSecret returns the robot secret held by a Secret this robot owns, preferring the Secrets the spec names, and
@@ -431,7 +431,7 @@ func (r *robotLifecycle) refreshSecret(ctx context.Context, state *robotReconcil
 		return reconcile.Result{}, err
 	}
 
-	return reconcile.Result{RequeueAfter: state.resync}, r.setReady(ctx, robot, metav1.ConditionTrue, harborv1alpha1.ReasonReady, "Harbor robot matches the spec")
+	return reconcile.Result{RequeueAfter: state.resync}, r.setSynced(ctx, robot)
 }
 
 // secretConflict reports, and records as SecretConflict, a target Secret name taken by a Secret this robot does not
@@ -496,7 +496,7 @@ func (r *robotLifecycle) replace(ctx context.Context, state *robotReconcile, cur
 	r.Recorder.Eventf(robot.object(), nil, corev1.EventTypeNormal, harborv1alpha1.EventReasonReplaced, "Replace",
 		"Replaced Harbor robot %q because the connection's credentials cannot update robots", created.Name)
 
-	return reconcile.Result{RequeueAfter: state.resync}, r.setReady(ctx, robot, metav1.ConditionTrue, harborv1alpha1.ReasonReady, "Harbor robot matches the spec")
+	return reconcile.Result{RequeueAfter: state.resync}, r.setSynced(ctx, robot)
 }
 
 // replaceForbiddenMessage says why a robot that cannot be updated is not replaced, naming the permissions the
@@ -730,8 +730,9 @@ func (r *robotLifecycle) ownedSecrets(ctx context.Context, robot robotResource) 
 	return owned, nil
 }
 
-// deleteOwnedSecrets deletes the Secrets whose controller is this robot, except those named in keep. When the
-// resource is deleted garbage collection would also remove them; deleting them here makes them go with the resource.
+// deleteOwnedSecrets deletes the Secrets whose controller is this robot, except those named in keep and, when keep is
+// given, those a connection in the namespace uses. When the resource is deleted garbage collection would also remove
+// them; deleting them here makes them go with the resource.
 func (r *robotLifecycle) deleteOwnedSecrets(ctx context.Context, robot robotResource, keep map[string]bool) error {
 	owned, err := r.ownedSecrets(ctx, robot)
 	if err != nil {
@@ -741,6 +742,18 @@ func (r *robotLifecycle) deleteOwnedSecrets(ctx context.Context, robot robotReso
 	for _, secret := range owned {
 		if keep[secret.Name] {
 			continue
+		}
+
+		// A Secret the spec stopped naming stays while a connection signs in with it.
+		if keep != nil {
+			users, err := secretUsers(ctx, r.Client, secret.Namespace, []string{secret.Name})
+			if err != nil {
+				return err
+			}
+
+			if len(users) > 0 {
+				continue
+			}
 		}
 
 		if err := r.Delete(ctx, secret, client.Preconditions{UID: &secret.UID}); client.IgnoreNotFound(err) != nil {
