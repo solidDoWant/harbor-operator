@@ -6,14 +6,16 @@
       description: "Harbor's component images for one test Harbor move together: mixed patch versions of core, jobservice, registry and portal aren't a release Harbor tests",
       groupName: "harbor 2.15 test images",
       matchFileNames: ["test/harbor/values.yaml"],
-      matchPackageNames: ["ghcr.io/goharbor/**", "mirror.gcr.io/goharbor/**"],
+      // mirror.gcr.io images are looked up as docker.io (safety.json5), so match both.
+      matchPackageNames: ["ghcr.io/goharbor/**", "mirror.gcr.io/goharbor/**", "docker.io/goharbor/**"],
       group: { commitMessageTopic: "{{{groupName}}}" },
     },
     {
       description: "Same for the second matrix entry",
       groupName: "harbor 2.14 test images",
       matchFileNames: ["test/harbor/values-2.14.yaml"],
-      matchPackageNames: ["ghcr.io/goharbor/**", "mirror.gcr.io/goharbor/**"],
+      // mirror.gcr.io images are looked up as docker.io (safety.json5), so match both.
+      matchPackageNames: ["ghcr.io/goharbor/**", "mirror.gcr.io/goharbor/**", "docker.io/goharbor/**"],
       group: { commitMessageTopic: "{{{groupName}}}" },
     },
     {
