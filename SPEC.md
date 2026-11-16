@@ -163,6 +163,7 @@ Each phase ends with a release an admin can deploy: image `ghcr.io/soliddowant/h
 1. **Projects and robots** (`docs/acceptance/phase-1.md`). `HarborConnection`, `HarborProject` (settings, quota, vulnerability settings), `HarborProjectRobot` with Secrets, cross-namespace selection, ownership, adoption, deletion, drift correction, image and chart. This is everything the CI chart needs.
 2. **Policies, proxy caches and system robots** (`docs/acceptance/phase-2.md`). `HarborRegistry` and proxy-cache projects, `HarborRetentionPolicy`, `HarborImmutabilityPolicy`, `HarborSystemRobot`.
 3. **Operations and documentation** (`docs/acceptance/phase-3.md`). Metrics, events, a Harbor-version test matrix, chart polish (`watchNamespaces`, network policy, PodDisruptionBudget), full admin docs with worked examples for a CI chart.
+4. **Operator-managed credentials** (`docs/acceptance/phase-4.md`). The operator's own system robot is a `HarborSystemRobot` managed through an admin connection that uses Harbor's admin Secret: credential key mapping, a narrower `OperatorCredential` guard, deletion that waits for connections using a robot's Secret, and a permission check on connections. No separate bootstrap mode.
 
 Each phase's design (`docs/design/phase-N.md`, with its reconcile table) is reviewed before its issues are scheduled.
 

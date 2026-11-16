@@ -61,11 +61,13 @@ docs/acceptance/
   phase-1.md               The owner's checklist for phase 1: projects and robots.
   phase-2.md               The owner's checklist for phase 2: policies, proxy caches and system robots.
   phase-3.md               The owner's checklist for phase 3: operations and documentation.
+  phase-4.md               The owner's checklist for phase 4: operator-managed credentials.
 
 docs/design/
   phase-1.md               The design for phase 1: types, packages and the reconcile tables.
   phase-2.md               The design for phase 2: types, packages and the reconcile tables.
   phase-3.md               The design for phase 3: metrics, events, Harbor outages, chart hardening and docs.
+  phase-4.md               The design for phase 4: the operator's own robot as a HarborSystemRobot.
 
 docs/agents/               Instructions for the agents (not for people).
   planner.md               The planner's playbook.
