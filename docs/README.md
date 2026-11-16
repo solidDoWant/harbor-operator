@@ -52,6 +52,7 @@ docs/admin/
   system-robots.md         System robots: access to many projects, and their status reasons.
   troubleshooting.md       Every condition reason with its cause and fix.
   metrics.md               The metrics the operator exports.
+  required-permissions.md  Harbor permissions each kind needs (generated).
   chart-values.md          Every Helm chart value (generated).
 
 docs/dev/

@@ -17,6 +17,8 @@ type SystemInfo struct {
 }
 
 // GetSystemInfo reads Harbor's general information.
+//
+//harbor:permission none
 func (c *Client) GetSystemInfo(ctx context.Context) (*SystemInfo, error) {
 	response, err := c.api.Systeminfo.GetSystemInfo(ctx, systeminfo.NewGetSystemInfoParams())
 	if err != nil {

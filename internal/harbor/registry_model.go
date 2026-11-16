@@ -70,6 +70,8 @@ func (c *Client) failRegistry(err error, credential *RegistryCredential) error {
 }
 
 // GetRegistry returns the registry with the ID, or a 404 error when there is none.
+//
+//harbor:permission system registry read
 func (c *Client) GetRegistry(ctx context.Context, id int64) (*Registry, error) {
 	response, err := c.api.Registry.GetRegistry(ctx, &registry.GetRegistryParams{ID: id})
 	if err != nil {
@@ -80,6 +82,8 @@ func (c *Client) GetRegistry(ctx context.Context, id int64) (*Registry, error) {
 }
 
 // GetRegistryByName returns the registry with exactly the name, or a 404 error when there is none.
+//
+//harbor:permission system registry list
 func (c *Client) GetRegistryByName(ctx context.Context, name string) (*Registry, error) {
 	query := "name=" + name
 	pageSize := int64(100)
@@ -103,6 +107,8 @@ func (c *Client) GetRegistryByName(ctx context.Context, name string) (*Registry,
 }
 
 // CreateRegistry creates the registry endpoint and returns it as Harbor stores it.
+//
+//harbor:permission system registry create
 func (c *Client) CreateRegistry(ctx context.Context, spec RegistrySpec) (*Registry, error) {
 	body := &models.Registry{
 		Name: spec.Name, Type: spec.Type, URL: spec.URL, Description: spec.Description, Insecure: spec.Insecure,
@@ -121,6 +127,8 @@ func (c *Client) CreateRegistry(ctx context.Context, spec RegistrySpec) (*Regist
 }
 
 // UpdateRegistry writes every managed field of the registry, and the credential when the spec has one.
+//
+//harbor:permission system registry update
 func (c *Client) UpdateRegistry(ctx context.Context, id int64, spec RegistrySpec) error {
 	body := &models.RegistryUpdate{
 		Name: &spec.Name, URL: &spec.URL, Description: &spec.Description, Insecure: &spec.Insecure,
@@ -138,6 +146,8 @@ func (c *Client) UpdateRegistry(ctx context.Context, id int64, spec RegistrySpec
 }
 
 // DeleteRegistry deletes the registry; Harbor answers 412 while a project or replication rule uses it.
+//
+//harbor:permission system registry delete
 func (c *Client) DeleteRegistry(ctx context.Context, id int64) error {
 	_, err := c.api.Registry.DeleteRegistry(ctx, &registry.DeleteRegistryParams{ID: id})
 
@@ -146,6 +156,8 @@ func (c *Client) DeleteRegistry(ctx context.Context, id int64) error {
 
 // PingRegistry asks Harbor to check the stored registry's upstream. It returns nil when the upstream answers, and an
 // error otherwise; IsUpstreamFailure tells an unhealthy upstream from a failure of the call itself.
+//
+//harbor:permission system registry read
 func (c *Client) PingRegistry(ctx context.Context, id int64) error {
 	_, err := c.api.Registry.PingRegistry(ctx, &registry.PingRegistryParams{Registry: &models.RegistryPing{ID: &id}})
 
