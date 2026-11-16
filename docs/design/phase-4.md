@@ -57,7 +57,7 @@ The phase 2 rule refused to manage any system robot whose Harbor name equals the
 
 ### 2.3 Deletion waits for connections that use the robot's Secret
 
-A `HarborSystemRobot` (or `HarborProjectRobot`) whose enabled output Secret is named in the `credentialsSecretRef` of a `HarborConnection` in the same namespace waits on deletion with `DependentsExist`, naming the connection. Field index on `spec.credentialsSecretRef.name`. Either deletion policy. Deleting the connection first lets the robot go.
+A `HarborSystemRobot` (or `HarborProjectRobot`) whose enabled output Secret is named in the `credentialsSecretRef` of a `HarborConnection` in the same namespace waits on deletion with `DependentsExist`, naming the connection. Field index on `spec.credentialsSecretRef.name`. Either deletion policy. Deleting the connection first lets the robot go. Only an output Secret whose controller owner reference is the robot counts: a Secret the spec names but the robot does not own (a `SecretConflict`, or a Secret refused with `OperatorCredential`) does not go with the robot, so the robot does not wait for its users.
 
 ### 2.4 Permission check on the connection
 

@@ -4,6 +4,7 @@ package controller_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -128,6 +129,90 @@ func TestProjectRobotDeletionWaitsForConnectionsUsingItsSecret(t *testing.T) {
 
 	_, err = setup.admin.GetRobot(t.Context(), robotID)
 	assert.True(t, harbor.IsNotFound(err), "the Harbor robot is deleted, have %v", err)
+}
+
+// A robot whose spec names a Secret it does not own never wrote that Secret, and the Secret does not go with the
+// robot, so deleting the robot can't take it away from a connection that uses it.
+func TestRobotDeletionDoesNotWaitForConnectionsUsingASecretItDoesNotOwn(t *testing.T) {
+	t.Parallel()
+
+	setup := readyRobotProject(t, nil, nil)
+	namespace := setup.connection.Namespace
+
+	handMade := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "hand-made-credentials"},
+		StringData: map[string]string{"username": "robot$someone", "password": "not-a-real-secret"},
+	}
+	require.NoError(t, setup.cl.Create(t.Context(), handMade))
+
+	connection := useSecret(t, setup, namespace, "main", "hand-made-credentials")
+
+	robot := newSystemRobot(t, setup, namespace)
+	robot.Name = "squatter"
+	robot.Spec.DeletionPolicy = harborv1alpha1.DeletionPolicyDelete
+	robot.Spec.Secret.Opaque.Enabled = ptr(true)
+	robot.Spec.Secret.Opaque.Name = "hand-made-credentials"
+	require.NoError(t, setup.cl.Create(t.Context(), robot))
+
+	key := client.ObjectKeyFromObject(robot)
+	awaitSystemRobot(t, setup.cl, key, metav1.ConditionFalse, harborv1alpha1.ReasonSecretConflict)
+
+	connectionBefore := &harborv1alpha1.HarborConnection{}
+	require.NoError(t, setup.cl.Get(t.Context(), client.ObjectKeyFromObject(connection), connectionBefore))
+
+	require.NoError(t, setup.cl.Delete(t.Context(), robot))
+	awaitObjectGone(t, setup.cl, &harborv1alpha1.HarborSystemRobot{ObjectMeta: robot.ObjectMeta}, "a robot that owns no Secret a connection uses is deleted")
+
+	secret := &corev1.Secret{}
+	require.NoError(t, setup.cl.Get(t.Context(), client.ObjectKeyFromObject(handMade), secret), "the hand-made Secret stays")
+	assert.Equal(t, "not-a-real-secret", string(secret.Data["password"]), "the hand-made Secret is unchanged")
+	assert.Nil(t, metav1.GetControllerOf(secret), "the hand-made Secret gains no owner")
+
+	connectionAfter := &harborv1alpha1.HarborConnection{}
+	require.NoError(t, setup.cl.Get(t.Context(), client.ObjectKeyFromObject(connection), connectionAfter), "the connection stays")
+	assert.True(t, connectionAfter.DeletionTimestamp.IsZero(), "the connection is not deleted")
+	assert.Equal(t, connectionBefore.Spec, connectionAfter.Spec, "the connection's spec is unchanged")
+}
+
+// A robot refused with OperatorCredential because it names its managing connection's own Secret never writes or owns
+// that Secret. Deleting it must not wait for the connection, or the connection, which waits for the robot, could
+// never be deleted afterwards.
+func TestRefusedRobotNamingItsConnectionsSecretIsDeletedWithoutBlockingTheConnection(t *testing.T) {
+	t.Parallel()
+
+	setup := readyRobotProjectWithSystemRobot(t, true, func(connection *harborv1alpha1.HarborConnection) { connection.Spec.AllowAdoption = true }, nil)
+	namespace := setup.connection.Namespace
+	secretName := setup.connection.Spec.CredentialsSecretRef.Name
+
+	before := &corev1.Secret{}
+	require.NoError(t, setup.cl.Get(t.Context(), client.ObjectKey{Namespace: namespace, Name: secretName}, before))
+	operatorName := string(before.Data["username"])
+	require.True(t, strings.HasPrefix(operatorName, "robot$"), "the connection signs in as a system robot, have %q", operatorName)
+
+	robot := newSystemRobot(t, setup, namespace)
+	robot.Spec.Name = strings.TrimPrefix(operatorName, "robot$")
+	robot.Spec.Adopt = true
+	robot.Spec.Secret.Opaque.Enabled = ptr(true)
+	robot.Spec.Secret.Opaque.Name = secretName
+	require.NoError(t, setup.cl.Create(t.Context(), robot))
+
+	key := client.ObjectKeyFromObject(robot)
+	awaitSystemRobot(t, setup.cl, key, metav1.ConditionFalse, harborv1alpha1.ReasonOperatorCredential)
+
+	require.NoError(t, setup.cl.Delete(t.Context(), robot))
+	awaitObjectGone(t, setup.cl, &harborv1alpha1.HarborSystemRobot{ObjectMeta: robot.ObjectMeta}, "the refused robot goes")
+
+	after := &corev1.Secret{}
+	require.NoError(t, setup.cl.Get(t.Context(), client.ObjectKey{Namespace: namespace, Name: secretName}, after), "the connection's Secret stays")
+	assert.Equal(t, before.Data, after.Data, "the connection's Secret is unchanged")
+	awaitReady(t, setup.cl, client.ObjectKeyFromObject(setup.connection), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
+
+	// The project is the connection's other dependent; with it gone, nothing may hold the connection.
+	require.NoError(t, setup.cl.Delete(t.Context(), setup.project))
+	awaitObjectGone(t, setup.cl, &harborv1alpha1.HarborProject{ObjectMeta: setup.project.ObjectMeta}, "the project goes")
+
+	require.NoError(t, setup.cl.Delete(t.Context(), setup.connection))
+	awaitObjectGone(t, setup.cl, &harborv1alpha1.HarborConnection{ObjectMeta: setup.connection.ObjectMeta}, "the connection deletion is not blocked by the robot")
 }
 
 func TestRobotKeepsADroppedSecretWhileAConnectionUsesIt(t *testing.T) {

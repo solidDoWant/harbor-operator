@@ -41,19 +41,20 @@ func secretUsersMessage(users []string) string {
 	return fmt.Sprintf("the robot's Secret is the credentials Secret of HarborConnection %s", strings.Join(users, ", "))
 }
 
-// waitForSecretUsers reports DependentsExist and returns true while a connection in the robot's namespace uses one of
-// the robot's Secrets: an enabled output Secret, or one the robot still owns. It runs before anything else on
-// deletion, because the robot's Secrets go with it by owner reference whatever its deletion policy, and the connection
-// would lose its credentials. Deleting the connection or pointing it elsewhere re-queues the robot through its watch.
+// waitForSecretUsers reports DependentsExist and returns true while a connection in the robot's namespace uses a Secret
+// the robot owns. It runs before anything else on deletion, because the robot's Secrets go with it by owner reference
+// whatever its deletion policy, and the connection would lose its credentials. A Secret the spec names but the robot
+// does not own, such as one held by another robot or made by hand, stays when the robot goes, so the robot does not
+// wait for its users. Deleting the connection or pointing it elsewhere re-queues the robot through its watch.
 func (r *robotLifecycle) waitForSecretUsers(ctx context.Context, robot robotResource) (bool, error) {
 	object := robot.object()
-	names := secrets.Names(object.GetName(), robot.secretSpec())
 
 	owned, err := r.ownedSecrets(ctx, robot)
 	if err != nil {
 		return false, err
 	}
 
+	names := make([]string, 0, len(owned))
 	for _, secret := range owned {
 		names = append(names, secret.Name)
 	}
