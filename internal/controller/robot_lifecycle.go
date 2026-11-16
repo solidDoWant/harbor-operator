@@ -323,6 +323,7 @@ func (r *robotLifecycle) update(ctx context.Context, state *robotReconcile, curr
 			return r.harborFailed(ctx, state, err)
 		}
 
+		driftOf(robot.object()).count()
 		recordUpdated(r.Recorder, robot.object(), "robot", current.Name, robotDriftFields(want, current)...)
 
 		current = updated

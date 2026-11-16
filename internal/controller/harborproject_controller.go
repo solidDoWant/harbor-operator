@@ -477,8 +477,14 @@ func (r *HarborProjectReconciler) update(ctx context.Context, state *projectReco
 
 	var fields []string
 
+	drift := driftOf(project)
+
 	defer func() {
 		if !state.justCreated {
+			if len(fields) > 0 {
+				drift.count()
+			}
+
 			recordUpdated(r.Recorder, project, "project", current.Name, fields...)
 		}
 	}()

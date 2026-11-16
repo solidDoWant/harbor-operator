@@ -310,6 +310,8 @@ func (r *HarborImmutabilityPolicyReconciler) sync(ctx context.Context, state *im
 	if len(have) == 0 && len(plan.create) > 0 {
 		defer recordCreated(r.Recorder, state.policy, "immutability rules of project", projectName(state.project))
 	} else if len(plan.create)+len(plan.update)+len(plan.remove) > 0 {
+		driftOf(state.policy).count()
+
 		defer recordUpdated(r.Recorder, state.policy, "immutability rules of project", projectName(state.project), "rules")
 	}
 

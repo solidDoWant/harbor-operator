@@ -9,26 +9,51 @@ import (
 	"testing"
 
 	"github.com/VictoriaMetrics/metricsql"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 	"sigs.k8s.io/yaml"
+
+	"github.com/solidDoWant/harbor-operator/internal/controller"
+	_ "github.com/solidDoWant/harbor-operator/internal/harbor" // registers the Harbor request metric
 )
 
-// exportedMetrics lists the metrics a dashboard query may use: the operator's own, the controller-runtime
-// ones the panels name, and the Go process metrics.
-var exportedMetrics = map[string]bool{
-	"harbor_operator_resources":                 true,
-	"harbor_operator_harbor_requests_seconds":   true,
-	"harbor_operator_drift_corrections_total":   true,
-	"harbor_operator_registry_health":           true,
-	"controller_runtime_reconcile_total":        true,
-	"controller_runtime_reconcile_errors_total": true,
-	"controller_runtime_reconcile_time_seconds": true,
-	"workqueue_depth":                           true,
-	"process_resident_memory_bytes":             true,
-	"process_start_time_seconds":                true,
+// exportedMetrics returns the names of the metrics the operator registers on the controller-runtime registry:
+// its own, the controller-runtime ones and the Go process metrics.
+func exportedMetrics(t *testing.T) map[string]bool {
+	t.Helper()
+
+	// The collector only describes itself on registration, so it needs no cluster.
+	registry := prometheus.NewPedanticRegistry()
+	require.NoError(t, registry.Register(controller.NewResourceCollector(nil, nil)))
+
+	names := map[string]bool{}
+
+	operator, ok := ctrlmetrics.Registry.(prometheus.Collector)
+	require.True(t, ok, "the controller-runtime registry describes its collectors")
+
+	for _, collector := range []prometheus.Collector{operator, registry} {
+		descs := make(chan *prometheus.Desc)
+
+		go func() {
+			collector.Describe(descs)
+			close(descs)
+		}()
+
+		for desc := range descs {
+			match := fqName.FindStringSubmatch(desc.String())
+			require.NotNil(t, match, desc.String())
+
+			names[match[1]] = true
+		}
+	}
+
+	return names
 }
+
+var fqName = regexp.MustCompile(`fqName: "([^"]+)"`)
 
 type dashboardJSON struct {
 	Panels []struct {
@@ -66,6 +91,8 @@ func TestDashboardQueriesUseOnlyExportedMetrics(t *testing.T) {
 	dashboard, _ := readDashboard(t)
 	require.NotEmpty(t, dashboard.Panels)
 
+	exported := exportedMetrics(t)
+
 	queries := 0
 
 	for _, panel := range dashboard.Panels {
@@ -94,7 +121,7 @@ func TestDashboardQueriesUseOnlyExportedMetrics(t *testing.T) {
 				}
 
 				base := strings.TrimSuffix(strings.TrimSuffix(strings.TrimSuffix(name, "_bucket"), "_sum"), "_count")
-				assert.True(t, exportedMetrics[name] || exportedMetrics[base], "panel %q uses %q, which the operator does not export", panel.Title, name)
+				assert.True(t, exported[name] || exported[base], "panel %q uses %q, which the operator does not export", panel.Title, name)
 			})
 		}
 	}

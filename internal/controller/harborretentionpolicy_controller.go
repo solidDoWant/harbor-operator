@@ -378,6 +378,7 @@ func (r *HarborRetentionPolicyReconciler) sync(ctx context.Context, state *reten
 			return r.syncFailed(ctx, state, err)
 		}
 
+		driftOf(policy).count()
 		recordUpdated(r.Recorder, policy, "retention policy", policy.Name,
 			fieldIf(want.Schedule != have.Schedule, "schedule"), fieldIf(!slices.Equal(want.Rules, have.Rules), "rules"))
 	}
