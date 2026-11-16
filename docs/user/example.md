@@ -72,7 +72,7 @@ Run `kubectl get harborproject,harborprojectrobot`. The `Ready` column is `True`
 | `AdoptionNotAllowed` | You set `adopt: true` but the connection has `allowAdoption: false`. | Ask the admin to allow adoption. |
 | `InvalidSpec` | Harbor rejected a value. The message has Harbor's reason. | Correct the value. The operator tries again when you change the resource. |
 | `CredentialsInvalid`, `Unauthorized`, `HarborUnavailable` | The connection cannot sign in to Harbor, or cannot reach it. | Tell the admin. See [credentials](../admin/credentials.md). |
-| `DependentsExist` | You deleted a project that robots or an immutability policy still use. | Delete them first. |
+| `DependentsExist` | You deleted a project that robots or an immutability policy still use. Or you deleted a robot, or disabled or renamed its Secret, and a connection in the namespace signs in with that Secret. The message names them. | Delete them first, or point the connection at another Secret. The operator keeps the robot and its Secret until then. |
 | `DeleteBlocked` | Harbor refuses to delete a project that still has repositories. With `DeleteWithContents`, the message shows how many repositories are left, or says that the connection does not allow content deletion. | Delete the repositories in Harbor. The operator tries again. |
 | `ProjectNotReady` | A robot or policy waits for its project to exist in Harbor. | Check the project status. |
 | `SecretConflict` | A Secret with the robot's Secret name exists and the robot does not own it. | Rename the Secret in `spec.secret`, or delete the old one. |

@@ -25,6 +25,7 @@ import (
 	"github.com/solidDoWant/harbor-operator/internal/access"
 	"github.com/solidDoWant/harbor-operator/internal/harbor"
 	"github.com/solidDoWant/harbor-operator/internal/ownership"
+	"github.com/solidDoWant/harbor-operator/internal/secrets"
 )
 
 // SystemRobotConnectionIndex finds the system robots that use a connection. Its value is "namespace/name".
@@ -76,8 +77,26 @@ func (r *HarborSystemRobotReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
+// robotsForConnection maps a connection to the system robots that use it and to those whose Secret it signs in with.
 func (r *HarborSystemRobotReconciler) robotsForConnection(ctx context.Context, object client.Object) []reconcile.Request {
-	return r.robotRequests(ctx, client.MatchingFields{SystemRobotConnectionIndex: client.ObjectKeyFromObject(object).String()})
+	requests := r.robotRequests(ctx, client.MatchingFields{SystemRobotConnectionIndex: client.ObjectKeyFromObject(object).String()})
+
+	return append(requests, robotsUsingSecretOf(ctx, r.Client, object, "HarborSystemRobot", r.secretNamesIn)...)
+}
+
+// secretNamesIn lists the system robots in namespace with the names of their enabled Secrets.
+func (r *HarborSystemRobotReconciler) secretNamesIn(ctx context.Context, namespace string) (map[string][]string, error) {
+	var robots harborv1alpha1.HarborSystemRobotList
+	if err := r.List(ctx, &robots, client.InNamespace(namespace)); err != nil {
+		return nil, err
+	}
+
+	names := make(map[string][]string, len(robots.Items))
+	for index := range robots.Items {
+		names[robots.Items[index].Name] = secrets.Names(robots.Items[index].Name, robots.Items[index].Spec.Secret)
+	}
+
+	return names, nil
 }
 
 func (r *HarborSystemRobotReconciler) allRobots(ctx context.Context, _ client.Object) []reconcile.Request {
@@ -234,30 +253,30 @@ func (t systemRobotTarget) isOwn(found *harbor.Robot, name string) bool {
 	return found.Level == harbor.LevelSystem && harbor.IsSystemRobotName(found.Name, name)
 }
 
-// missingPermissions checks system grants at Harbor's root scope and project grants in each named project. Harbor
-// cannot report what the connection holds in every project at once, so a grant on "*" always counts as missing: the
-// robot is then never deleted on the chance that it can be created again.
+// missingPermissions checks system grants at system scope and project grants in each named project. Harbor cannot
+// report what the connection holds in every project at once, so a grant on "*" always counts as missing: the robot is
+// then never deleted on the chance that it can be created again.
 func (t systemRobotTarget) missingPermissions(ctx context.Context, harborClient *harbor.Client, spec harbor.RobotSpec) ([]string, error) {
+	ids := make([]int64, 0, len(t.projectIDs))
+	for _, id := range t.projectIDs {
+		ids = append(ids, id)
+	}
+
+	held, err := harborClient.ReadHeldPermissions(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+
 	var names []string
 
 	for _, grant := range spec.Grants {
 		switch {
 		case grant.Kind == harbor.LevelSystem:
-			missing, err := harborClient.MissingPermissions(ctx, "/", grant.Access)
-			if err != nil {
-				return nil, err
-			}
-
-			names = append(names, accessNames(missing, "system: ")...)
+			names = append(names, accessNames(held.MissingSystem(grant.Access), "system: ")...)
 		case grant.Namespace == allProjects:
 			names = append(names, accessNames(grant.Access, "every project: ")...)
 		default:
-			missing, err := harborClient.MissingPermissions(ctx, harbor.ProjectScope(t.projectIDs[grant.Namespace]), grant.Access)
-			if err != nil {
-				return nil, err
-			}
-
-			names = append(names, accessNames(missing, "project "+grant.Namespace+": ")...)
+			names = append(names, accessNames(held.MissingInProject(t.projectIDs[grant.Namespace], grant.Access), "project "+grant.Namespace+": ")...)
 		}
 	}
 
@@ -490,6 +509,10 @@ func (r *HarborSystemRobotReconciler) finalize(ctx context.Context, robot *harbo
 
 	resource := systemRobot{robot: robot}
 	lifecycle := r.lifecycle()
+
+	if waiting, err := lifecycle.waitForSecretUsers(ctx, resource); waiting || err != nil {
+		return reconcile.Result{}, err
+	}
 
 	if robot.Status.RobotID == 0 {
 		return lifecycle.release(ctx, resource)
