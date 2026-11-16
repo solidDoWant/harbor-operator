@@ -2,10 +2,12 @@
 {{- if not .Values.grafanaDashboard.grafanaOperator.instanceSelector }}
 {{- fail "grafanaDashboard.grafanaOperator.instanceSelector is required when grafanaDashboard.grafanaOperator.enabled is true: set it to a selector that matches your Grafana instances, for example matchLabels: {your-label: your-value}" }}
 {{- end }}
+{{- /* grafana-operator makes spec.instanceSelector immutable, so the name carries a hash of it: a changed selector makes a new object. */}}
+{{- $selectorHash := .Values.grafanaDashboard.grafanaOperator.instanceSelector | toJson | sha256sum | trunc 8 }}
 apiVersion: grafana.integreatly.org/v1beta1
 kind: GrafanaDashboard
 metadata:
-  name: {{ include "harbor-operator.fullname" . }}
+  name: {{ printf "%s-%s" (include "harbor-operator.fullname" . | trunc 54 | trimSuffix "-") $selectorHash }}
   labels:
     {{- include "harbor-operator.labels" . | nindent 4 }}
 spec:

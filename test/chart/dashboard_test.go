@@ -217,3 +217,27 @@ func TestGrafanaOperatorDashboardFailsWithoutSelector(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "grafanaDashboard.grafanaOperator.instanceSelector is required")
 }
+
+func TestGrafanaOperatorDashboardNameFollowsTheSelector(t *testing.T) {
+	t.Parallel()
+
+	nameFor := func(value string) string {
+		docs, err := render(t, "grafanaDashboard.grafanaOperator.enabled=true", "grafanaDashboard.grafanaOperator.instanceSelector.matchLabels.team="+value)
+		require.NoError(t, err)
+
+		var dashboard struct {
+			Metadata struct {
+				Name string `json:"name"`
+			} `json:"metadata"`
+		}
+		require.NoError(t, yaml.Unmarshal(docs["GrafanaDashboard"], &dashboard))
+
+		return dashboard.Metadata.Name
+	}
+
+	first := nameFor("one")
+	assert.Equal(t, first, nameFor("one"))
+	assert.NotEqual(t, first, nameFor("two"))
+	assert.Regexp(t, `-[0-9a-f]{8}$`, first)
+	assert.LessOrEqual(t, len(first), 63)
+}
