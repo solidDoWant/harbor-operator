@@ -165,6 +165,39 @@ func TestProjectDeletionWithContents(t *testing.T) {
 		assert.True(t, harbor.IsNotFound(err), "the Harbor project is deleted, got %v", err)
 	})
 
+	t.Run("an immutable tag blocks the deletion until its rule is removed", func(t *testing.T) {
+		t.Parallel()
+		namespace := newNamespace(t, cl, "contents-immutable")
+		name := runUniqueName(t, "op")
+		t.Cleanup(func() { instance.DeleteProject(context.Background(), t, name) })
+		connection := readyConnection(t, cl, instance, namespace, allowContentDeletion)
+
+		project := newProject(namespace, name, connection)
+		project.Spec.DeletionPolicy = harborv1alpha1.DeletionPolicyDeleteWithContents
+		require.NoError(t, cl.Create(t.Context(), project))
+		key := client.ObjectKeyFromObject(project)
+		ready := awaitProject(t, cl, key, metav1.ConditionTrue, harborv1alpha1.ReasonReady)
+		projectID := int64(ready.Status.ProjectID)
+
+		instance.PushImage(t, name, "app", "v1")
+		require.NoError(t, admin.CreateImmutabilityRule(t.Context(), projectID, harbor.ImmutabilityRule{
+			Repositories: harbor.Selector{Decoration: "repoMatches", Pattern: "**"},
+			Tags:         harbor.Selector{Decoration: "matches", Pattern: "**"},
+		}))
+
+		require.NoError(t, cl.Delete(t.Context(), project))
+		blocked := awaitProject(t, cl, key, metav1.ConditionFalse, harborv1alpha1.ReasonDeleteBlocked)
+		assert.Contains(t, readyMessage(blocked), "deleting contents: 1 repositories left")
+		assert.Len(t, repositoryNames(t, instance, name), 1, "the immutable image stays")
+
+		rules, err := admin.ListImmutabilityRules(t.Context(), projectID)
+		require.NoError(t, err)
+		require.Len(t, rules, 1, "the operator never changes immutability rules here")
+		require.NoError(t, admin.DeleteImmutabilityRule(t.Context(), projectID, rules[0].ID))
+
+		awaitGone(t, cl, key, "the deletion finishes once the immutability rule is removed")
+	})
+
 	t.Run("a failure partway is reported with what is left and the deletion resumes", func(t *testing.T) {
 		t.Parallel()
 		namespace := newNamespace(t, cl, "contents-resume")
