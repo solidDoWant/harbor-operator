@@ -12,6 +12,9 @@ import (
 type HeldPermissions struct {
 	// All is set for a Harbor system administrator, who holds every permission.
 	All bool
+	// Robot is set when the credentials are a robot's. Robots replace robots instead of updating them, so they never
+	// need permissions only user credentials use.
+	Robot bool
 	// System is what the credentials hold at system scope.
 	System []RobotAccess
 	// Projects is what the credentials hold in each project read, by project ID.
@@ -62,7 +65,7 @@ func (c *Client) ReadHeldPermissions(ctx context.Context, projectIDs []int64) (*
 		isRobot = true
 	}
 
-	held := &HeldPermissions{Projects: map[int64][]RobotAccess{}}
+	held := &HeldPermissions{Robot: isRobot, Projects: map[int64][]RobotAccess{}}
 
 	if isRobot {
 		held.System, err = c.ownSystemAccess(ctx)

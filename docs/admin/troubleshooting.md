@@ -46,6 +46,12 @@ Cause: a `HarborSystemRobot` names a Harbor robot that a connection signs in as.
 
 Fix: choose another name for the system robot. To manage the operator's own robot, use an admin connection in the robot's namespace as its `connectionRef`. See [system robots](system-robots.md).
 
+### `InsufficientPermissions`
+
+Cause: this reason is on the `PermissionsSufficient` condition of a `HarborConnection`, not on `Ready`. The credentials of the connection do not hold a permission that a resource using the connection needs. The message lists up to 10 missing permissions, for example `system robot:create` or `project team-a repository:push`. The operator also sends a Warning event `InsufficientPermissions` when the list changes. Only resources in namespaces that the connection, or their project, admits are counted. The operator checks project permissions only in projects that exist in Harbor.
+
+Fix: grant the listed permissions to the robot or user of the connection. The [required permissions](required-permissions.md) page lists what each kind needs. The condition turns `True` at the next check of the connection, within one resync interval, and the operator sends a Normal event `PermissionsSufficient`.
+
 ## Access and ownership
 
 ### `NotAllowed`
@@ -169,5 +175,11 @@ Fix: create the robot again with a new name, or change `duration`.
 ### `Ready`
 
 Cause: Harbor matches the spec.
+
+Fix: nothing.
+
+### `PermissionsSufficient`
+
+Cause: the credentials of a `HarborConnection` hold every permission that the resources using the connection need. While the connection is not `Ready`, the `PermissionsSufficient` condition is `Unknown` with the same reason as `Ready`.
 
 Fix: nothing.

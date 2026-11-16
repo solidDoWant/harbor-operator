@@ -17,7 +17,7 @@ Same rules as phase 1. Approved by the owner on 2026-11-16 (design: `docs/design
 - **AC-4-07 Deletion waits.** Deleting the root robot while a connection uses its Secret reports `DependentsExist`, and the Harbor robot stays. After that connection is deleted, the robot deletion finishes.
   Tests: `internal/controller: TestSystemRobotDeletionWaitsForConnectionsUsingItsSecret`
 - **AC-4-08 Permission check.** A connection whose credential lacks a permission that an existing resource kind needs reports `PermissionsSufficient=False` with reason `InsufficientPermissions`, listing it. After the permission is granted, the condition turns `True` within one resync. An admin-user connection reports `True`.
-  Tests:
+  Tests: `internal/controller: TestConnectionReportsWhetherItsCredentialsHoldTheNeededPermissions/a missing permission is listed until it is granted`, `internal/controller: TestConnectionReportsWhetherItsCredentialsHoldTheNeededPermissions/an administrator holds every permission`
 - **AC-4-09 Adopting a hand-made robot.** An existing hand-made system robot adopted by a `HarborSystemRobot` through the admin connection gets a fresh secret in its Secret, and a connection using that Secret becomes `Ready`.
   Tests: `test/e2e: TestHandMadeSystemRobotAdoptedWithANewSecretBecomesTheConnectionsCredential`
 - **AC-4-10 Docs.** The admin docs lead with the root-robot pattern, generate the permission list from the operator's code, and cover migrating from a hand-made robot. `make docs-check` passes.

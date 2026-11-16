@@ -80,31 +80,36 @@ const (
 const (
 	ConditionReady             = "Ready"
 	ConditionReferenceResolved = "ReferenceResolved"
+	// ConditionPermissionsSufficient reports whether a connection's credentials hold every permission its admitted
+	// resources need. It is not part of Ready.
+	ConditionPermissionsSufficient = "PermissionsSufficient"
 )
 
 // Condition reasons. Every reason the controllers set is listed here.
 const (
-	ReasonReady                 = "Ready"
-	ReasonCredentialsInvalid    = "CredentialsInvalid"
-	ReasonUnauthorized          = "Unauthorized"
-	ReasonForbidden             = "Forbidden"
-	ReasonNotFound              = "NotFound"
-	ReasonHarborUnavailable     = "HarborUnavailable"
-	ReasonDependentsExist       = "DependentsExist"
-	ReasonNotAllowed            = "NotAllowed"
-	ReasonConflict              = "Conflict"
-	ReasonAlreadyExists         = "AlreadyExists"
-	ReasonAdoptionNotAllowed    = "AdoptionNotAllowed"
-	ReasonInvalidSpec           = "InvalidSpec"
-	ReasonDeleteBlocked         = "DeleteBlocked"
-	ReasonProjectNotReady       = "ProjectNotReady"
-	ReasonSecretConflict        = "SecretConflict"
-	ReasonExpired               = "Expired"
-	ReasonReferenceResolved     = "ReferenceResolved"
-	ReasonRegistryNotReady      = "RegistryNotReady"
-	ReasonRegistryOnOtherHarbor = "RegistryOnOtherHarbor"
-	ReasonProjectNotFound       = "ProjectNotFound"
-	ReasonOperatorCredential    = "OperatorCredential"
+	ReasonReady                   = "Ready"
+	ReasonCredentialsInvalid      = "CredentialsInvalid"
+	ReasonUnauthorized            = "Unauthorized"
+	ReasonForbidden               = "Forbidden"
+	ReasonNotFound                = "NotFound"
+	ReasonHarborUnavailable       = "HarborUnavailable"
+	ReasonDependentsExist         = "DependentsExist"
+	ReasonNotAllowed              = "NotAllowed"
+	ReasonConflict                = "Conflict"
+	ReasonAlreadyExists           = "AlreadyExists"
+	ReasonAdoptionNotAllowed      = "AdoptionNotAllowed"
+	ReasonInvalidSpec             = "InvalidSpec"
+	ReasonDeleteBlocked           = "DeleteBlocked"
+	ReasonProjectNotReady         = "ProjectNotReady"
+	ReasonSecretConflict          = "SecretConflict"
+	ReasonExpired                 = "Expired"
+	ReasonReferenceResolved       = "ReferenceResolved"
+	ReasonRegistryNotReady        = "RegistryNotReady"
+	ReasonRegistryOnOtherHarbor   = "RegistryOnOtherHarbor"
+	ReasonProjectNotFound         = "ProjectNotFound"
+	ReasonOperatorCredential      = "OperatorCredential"
+	ReasonPermissionsSufficient   = "PermissionsSufficient"
+	ReasonInsufficientPermissions = "InsufficientPermissions"
 )
 
 // Event reasons.
