@@ -174,3 +174,40 @@ The admin security docs state:
 - Triggers: the connection reconcile itself, plus a Create-only watch predicate on each dependent kind that re-queues its connection (directly or through the project). No check while `Ready` is not `True`; the condition is then `Unknown` with the same reason as `Ready`.
 - Events: Warning `InsufficientPermissions` when the missing set changes; Normal `PermissionsSufficient` on recovery.
 - Entry format: `system robot:create`, `project <name> repository:push`.
+
+## 7. Amendments after the content-deletion review
+
+The second review on issue #149 (section 5) found gaps. This section answers them and overrides section 5 where they disagree.
+
+### 7.1 Repository names in the delete path (H1)
+
+`GET /projects/{name}/repositories` returns names with the project prefix (`proj/team/app`). The delete call takes the name **without** `proj/`, encoded once by the caller: pass `url.PathEscape("team/app")` (`team%2Fapp`) as go-client's `RepositoryName`, and the runtime adds the second encoding (`team%252Fapp`). A unit test on the `internal/harbor` wrapper checks `a/b` → request path `…/repositories/a%252Fb`. A 404 on a repository delete counts as deleted only if the next listing no longer shows that repository. Otherwise it is an error (`InvalidSpec`, "repository delete answered 404 but the repository still exists"), so a wrong name can't loop forever.
+
+### 7.2 412 answers (H2)
+
+| Situation | Response | Test |
+|---|---|---|
+| Repository delete answers 412 (for example an immutable tag) | `Ready=False, DeleteBlocked` with Harbor's message, keep the finalizer, backoff (max 10 min). The operator never changes immutability rules here. | integration (immutable rule made directly in Harbor) |
+| Project delete answers 412 after the listed repositories were deleted (a push during the run, a proxy cache filling again) | Requeue and start again from listing, with the same message `deleting contents: N repositories left` | integration |
+
+The user docs (section 5.4) say that immutable tags block `DeleteWithContents` and must be removed by hand.
+
+### 7.3 Permissions (M1)
+
+`PermissionsSufficient` requires project-scope `repository:list` **and** `repository:delete` for `DeleteWithContents`. The 403 row covers both calls and names the permission of the call that failed.
+
+### 7.4 Ownership during a multi-reconcile run (M2)
+
+The phase 1 step-5 ID check (`GET /projects/{id}` plus a name match) runs at the start of **every** reconcile that deletes content. Only listed repositories whose `project_id` equals `status.projectID` are deleted. If any listed repository has another `project_id`, stop and release as step 5 does for a changed ID.
+
+### 7.5 Adoption plus content deletion (M3, decided by the operator with the owner present)
+
+No code rule. The admin docs say plainly that `allowAdoption` and `allowContentDeletion` together let every admitted namespace permanently delete the images of any project it can adopt, and that `defaults.deletionPolicy: DeleteWithContents` applies to adopted projects too. The owner can tighten this later.
+
+### 7.6 What is reported when the connection doesn't allow it (M4)
+
+The `Ready` reason is `DeleteBlocked`, with Harbor's message plus "content deletion is not allowed by HarborConnection `ns/name`". A Warning event with reason `ContentDeletionNotAllowed` is emitted when the condition first turns to this state. The operator still tries the project delete first, so an empty project is deleted normally. `ReasonContentDeletionNotAllowed` is added to the event reason constants and documented. AC-4-12 is read this way.
+
+### 7.7 Bounded work per reconcile (M5, L1)
+
+Each reconcile takes page 1 with `page_size=100`, deletes those repositories, updates the message with what is left (`N` from the `X-Total-Count` header), and requeues at once until the list is empty. Deleting while paging forward would skip items, so the operator always takes page 1 again. When the list itself fails, the message keeps the last count.

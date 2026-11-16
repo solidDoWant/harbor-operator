@@ -122,7 +122,7 @@ The dockerconfigjson Secret holds an auth entry for the connection's registry ho
 
 ## 7. Deletion
 
-- `deletionPolicy: Delete` (default, overridable by the connection's `defaults`) deletes the Harbor object when the custom resource is deleted; `Orphan` leaves it. Either way the operator only ever deletes by the ID in status, after checking that ID still names this resource's own object; with no ID it deletes nothing.
+- `deletionPolicy: Delete` (default, overridable by the connection's `defaults`) deletes the Harbor object when the custom resource is deleted; `Orphan` leaves it. `DeleteWithContents` acts like `Delete` on every kind except `HarborProject`, where it also deletes the project's repositories first (see below). Either way the operator only ever deletes by the ID in status, after checking that ID still names this resource's own object; with no ID it deletes nothing.
 - A resource whose reference is no longer admitted is orphaned when deleted: the finalizer goes and Harbor is untouched.
 - Harbor refuses to delete a project that still has repositories (HTTP 412). With `Delete`, the operator reports `reason=DeleteBlocked` with Harbor's message and retries with backoff; it doesn't delete repositories. With `DeleteWithContents` (projects only, and only when the connection sets `allowContentDeletion`), it deletes every repository first, then the project (`docs/design/phase-4.md`). A 404 on delete counts as deleted.
 - Deleting a `HarborProject` (either policy) waits while robot or policy resources that the project admits still point at it (`reason=DependentsExist`). Resources it doesn't admit never hold it up. The same goes for a `HarborConnection` and the resources it admits.
