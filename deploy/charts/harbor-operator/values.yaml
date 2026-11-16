@@ -62,6 +62,8 @@ grafanaDashboard:
   grafanaOperator:
     # -- Render a grafana-operator GrafanaDashboard with the dashboard inline.
     enabled: false
+    # -- Let grafana-operator import the dashboard into a Grafana instance in another namespace. Set it to true when the operator does not run in the namespace of the Grafana instance.
+    allowCrossNamespaceImport: false
     # -- Selects the Grafana instances that get the dashboard.
     instanceSelector:
       matchLabels:
@@ -79,6 +81,8 @@ resources:
 extraArgs: []
 # -- Pod annotations.
 podAnnotations: {}
+# -- Extra labels on the operator pod, for example to match a network policy. They are added to the selector labels, which stay the same.
+podLabels: {}
 # -- Node selector.
 nodeSelector: {}
 # -- Tolerations.
