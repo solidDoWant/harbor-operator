@@ -24,7 +24,7 @@ const (
 	// The metrics Service of the release test/e2e/up.sh installs.
 	metricsURL = "https://harbor-operator-metrics." + operatorNamespace + ".svc:8443/metrics"
 	// Pinned by digest; quay.io publishes the curl project's image.
-	curlImage = "quay.io/curl/curl:8.11.1@sha256:2db4e6a8fd6a0e4d0db5828b2722cf6db15c3005178a4c65588b903e4784ba11"
+	curlImage = "quay.io/curl/curl:8.23.0@sha256:3fb7e13e5d179a845c97d78204f3f1064d1907037f26a3ebf91710571151fd93"
 )
 
 // scrape runs curl in a pod with the service account's token and returns the
