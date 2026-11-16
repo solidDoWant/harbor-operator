@@ -405,6 +405,10 @@ func (r *robotLifecycle) refreshSecret(ctx context.Context, state *robotReconcil
 		return reconcile.Result{}, err
 	}
 
+	if err := r.confirmCurrent(ctx, robot); err != nil {
+		return reconcile.Result{}, err
+	}
+
 	secret, err := state.harbor.RefreshRobotSecret(ctx, current.ID)
 
 	switch {
@@ -476,6 +480,10 @@ func (r *robotLifecycle) replace(ctx context.Context, state *robotReconcile, cur
 	}
 
 	if err := r.markCreatePending(ctx, robot); err != nil {
+		return reconcile.Result{}, err
+	}
+
+	if err := r.confirmCurrent(ctx, robot); err != nil {
 		return reconcile.Result{}, err
 	}
 
@@ -815,6 +823,14 @@ func (r *robotLifecycle) setReady(ctx context.Context, robot robotResource, stat
 	}
 
 	return nil
+}
+
+// confirmCurrent fails with a conflict when the resource this reconcile read is older than the stored one. The cache
+// can start a reconcile before it has seen the previous reconcile's writes; such a reconcile may take a finished
+// replace or refresh for an interrupted one and repeat it, killing the secret the Secrets already hold. Writing status
+// unconditionally makes the API server check the resource version: an unchanged status changes nothing when current.
+func (r *robotLifecycle) confirmCurrent(ctx context.Context, robot robotResource) error {
+	return r.Status().Update(ctx, robot.object())
 }
 
 // updateStatus writes status only when it differs from what the API server has.
