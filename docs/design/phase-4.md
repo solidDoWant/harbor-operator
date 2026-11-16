@@ -63,7 +63,7 @@ A `HarborSystemRobot` (or `HarborProjectRobot`) whose enabled output Secret is n
 
 The connection gets a second condition, `PermissionsSufficient` (not part of `Ready`):
 
-- **Required set:** computed in code from the kinds that have at least one resource using this connection, from a table in `internal/harbor` (for example `HarborProject` → system `project:create,list`, `quota:read,update`, project `project:read,update,delete`; `HarborProjectRobot` → `robot:*` plus every permission those robots request; `HarborRetentionPolicy` → `tag-retention:*`; `HarborImmutabilityPolicy` → `immutable-tag:*`; `HarborRegistry` → `registry:*`; `HarborSystemRobot` → `robot:*` plus what those robots request).
+- **Required set:** computed in code from the kinds that have at least one resource using this connection, from a table in `internal/harbor` (for example `HarborProject` → system `project:create,list`, `quota:list,update`, project `project:read,update,delete`; `HarborProjectRobot` → `robot:*` plus every permission those robots request; `HarborRetentionPolicy` → `tag-retention:*`; `HarborImmutabilityPolicy` → `immutable-tag:*`; `HarborRegistry` → `registry:*`; `HarborSystemRobot` → `robot:*` plus what those robots request).
 - **Held set:** `GET /api/v2.0/users/current/permissions` with `scope=/system` and `scope=/project/*` (relative). An admin user holds everything.
 - **Missing:** `PermissionsSufficient=False, reason=InsufficientPermissions`, message listing up to 10 missing `scope resource:action` entries, a Warning event when the set changes. Re-checked on every connection reconcile and when a dependent kind's resource is created.
 - The same table generates the admin docs' permission list (`make generate`), so docs can't drift from code.

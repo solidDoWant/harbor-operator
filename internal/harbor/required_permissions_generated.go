@@ -6,7 +6,7 @@ package harbor
 // on the client methods it calls.
 var RequiredPermissions = []RequiredPermission{
 	{Kind: "HarborProject", Scope: "system", Resource: "project", Action: "create", UserCredentialsOnly: false, ContentDeletionOnly: false},
-	{Kind: "HarborProject", Scope: "system", Resource: "quota", Action: "read", UserCredentialsOnly: false, ContentDeletionOnly: false},
+	{Kind: "HarborProject", Scope: "system", Resource: "quota", Action: "list", UserCredentialsOnly: false, ContentDeletionOnly: false},
 	{Kind: "HarborProject", Scope: "system", Resource: "quota", Action: "update", UserCredentialsOnly: false, ContentDeletionOnly: false},
 	{Kind: "HarborProject", Scope: "project", Resource: "project", Action: "delete", UserCredentialsOnly: false, ContentDeletionOnly: false},
 	{Kind: "HarborProject", Scope: "project", Resource: "project", Action: "read", UserCredentialsOnly: false, ContentDeletionOnly: false},

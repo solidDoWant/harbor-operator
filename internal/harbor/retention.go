@@ -228,7 +228,7 @@ func (c *Client) UpdateRetention(ctx context.Context, id, projectID int64, polic
 
 // TriggerRetention starts a run of the retention policy with the ID.
 //
-//harbor:permission project tag-retention operate
+//harbor:permission project tag-retention update
 func (c *Client) TriggerRetention(ctx context.Context, id int64) error {
 	_, _, err := c.api.Retention.TriggerRetentionExecution(ctx, &retention.TriggerRetentionExecutionParams{ID: id})
 
@@ -237,7 +237,7 @@ func (c *Client) TriggerRetention(ctx context.Context, id int64) error {
 
 // RetentionExecutionStatuses returns the status of each run of the retention policy with the ID, newest first.
 //
-//harbor:permission project tag-retention read
+//harbor:permission project tag-retention list
 func (c *Client) RetentionExecutionStatuses(ctx context.Context, id int64) ([]string, error) {
 	response, err := c.api.Retention.ListRetentionExecutions(ctx, &retention.ListRetentionExecutionsParams{ID: id})
 	if err != nil {

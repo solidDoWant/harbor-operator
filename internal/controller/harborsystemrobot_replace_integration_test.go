@@ -25,7 +25,7 @@ func systemRobotWithinTheConnectionsRobot(t *testing.T, setup *robotSetup) *harb
 
 	robot := newSystemRobot(t, setup, setup.project.Namespace, setup.project.Spec.Name)
 	robot.Spec.SystemPermissions = []harborv1alpha1.SystemRobotAccess{
-		{Resource: "project", Action: "list"}, {Resource: "quota", Action: "read"}, {Resource: "robot", Action: "list"},
+		{Resource: "project", Action: "list"}, {Resource: "quota", Action: "list"}, {Resource: "robot", Action: "list"},
 	}
 	robot.Spec.ProjectPermissions = []harborv1alpha1.ProjectPermission{{Projects: []string{setup.project.Spec.Name}, Access: []harborv1alpha1.SystemRobotProjectAccess{
 		{Resource: "repository", Action: "push"}, {Resource: "repository", Action: "pull"},
@@ -65,7 +65,7 @@ func TestSystemRobotThroughARobotConnectionThatCannotUpdateRobots(t *testing.T) 
 		assert.Equal(t, "deploys everywhere", found.Description)
 		assert.Equal(t, harbor.FlattenGrants([]harbor.RobotGrant{
 			{Kind: harbor.LevelSystem, Namespace: "/", Access: []harbor.RobotAccess{
-				{Resource: "project", Action: "list"}, {Resource: "quota", Action: "read"}, {Resource: "robot", Action: "list"},
+				{Resource: "project", Action: "list"}, {Resource: "quota", Action: "list"}, {Resource: "robot", Action: "list"},
 			}},
 			{Kind: harbor.LevelProject, Namespace: setup.project.Spec.Name, Access: []harbor.RobotAccess{
 				{Resource: "repository", Action: "push"}, {Resource: "repository", Action: "pull"},
