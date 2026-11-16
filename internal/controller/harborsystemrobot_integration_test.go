@@ -424,6 +424,78 @@ func TestSystemRobotSigningInAConnectionInAnotherNamespaceIsNeverManaged(t *test
 	require.NoError(t, robotClient.CheckCredentials(t.Context()), "the other namespace's secret is not refreshed")
 }
 
+func TestSystemRobotNamedByARejectedConnectionInAnotherNamespaceIsStillManaged(t *testing.T) {
+	t.Parallel()
+
+	setup := readyRobotProject(t, nil, nil)
+
+	robot := newSystemRobot(t, setup, setup.project.Namespace, setup.project.Spec.Name)
+	robot.Spec.Secret.Opaque.Enabled = ptr(true)
+	require.NoError(t, setup.cl.Create(t.Context(), robot))
+	key := client.ObjectKeyFromObject(robot)
+	ready := awaitSystemRobot(t, setup.cl, key, metav1.ConditionTrue, harborv1alpha1.ReasonReady)
+
+	// The other namespace holds a working credential of its own, so its connection becomes ready and records the
+	// Harbor identity. A literal username naming the managed robot then makes Harbor reject it.
+	otherUsername, otherPassword := setup.instance.CreateSystemRobot(t, systemRobotPermissions())
+	otherNamespace := newNamespace(t, setup.cl, "rejected-conn")
+	require.NoError(t, setup.cl.Create(t.Context(), credentials(otherNamespace, "own-creds", otherUsername, otherPassword)))
+
+	rejected := newConnection(otherNamespace, "harbor", setup.instance.URL, "own-creds")
+	require.NoError(t, setup.cl.Create(t.Context(), rejected))
+	rejectedKey := client.ObjectKeyFromObject(rejected)
+	awaitReady(t, setup.cl, rejectedKey, metav1.ConditionTrue, harborv1alpha1.ReasonReady)
+
+	require.Eventually(t, func() bool {
+		current := &harborv1alpha1.HarborConnection{}
+		if err := setup.cl.Get(t.Context(), rejectedKey, current); err != nil {
+			return false
+		}
+
+		current.Spec.CredentialsSecretRef.Username = ready.Status.HarborName
+
+		return setup.cl.Update(t.Context(), current) == nil
+	}, 10*time.Second, 100*time.Millisecond)
+
+	require.Eventually(t, func() bool {
+		current := &harborv1alpha1.HarborConnection{}
+		if err := setup.cl.Get(t.Context(), rejectedKey, current); err != nil {
+			return false
+		}
+
+		condition := meta.FindStatusCondition(current.Status.Conditions, harborv1alpha1.ConditionReady)
+
+		return condition != nil && condition.ObservedGeneration == current.Generation && condition.Reason == harborv1alpha1.ReasonUnauthorized
+	}, projectWait, 200*time.Millisecond, "waiting for Harbor to reject the connection")
+
+	_, oldPassword := dockerCredentials(t, setup.cl, setup.project.Namespace, "deployer-dockerconfig", setup.instance.Registry(t))
+
+	require.Eventually(t, func() bool {
+		current := &harborv1alpha1.HarborSystemRobot{}
+		if err := setup.cl.Get(t.Context(), key, current); err != nil {
+			return false
+		}
+
+		current.Spec.Secret.Rotate = "r1"
+
+		return setup.cl.Update(t.Context(), current) == nil
+	}, 10*time.Second, 100*time.Millisecond)
+
+	username, password := awaitNewDockerSecret(t, setup, "deployer-dockerconfig", oldPassword)
+	require.NoError(t, push(t, setup.instance, username, password, setup.project.Spec.Name, "app"), "the rotated secret works")
+
+	rotated := awaitSystemRobot(t, setup.cl, key, metav1.ConditionTrue, harborv1alpha1.ReasonReady)
+	assert.Equal(t, "r1", rotated.Status.ObservedRotate)
+
+	require.NoError(t, setup.cl.Delete(t.Context(), rotated))
+	require.Eventually(t, func() bool {
+		return apierrors.IsNotFound(setup.cl.Get(t.Context(), key, &harborv1alpha1.HarborSystemRobot{}))
+	}, projectWait, 200*time.Millisecond, "waiting for the robot resource to go")
+
+	_, err := setup.admin.GetRobot(t.Context(), ready.Status.RobotID)
+	require.True(t, harbor.IsNotFound(err), "the Harbor robot is deleted: %v", err)
+}
+
 func TestSystemRobotManagedThroughAnAdminConnectionUpdatesInPlace(t *testing.T) {
 	t.Parallel()
 
