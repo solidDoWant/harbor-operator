@@ -465,7 +465,10 @@ func (r *HarborSystemRobotReconciler) admitted(ctx context.Context, robot *harbo
 }
 
 // operatorCredential returns "namespace/name" of a connection to the same Harbor whose credentials log in as this
-// robot, or "" when there is none. Managing that robot could lock the operator out of Harbor.
+// robot and that the robot must not touch, or "" when there is none. That is the robot's own managing connection,
+// which would replace or rotate the credential it signs in with, and any connection in another namespace, whose
+// credential this namespace must not take over. A connection in the robot's own namespace that uses the robot's
+// Secret is the intended way for the operator to manage its own robot through an admin connection.
 func (r *HarborSystemRobotReconciler) operatorCredential(ctx context.Context, robot *harborv1alpha1.HarborSystemRobot, identity string) (string, error) {
 	var connections harborv1alpha1.HarborConnectionList
 	if err := r.List(ctx, &connections); err != nil {
@@ -473,10 +476,15 @@ func (r *HarborSystemRobotReconciler) operatorCredential(ctx context.Context, ro
 	}
 
 	name := systemRobotName(robot)
+	managing := systemRobotConnectionKey(robot)
 
 	for index := range connections.Items {
 		connection := &connections.Items[index]
 		if connection.Status.HarborIdentity != identity {
+			continue
+		}
+
+		if connection.Namespace == robot.Namespace && client.ObjectKeyFromObject(connection) != managing {
 			continue
 		}
 
