@@ -1,5 +1,51 @@
 # Changelog
 
+## 0.4.0
+
+harbor-operator is a Kubernetes operator that configures an existing Harbor registry through custom resources. It does not install Harbor. With this release, the operator can manage its own Harbor robot account through its own custom resources, so you no longer make that robot by hand. The release also adds a check of the permissions of each connection, and an option that deletes the images of a project together with the project. To install or upgrade, run `helm upgrade --install harbor-operator oci://ghcr.io/soliddowant/charts/harbor-operator --version 0.4.0 --namespace harbor-operator --create-namespace`. The chart also updates the custom resource definitions. The [credentials guide](https://github.com/solidDoWant/harbor-operator/blob/v0.4.0/docs/admin/credentials.md) tells you how to set up the operator's robot.
+
+### Upgrade notes
+
+An upgrade from 0.3.0 needs no change. Existing connections keep working, and all new fields and chart values are off or empty by default.
+
+### Connections and credentials
+
+- A `HarborConnection` can now read its credentials from any Secret, for example the Secret that Harbor's chart makes for the admin password. Set `credentialsSecretRef.usernameKey` and `credentialsSecretRef.passwordKey` to name the keys in the Secret, or set `credentialsSecretRef.username` to give the username directly. The defaults are the keys `username` and `password`, as before. ([#166](https://github.com/solidDoWant/harbor-operator/pull/166))
+- The operator can manage its own robot account (the root-robot pattern). An admin connection signs in with Harbor's admin password and manages a `HarborSystemRobot`. The main connection signs in with the Secret of that robot. The operator now refuses a system robot with `OperatorCredential` only when the robot's own connection signs in as that robot, or when a connection in another namespace that Harbor accepts signs in as it. The [credentials guide](https://github.com/solidDoWant/harbor-operator/blob/v0.4.0/docs/admin/credentials.md) shows the setup, and how to move from a robot that you made by hand. ([#168](https://github.com/solidDoWant/harbor-operator/pull/168), [#171](https://github.com/solidDoWant/harbor-operator/pull/171), [#178](https://github.com/solidDoWant/harbor-operator/pull/178))
+- A `HarborConnection` has a new condition, `PermissionsSufficient`. If the Harbor credential does not have a permission that the resources on the connection need, the condition is `False` with the reason `InsufficientPermissions`, and the message lists the missing permissions. The operator also emits an event when the list changes. ([#172](https://github.com/solidDoWant/harbor-operator/pull/172))
+- A new page lists the Harbor permissions that each kind needs. The operator's own code generates this list, so it stays correct. See [required permissions](https://github.com/solidDoWant/harbor-operator/blob/v0.4.0/docs/admin/required-permissions.md). ([#164](https://github.com/solidDoWant/harbor-operator/pull/164))
+
+### Robots and Secrets
+
+- A robot does not delete its Secret while a `HarborConnection` in the same namespace signs in with that Secret. When you delete the robot, or disable or rename its Secret, the robot status shows `DependentsExist` and names the connection. Delete the connection, or point it at another Secret, and the robot continues. Only Secrets that the robot owns count. ([#169](https://github.com/solidDoWant/harbor-operator/pull/169), [#179](https://github.com/solidDoWant/harbor-operator/pull/179))
+- A `HarborSystemRobot` can now get the project permissions `read`, `update` and `delete` on the `project` resource in `projectPermissions`. A `HarborProjectRobot` cannot get them. ([#163](https://github.com/solidDoWant/harbor-operator/pull/163))
+
+### Projects
+
+- The new deletion policy `DeleteWithContents` deletes every image in a `HarborProject` and then the project. You cannot undo this. It works only when the connection sets `allowContentDeletion: true`. Otherwise, the operator deletes no image, and the project shows `DeleteBlocked` while it still holds images. On other kinds, `DeleteWithContents` is the same as `Delete`. ([#170](https://github.com/solidDoWant/harbor-operator/pull/170))
+
+### Deployment
+
+- The new chart value `podLabels` adds labels to the operator pod, for example to match a network policy. ([#175](https://github.com/solidDoWant/harbor-operator/pull/175))
+- The new chart value `grafanaDashboard.grafanaOperator.allowCrossNamespaceImport` lets the grafana-operator import the dashboard into a Grafana instance in another namespace. ([#175](https://github.com/solidDoWant/harbor-operator/pull/175))
+
+### Security
+
+- The operator is built with Go 1.27.4 and updated libraries (compress, OpenTelemetry, gRPC). This removes the advisories that 0.3.0 listed as known issues. ([#141](https://github.com/solidDoWant/harbor-operator/pull/141), [#144](https://github.com/solidDoWant/harbor-operator/pull/144), [#181](https://github.com/solidDoWant/harbor-operator/pull/181))
+
+### Fixes
+
+- When a `HarborSystemRobot` uses a connection that signs in as a robot, and Harbor refuses to update the system robot, the operator now replaces it. Before, the system robot stayed `Forbidden` and named permissions that the connection had. ([#165](https://github.com/solidDoWant/harbor-operator/pull/165))
+
+Internal work: the design for this release and the answers to its reviews, end-to-end tests of the root-robot pattern, and updates to test images and the dependency bot ([#136](https://github.com/solidDoWant/harbor-operator/pull/136), [#137](https://github.com/solidDoWant/harbor-operator/pull/137), [#138](https://github.com/solidDoWant/harbor-operator/pull/138), [#139](https://github.com/solidDoWant/harbor-operator/pull/139), [#140](https://github.com/solidDoWant/harbor-operator/pull/140), [#143](https://github.com/solidDoWant/harbor-operator/pull/143), [#145](https://github.com/solidDoWant/harbor-operator/pull/145), [#146](https://github.com/solidDoWant/harbor-operator/pull/146), [#150](https://github.com/solidDoWant/harbor-operator/pull/150), [#151](https://github.com/solidDoWant/harbor-operator/pull/151), [#153](https://github.com/solidDoWant/harbor-operator/pull/153), [#167](https://github.com/solidDoWant/harbor-operator/pull/167), [#173](https://github.com/solidDoWant/harbor-operator/pull/173)).
+
+### Known issues
+
+`govulncheck` reports two advisories in libraries that the operator includes. The operator does not call the affected code, for the reasons below.
+
+- GO-2026-6443 (`google.golang.org/grpc`, server crash): the risk applies to a gRPC server. The operator runs no gRPC server. The package is only linked in through Kubernetes libraries.
+- GO-2026-6094 (`github.com/google/cel-go`, private JSON fields): the risk applies to programs that pass their own Go types to CEL. The operator does not do this. The package is only linked in through Kubernetes libraries.
+
 ## 0.3.0
 
 harbor-operator is a Kubernetes operator that configures an existing Harbor registry through custom resources. It does not install Harbor. This release makes the operator easier to run: it adds metrics, a Grafana dashboard, Kubernetes events for every change, a namespace limit, a network policy and new guides. It also changes how the operator behaves while Harbor is down. To install or upgrade, run `helm upgrade --install harbor-operator oci://ghcr.io/soliddowant/charts/harbor-operator --version 0.3.0 --namespace harbor-operator --create-namespace`. The [install guide](https://github.com/solidDoWant/harbor-operator/blob/v0.3.0/docs/admin/install.md) tells you how to connect the operator to Harbor.
