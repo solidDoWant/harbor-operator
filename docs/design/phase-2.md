@@ -154,7 +154,7 @@ Reuses the phase 1 robot rows for Secrets, rotation, expiry, `SecretConflict`, c
 | Situation | Response | Test |
 |---|---|---|
 | Namespace not admitted by the connection's `systemAllowedNamespaces` | `NotAllowed` | integration |
-| The robot's Harbor name equals the `username` in the credentials of any connection with the same Harbor identity | `Conflict` reason `OperatorCredential`: never adopt, update, refresh, replace or delete it | integration |
+| (Replaced by `docs/design/phase-4.md` section 6.2.) The robot's Harbor name equals the `username` in the credentials of any connection with the same Harbor identity | `Conflict` reason `OperatorCredential`: never adopt, update, refresh, replace or delete it | integration |
 | A project named in `projectPermissions` doesn't exist (`GET /projects/{name}` with `X-Is-Resource-Name`) | `Ready=False, ProjectNotFound` naming the missing projects; write nothing; requeue at the resync interval (the project may be created later). `InvalidSpec` stays for real 400s. | integration |
 | Create | level `system`; one permission entry `{kind: system, namespace: /, access: systemPermissions}` plus one `{kind: project, namespace: <name or *>, access}` per `projectPermissions` entry | e2e |
 | Permissions differ | compare as a set of `(kind, namespace, resource, action)`; update, or replace on 403 as in phase 1 | e2e |

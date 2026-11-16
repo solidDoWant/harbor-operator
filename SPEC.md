@@ -34,7 +34,7 @@ Non-negotiable. Tests enforce them, and only the owner can change them.
 
 - Kubernetes 1.33 or later. No other operator is required.
 - Harbor 2.13 or later, reached over HTTPS (or HTTP for tests), v2.0 REST API. The owner runs Harbor 2.15 with OIDC sign-in; the operator never uses OIDC.
-- The operator authenticates to Harbor with HTTP basic auth: either a Harbor **system robot account** (the owner's choice, and the documented default) or a local admin user. The admin creates that first credential by hand. Harbor doesn't let a robot update robots or refresh their secrets, so with a robot credential those changes are made by deleting and re-creating the robot (`docs/design/phase-1.md`).
+- The operator authenticates to Harbor with HTTP basic auth: either a Harbor **system robot account** (the owner's choice, and the documented default) or a local admin user. The admin creates that first credential by hand, or lets the operator manage it as a `HarborSystemRobot` through an admin connection (`docs/design/phase-4.md`). Harbor doesn't let a robot update robots or refresh their secrets, so with a robot credential those changes are made by deleting and re-creating the robot (`docs/design/phase-1.md`).
 
 ## 4. Architecture
 
@@ -61,7 +61,7 @@ These normally live in the connection's namespace (see "Selecting across namespa
 
 | Kind | Harbor object | Key spec fields |
 |---|---|---|
-| `HarborConnection` | none (a Harbor instance) | `url`, `credentialsSecretRef` (a Secret in the same namespace; keys `username`, `password`), `caBundle` / `insecureSkipVerify`, `allowedNamespaces` (who may create project-level resources with it), `systemAllowedNamespaces` (who may create Harbor-wide resources with it), `allowAdoption`, `defaults` (resync interval, deletion policy) |
+| `HarborConnection` | none (a Harbor instance) | `url`, `credentialsSecretRef` (a Secret in the same namespace; keys `username` and `password` by default, or a literal `username` and other key names), `caBundle` / `insecureSkipVerify`, `allowedNamespaces` (who may create project-level resources with it), `systemAllowedNamespaces` (who may create Harbor-wide resources with it), `allowAdoption`, `defaults` (resync interval, deletion policy) |
 | `HarborRegistry` | registry endpoint (`/registries`) | `connectionRef`, `name`, `type` (`github-ghcr`, `quay`, `docker-hub`, `docker-registry`, `harbor` and the other types Harbor lists), `url`, optional `credentialsSecretRef` (same namespace), `insecure`, `allowedNamespaces` (whose projects may use it as a proxy-cache upstream), `deletionPolicy`, `adopt` |
 | `HarborSystemRobot` | system-level robot account | `connectionRef`, `name`, `description`, `duration` (days, `-1` = never expires), `permissions` (system resources, plus per-project access to listed projects or `*`), `secret` (see "Robot secrets"; written to the robot's own namespace), `deletionPolicy`, `adopt` |
 
@@ -130,7 +130,7 @@ The dockerconfigjson Secret holds an auth entry for the connection's registry ho
 
 ## 8. Errors and status
 
-- Harbor errors map to condition reasons: `Unauthorized` (401), `Forbidden` (403), `NotFound`, `Conflict`, `InvalidSpec` (Harbor 400 with its message), `DeleteBlocked` (412 on project or registry delete), `HarborUnavailable` (network, 5xx), and the reference reasons `NotAllowed`, `ProjectNotReady`, `RegistryNotReady`, `RegistryOnOtherHarbor`, `ProjectNotFound`, `OperatorCredential` (phase designs). Invalid specs that can be caught statically are rejected by CRD validation (CEL), not at reconcile.
+- Harbor errors map to condition reasons: `Unauthorized` (401), `Forbidden` (403), `NotFound`, `Conflict`, `InvalidSpec` (Harbor 400 with its message), `DeleteBlocked` (412 on project or registry delete), `HarborUnavailable` (network, 5xx), and the reference reasons `NotAllowed`, `ProjectNotReady`, `RegistryNotReady`, `RegistryOnOtherHarbor`, `ProjectNotFound`, `OperatorCredential`, `ContentDeletionNotAllowed` (phase designs). Connections also carry a `PermissionsSufficient` condition (reason `InsufficientPermissions` when the credential lacks what its admitted resources need). Invalid specs that can be caught statically are rejected by CRD validation (CEL), not at reconcile.
 - Transient errors retry with exponential backoff per resource, from 5 seconds up to 5 minutes; `InvalidSpec` waits for a spec change.
 - While Harbor is unreachable, the connection probes it on that backoff, and the resources that use the connection report `HarborUnavailable` without calling Harbor. A resource that finds Harbor unavailable first has its connection checked at once. When the connection is ready again, its resources reconcile at once.
 - Every status change also emits a Kubernetes event on the resource. Messages never include secrets.
@@ -203,5 +203,5 @@ scripts/                      dev and agent scripts
 
 ## 15. Open questions
 
-1. ~~Can a Harbor system robot manage robot accounts?~~ Answered on Harbor 2.15.4: it can create project and system robots that hold only permissions it holds itself (`403` otherwise), and delete them, but it can't update robots or refresh their secrets. The system robot stays the default credential: the operator replaces a robot (delete and create) when Harbor refuses an update or refresh (`docs/design/phase-1.md`), but only when the connection holds every permission the robot asks for; otherwise the robot shows `Forbidden` and nothing is deleted (`docs/design/phase-2.md`). A local admin user also works and updates robots in place ([`docs/admin/credentials.md`](docs/admin/credentials.md)).
+1. ~~Can a Harbor system robot manage robot accounts?~~ Answered on Harbor 2.15.4: it can create project and system robots that hold only permissions it holds itself (`403` otherwise), and delete them, but it can't update robots or refresh their secrets. The system robot stays the default credential: the operator replaces a robot (delete and create) when Harbor refuses an update or refresh (`docs/design/phase-1.md`), but only when the connection holds every permission the robot asks for; otherwise the robot shows `Forbidden` and nothing is deleted (`docs/design/phase-2.md`). A local admin user also works and updates robots in place ([`docs/admin/credentials.md`](docs/admin/credentials.md)). The recommended setup is now the operator managing its own robot through an admin connection, which updates it in place (`docs/design/phase-4.md`).
 2. Does `goharbor/go-client` cover every endpoint the phases need (quotas, retentions, immutable rules, robot secret refresh, registries)? Missing endpoints are raised as questions, not hand-written.
