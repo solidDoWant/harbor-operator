@@ -28,8 +28,9 @@ import (
 
 var (
 	// sharedClient talks to the API server of the operator that TestMain started; nil when envtest is unavailable.
-	sharedClient   client.Client
-	sharedStartErr error
+	sharedClient     client.Client
+	sharedRestConfig *rest.Config
+	sharedStartErr   error
 )
 
 // TestMain starts one API server and one operator for every test in the package. Each test works in its own
@@ -58,6 +59,7 @@ func runMain(m *testing.M) int {
 	defer stop()
 
 	sharedClient = direct
+	sharedRestConfig = restConfig
 
 	return m.Run()
 }

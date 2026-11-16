@@ -54,6 +54,7 @@ func run(directory string) error {
 
 		for _, version := range crd.Spec.Versions {
 			fmt.Fprintf(&out, "\n## %s\n\n", crd.Spec.Names.Kind)
+			fmt.Fprintf(&out, "Short name: `%s`. Category: `%s`.\n\n", strings.Join(crd.Spec.Names.ShortNames, "`, `"), strings.Join(crd.Spec.Names.Categories, "`, `"))
 			out.WriteString("| Field | Type | Required | Description |\n|---|---|---|---|\n")
 
 			for _, section := range []string{"spec", "status"} {

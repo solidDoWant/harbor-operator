@@ -8,9 +8,13 @@ metadata:
 spec:
   group: harbor.soliddowant.dev
   names:
+    categories:
+    - harbor
     kind: HarborProjectRobot
     listKind: HarborProjectRobotList
     plural: harborprojectrobots
+    shortNames:
+    - hprobot
     singular: harborprojectrobot
   scope: Namespaced
   versions:

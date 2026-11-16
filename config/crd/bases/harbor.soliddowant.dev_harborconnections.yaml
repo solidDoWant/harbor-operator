@@ -8,9 +8,13 @@ metadata:
 spec:
   group: harbor.soliddowant.dev
   names:
+    categories:
+    - harbor
     kind: HarborConnection
     listKind: HarborConnectionList
     plural: harborconnections
+    shortNames:
+    - hconn
     singular: harborconnection
   scope: Namespaced
   versions:

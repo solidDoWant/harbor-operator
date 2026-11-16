@@ -8,9 +8,13 @@ metadata:
 spec:
   group: harbor.soliddowant.dev
   names:
+    categories:
+    - harbor
     kind: HarborImmutabilityPolicy
     listKind: HarborImmutabilityPolicyList
     plural: harborimmutabilitypolicies
+    shortNames:
+    - himm
     singular: harborimmutabilitypolicy
   scope: Namespaced
   versions:
