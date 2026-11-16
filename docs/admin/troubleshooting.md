@@ -138,11 +138,11 @@ Fix: use a registry on the same Harbor, or change the connection of the project.
 
 ### `DependentsExist`
 
-Cause: you deleted a connection, project or registry that other resources still use.
+Cause: you deleted a connection, project or registry that other resources still use. Or you deleted a robot, or disabled or renamed one of its Secrets, and a connection in the same namespace signs in with that Secret.
 
-Check: the message lists up to five of them.
+Check: the message lists up to five of them. For a robot, the message names the connections.
 
-Fix: delete those resources. The deletion then finishes.
+Fix: delete those resources. For a robot, delete the connections or point their `credentialsSecretRef` at another Secret. The deletion then finishes. The operator keeps the Secret until then.
 
 ### `DeleteBlocked`
 

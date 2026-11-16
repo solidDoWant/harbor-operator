@@ -21,6 +21,7 @@ import (
 	"github.com/solidDoWant/harbor-operator/internal/access"
 	"github.com/solidDoWant/harbor-operator/internal/harbor"
 	"github.com/solidDoWant/harbor-operator/internal/ownership"
+	"github.com/solidDoWant/harbor-operator/internal/secrets"
 )
 
 // HarborProjectRobotReconciler makes a Harbor project robot match its HarborProjectRobot and writes its credentials
@@ -43,18 +44,39 @@ type HarborProjectRobotReconciler struct {
 // +kubebuilder:rbac:groups=harbor.soliddowant.dev,resources=harborprojectrobots/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
 
-// SetupWithManager registers the reconciler with its watches: projects, namespaces, owned Secrets and the other
-// claimants of the same Harbor robot.
+// SetupWithManager registers the reconciler with its watches: projects, namespaces, owned Secrets, connections that
+// sign in with a robot's Secret and the other claimants of the same Harbor robot.
 func (r *HarborProjectRobotReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&harborv1alpha1.HarborProjectRobot{}).
 		Owns(&corev1.Secret{}).
 		Watches(&harborv1alpha1.HarborProject{}, handler.EnqueueRequestsFromMapFunc(r.robotsForProject)).
 		Watches(&corev1.Namespace{}, handler.EnqueueRequestsFromMapFunc(r.robotsInNamespace)).
+		Watches(&harborv1alpha1.HarborConnection{}, handler.EnqueueRequestsFromMapFunc(r.robotsForConnection)).
 		Watches(&harborv1alpha1.HarborProjectRobot{}, handler.EnqueueRequestsFromMapFunc(r.otherClaimants)).
 		WithOptions(controller.Options{MaxConcurrentReconciles: 4, RateLimiter: backoffLimiter(0)}).
 		Named("harborprojectrobot").
 		Complete(r)
+}
+
+// robotsForConnection maps a connection to the project robots whose Secret it signs in with.
+func (r *HarborProjectRobotReconciler) robotsForConnection(ctx context.Context, object client.Object) []reconcile.Request {
+	return robotsUsingSecretOf(ctx, r.Client, object, "HarborProjectRobot", r.secretNamesIn)
+}
+
+// secretNamesIn lists the project robots in namespace with the names of their enabled Secrets.
+func (r *HarborProjectRobotReconciler) secretNamesIn(ctx context.Context, namespace string) (map[string][]string, error) {
+	var robots harborv1alpha1.HarborProjectRobotList
+	if err := r.List(ctx, &robots, client.InNamespace(namespace)); err != nil {
+		return nil, err
+	}
+
+	names := make(map[string][]string, len(robots.Items))
+	for index := range robots.Items {
+		names[robots.Items[index].Name] = secrets.Names(robots.Items[index].Name, robots.Items[index].Spec.Secret)
+	}
+
+	return names, nil
 }
 
 func (r *HarborProjectRobotReconciler) robotsForProject(ctx context.Context, object client.Object) []reconcile.Request {
@@ -369,6 +391,10 @@ func (r *HarborProjectRobotReconciler) finalize(ctx context.Context, robot *harb
 
 	resource := projectRobot{robot: robot}
 	lifecycle := r.lifecycle()
+
+	if waiting, err := lifecycle.waitForSecretUsers(ctx, resource); waiting || err != nil {
+		return reconcile.Result{}, err
+	}
 
 	if robot.Status.RobotID == 0 {
 		return lifecycle.release(ctx, resource)
