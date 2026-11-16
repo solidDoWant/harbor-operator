@@ -116,3 +116,61 @@ Repository names in the path are URL-encoded twice, as Harbor requires for names
 ### 5.4 Docs
 
 The user docs say plainly that `DeleteWithContents` deletes every image in the project permanently and can't be undone. The admin docs explain `allowContentDeletion`.
+
+## 6. Amendments after the design review
+
+The design review on issue #149 found gaps. This section answers them and overrides sections 1–4 where they disagree.
+
+### 6.1 Reading the held permissions (C1)
+
+`GET /users/current/permissions` can't serve as written: `scope=/project/*` returns nothing, `scope=/system` doesn't report `robot` or `quota`, and project-scope `project` comes back as resource `"."`. The held set is read like this instead:
+
+1. `GET /users/current` (go-client `User.GetCurrentUserInfo`). A 200 with `sysadmin_flag: true` means everything is held, so `PermissionsSufficient=True` and no further calls. Robots get 412 here and go on to step 2.
+2. **System scope:** `GET /users/current/permissions?scope=/system&relative=true` for everything except `robot` and `quota`. For those two, read the credential's own robot record (`GET /robots?q=Level=system,name=<name without the prefix>`) and take its system-scope access list. That needs `robot:list`, which the table requires anyway whenever robots are managed.
+3. **Project scope:** one `scope=/project/<id>&relative=true` query per distinct project ID among admitted dependents (the `status.projectID` of admitted `HarborProject`s, and the IDs of projects named in admitted system robots' `projectPermissions`; `*` checks one existing project). Map resource `"."` to `project`. Requirements of projects that don't exist yet aren't checked; the docs say so.
+
+The same reading fixes the shipped replace-safety check (`systemRobotTarget.missingPermissions`), which queries scope `"/"` and gets nothing back. That fix is its own issue (filed with this change).
+
+### 6.2 The guard (H1)
+
+Refuse (`Conflict`, `OperatorCredential`) when **either** the managing connection signs in as the robot, **or** any connection to the same Harbor identity that signs in as the robot is in a namespace other than the robot's. "Signs in as" uses the mapped username: the literal `username`, or the value at `usernameKey`, defaulting to `username`. Extra row: system robot whose Harbor name is the credential of a connection in another namespace → `OperatorCredential`. `docs/design/phase-2.md` section 2.8's guard row is replaced by this rule.
+
+### 6.3 CRD defaults (H2)
+
+No OpenAPI defaults on `usernameKey` or `passwordKey`. The defaults (`username`, `password`) are applied in code (`clientFor` and `internal/harbor`). CEL: `!(has(self.username) && has(self.usernameKey))`; `MinLength=1` on all three fields. The AC-4-01 integration test applies the `username: admin` object.
+
+### 6.4 Project permissions for system robots (H3)
+
+`HarborSystemRobot.spec.projectPermissions` allows `project: read|update|delete` (Harbor 2.15 offers them to robots, `PoliciesMap[ScopeProject]`). `HarborProjectRobot.spec.permissions` does **not**, so a tenant can't mint a robot that deletes or edits the project its `HarborProject` owns. The list generator and `docs/user/robot-permissions.md` gain these entries for system robots, and an integration test shows Harbor accepts them and that a robot holding them can read and update a project.
+
+### 6.5 The required-set table (H4)
+
+- The table is `(kind, scope, resource, action)`, with one row per Harbor call that kind's reconciler makes through `internal/harbor`. The first implementation issue derives it mechanically: each `internal/harbor` client method is annotated with the permissions it needs, and the table is the union over the methods each reconciler calls. A unit test checks every method used by a reconciler has an annotation.
+- Scopes: project robots, tag retention and immutable tags are **project** scope. Creating projects and updating quotas are system scope.
+- `robot:update` is required only for user credentials. Robot credentials replace robots instead (phase 1 section 3.4), so it's never required of them.
+- A unit test checks every entry is in the CEL allow-lists, so each can be granted to a robot. AC-4-03's root robot, built from the generated list, proves the list is enough.
+
+### 6.6 Deleting or removing a Secret a connection uses (M1)
+
+- The `DependentsExist` wait runs **before** deletion-preamble steps 2–5 (phase 1 section 3.1), because the robot's Secrets go by owner reference under every policy.
+- New watch: a `HarborConnection` event maps to the robots (system and project) in its namespace whose enabled output Secret name equals the connection's `spec.credentialsSecretRef.name`.
+- Disabling or renaming an output Secret that a connection in the same namespace names: the old Secret isn't deleted, and the robot reports `DependentsExist` naming the connection, until the connection stops using it.
+
+### 6.7 Migration procedure (M2)
+
+Adopting a hand-made robot: create the `HarborSystemRobot` with `adopt: true` writing a **new** Secret name, and in the same change point the main connection's `credentialsSecretRef` at it. Adoption refreshes the secret at once, so the main connection is `Unauthorized` until the operator writes the new Secret and the connection re-validates (seconds, through the Secret watch). The AC-4-09 test follows this procedure and checks the connection ends up `Ready`. Afterwards the admin turns `allowAdoption` off on the admin connection.
+
+### 6.8 Security notes in the docs (M3, L1, L3)
+
+The admin security docs state:
+- Permission to create a `HarborConnection` in a namespace equals reading every Secret there (any key can be sent to any URL). Grant it only where Secret read is already granted.
+- A connection's credential must not come from a robot managed, directly or through dependents, by that same connection; bulk deletion would deadlock.
+- Harbor's chart re-renders `<release>-core` on upgrade. If the admin password was changed in the UI, point the admin connection at your own Secret.
+- Turn `allowAdoption` off on the admin connection after migrating.
+
+### 6.9 Permission-check inputs and timing (M4)
+
+- Only **admitted** dependents count: `allowedNamespaces` for projects, and through projects their robots and policies; `systemAllowedNamespaces` for registries and system robots. Project robots and policies are found through the admitted `HarborProject`s' indexes (`spec.projectRef`).
+- Triggers: the connection reconcile itself, plus a Create-only watch predicate on each dependent kind that re-queues its connection (directly or through the project). No check while `Ready` is not `True`; the condition is then `Unknown` with the same reason as `Ready`.
+- Events: Warning `InsufficientPermissions` when the missing set changes; Normal `PermissionsSufficient` on recovery.
+- Entry format: `system robot:create`, `project <name> repository:push`.
