@@ -309,6 +309,7 @@ func TestSystemRobotDeletion(t *testing.T) {
 		harborStays bool
 	}{
 		{name: "Delete removes the Harbor robot", policy: harborv1alpha1.DeletionPolicyDelete},
+		{name: "DeleteWithContents removes the Harbor robot like Delete", policy: harborv1alpha1.DeletionPolicyDeleteWithContents},
 		{name: "Orphan leaves the Harbor robot", policy: harborv1alpha1.DeletionPolicyOrphan, harborStays: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -375,6 +376,95 @@ func TestSystemRobotNamedAsTheOperatorsCredentialIsNeverManaged(t *testing.T) {
 
 	_, err = setup.admin.GetRobot(t.Context(), before.ID)
 	require.NoError(t, err, "the operator's robot is never deleted")
+}
+
+func TestSystemRobotSigningInAConnectionInAnotherNamespaceIsNeverManaged(t *testing.T) {
+	t.Parallel()
+
+	// The managing connection is an admin connection that allows adoption, so only the guard stops the takeover.
+	setup := readyRobotProject(t, func(connection *harborv1alpha1.HarborConnection) { connection.Spec.AllowAdoption = true }, nil)
+
+	username, password := setup.instance.CreateSystemRobot(t, systemRobotPermissions())
+	otherNamespace := newNamespace(t, setup.cl, "other-conn")
+	// The username sits under a mapped key, so the guard must read the key the connection names.
+	require.NoError(t, setup.cl.Create(t.Context(), &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Namespace: otherNamespace, Name: "robot-creds"},
+		StringData: map[string]string{"robot-user": username, "password": password},
+	}))
+
+	other := newConnection(otherNamespace, "harbor", setup.instance.URL, "robot-creds")
+	other.Spec.CredentialsSecretRef.UsernameKey = "robot-user"
+	require.NoError(t, setup.cl.Create(t.Context(), other))
+	awaitReady(t, setup.cl, client.ObjectKeyFromObject(other), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
+
+	before, err := setup.admin.FindSystemRobot(t.Context(), username[len("robot$"):])
+	require.NoError(t, err)
+
+	robot := newSystemRobot(t, setup, setup.project.Namespace, setup.project.Spec.Name)
+	robot.Spec.Name = username[len("robot$"):]
+	robot.Spec.Adopt = true
+	robot.Spec.Secret.Opaque.Enabled = ptr(true)
+	require.NoError(t, setup.cl.Create(t.Context(), robot))
+
+	refused := awaitSystemRobot(t, setup.cl, client.ObjectKeyFromObject(robot), metav1.ConditionFalse, harborv1alpha1.ReasonOperatorCredential)
+	assert.Zero(t, refused.Status.RobotID, "the robot is not adopted")
+
+	after, err := setup.admin.GetRobot(t.Context(), before.ID)
+	require.NoError(t, err)
+	assert.Equal(t, before.Description, after.Description, "the other namespace's robot is not updated")
+	assert.Equal(t, harbor.FlattenGrants(before.Grants), harbor.FlattenGrants(after.Grants), "the other namespace's robot keeps its permissions")
+
+	for _, secretName := range []string{"deployer-dockerconfig", "deployer-credentials"} {
+		err := setup.cl.Get(t.Context(), client.ObjectKey{Namespace: setup.project.Namespace, Name: secretName}, &corev1.Secret{})
+		assert.True(t, apierrors.IsNotFound(err), "no Secret %s is written: %v", secretName, err)
+	}
+
+	robotClient, err := harbor.NewClient(harbor.ConnectionConfig{URL: setup.instance.URL, Username: username, Password: password})
+	require.NoError(t, err)
+	require.NoError(t, robotClient.CheckCredentials(t.Context()), "the other namespace's secret is not refreshed")
+}
+
+func TestSystemRobotManagedThroughAnAdminConnectionUpdatesInPlace(t *testing.T) {
+	t.Parallel()
+
+	setup := readyRobotProject(t, nil, nil)
+
+	robot := newSystemRobot(t, setup, setup.project.Namespace, setup.project.Spec.Name)
+	robot.Spec.Secret.Opaque.Enabled = ptr(true)
+	require.NoError(t, setup.cl.Create(t.Context(), robot))
+	key := client.ObjectKeyFromObject(robot)
+	ready := awaitSystemRobot(t, setup.cl, key, metav1.ConditionTrue, harborv1alpha1.ReasonReady)
+	id := ready.Status.RobotID
+
+	// A second connection in the robot's namespace signs in with the robot's own output Secret.
+	signedIn := newConnection(setup.project.Namespace, "signed-in-as-robot", setup.instance.URL, "deployer-credentials")
+	require.NoError(t, setup.cl.Create(t.Context(), signedIn))
+	awaitReady(t, setup.cl, client.ObjectKeyFromObject(signedIn), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
+
+	_, oldPassword := dockerCredentials(t, setup.cl, setup.project.Namespace, "deployer-dockerconfig", setup.instance.Registry(t))
+
+	require.Eventually(t, func() bool {
+		current := &harborv1alpha1.HarborSystemRobot{}
+		if err := setup.cl.Get(t.Context(), key, current); err != nil {
+			return false
+		}
+
+		current.Spec.Description = "updated through the admin connection"
+		current.Spec.Secret.Rotate = "2026-11"
+
+		return setup.cl.Update(t.Context(), current) == nil
+	}, 10*time.Second, 100*time.Millisecond)
+
+	username, password := awaitNewDockerSecret(t, setup, "deployer-dockerconfig", oldPassword)
+	require.NoError(t, push(t, setup.instance, username, password, setup.project.Spec.Name, "app"), "the refreshed secret works")
+
+	updated := awaitSystemRobot(t, setup.cl, key, metav1.ConditionTrue, harborv1alpha1.ReasonReady)
+	assert.Equal(t, id, updated.Status.RobotID, "the robot is updated in place, not replaced")
+	assert.Equal(t, "2026-11", updated.Status.ObservedRotate)
+
+	found, err := setup.admin.GetRobot(t.Context(), id)
+	require.NoError(t, err)
+	assert.Equal(t, "updated through the admin connection", found.Description)
 }
 
 func TestSystemRobotWaitsForAMissingProject(t *testing.T) {

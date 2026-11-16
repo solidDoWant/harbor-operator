@@ -73,7 +73,7 @@ Run `kubectl get harborproject,harborprojectrobot`. The `Ready` column is `True`
 | `InvalidSpec` | Harbor rejected a value. The message has Harbor's reason. | Correct the value. The operator tries again when you change the resource. |
 | `CredentialsInvalid`, `Unauthorized`, `HarborUnavailable` | The connection cannot sign in to Harbor, or cannot reach it. | Tell the admin. See [credentials](../admin/credentials.md). |
 | `DependentsExist` | You deleted a project that robots or an immutability policy still use. Or you deleted a robot, or disabled or renamed its Secret, and a connection in the namespace signs in with that Secret. The message names them. | Delete them first, or point the connection at another Secret. The operator keeps the robot and its Secret until then. |
-| `DeleteBlocked` | Harbor refuses to delete a project that still has repositories. | Delete the repositories in Harbor. The operator tries again. |
+| `DeleteBlocked` | Harbor refuses to delete a project that still has repositories. With `DeleteWithContents`, the message shows how many repositories are left, or says that the connection does not allow content deletion. | Delete the repositories in Harbor. The operator tries again. |
 | `ProjectNotReady` | A robot or policy waits for its project to exist in Harbor. | Check the project status. |
 | `SecretConflict` | A Secret with the robot's Secret name exists and the robot does not own it. | Rename the Secret in `spec.secret`, or delete the old one. |
 | `Forbidden` | The robot must change, and the connection can only change it by deleting it and creating it again. The connection does not have some permissions you asked for, so Harbor would refuse the new robot. The message lists those permissions. The operator does not delete the robot. | Remove those permissions from the spec, or ask the admin to give them to the connection. |
@@ -82,3 +82,9 @@ Run `kubectl get harborproject,harborprojectrobot`. The `Ready` column is `True`
 ## Delete the resources
 
 By default, deleting a resource also deletes its Harbor object. To keep the Harbor object, set `deletionPolicy: Orphan` on the resource before you delete it. The robot Secrets are always deleted with the robot.
+
+Harbor does not delete a project that still has images. The project shows `DeleteBlocked` until you delete the images. To let the operator delete them, set `deletionPolicy: DeleteWithContents` on the project.
+
+Be careful with `DeleteWithContents`. When you delete the project resource, the operator deletes every image in the project permanently. Nobody can get them back.
+
+`DeleteWithContents` works only if the admin sets `allowContentDeletion: true` on the connection. If not, the project shows `DeleteBlocked` with a message that says so. The operator deletes the images in steps of 100 repositories, and the message shows how many are left. A tag that an immutability rule protects blocks the deletion. Remove that rule in Harbor by hand. On robots, policies and registries, `DeleteWithContents` means the same as `Delete`.

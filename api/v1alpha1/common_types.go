@@ -54,12 +54,15 @@ type CredentialsSecretReference struct {
 }
 
 // DeletionPolicy says what happens to the Harbor object when its custom resource is deleted.
-// +kubebuilder:validation:Enum=Delete;Orphan
+// +kubebuilder:validation:Enum=Delete;DeleteWithContents;Orphan
 type DeletionPolicy string
 
 const (
 	// DeletionPolicyDelete deletes the Harbor object.
 	DeletionPolicyDelete DeletionPolicy = "Delete"
+	// DeletionPolicyDeleteWithContents deletes every repository of a project, then the project, when the connection
+	// allows content deletion. On every other kind it means the same as Delete.
+	DeletionPolicyDeleteWithContents DeletionPolicy = "DeleteWithContents"
 	// DeletionPolicyOrphan leaves the Harbor object in place.
 	DeletionPolicyOrphan DeletionPolicy = "Orphan"
 )
@@ -119,4 +122,7 @@ const (
 	EventReasonRecreated     = "Recreated"
 	EventReasonReplaced      = "Replaced"
 	EventReasonHealthChanged = "HealthChanged"
+	// ReasonContentDeletionNotAllowed is emitted when a project's policy asks to delete its contents but the
+	// connection does not allow it.
+	ReasonContentDeletionNotAllowed = "ContentDeletionNotAllowed"
 )

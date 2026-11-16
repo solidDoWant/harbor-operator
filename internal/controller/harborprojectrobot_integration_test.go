@@ -450,6 +450,7 @@ func TestRobotDeletion(t *testing.T) {
 		harborStays bool
 	}{
 		{name: "Delete removes the Harbor robot", policy: harborv1alpha1.DeletionPolicyDelete},
+		{name: "DeleteWithContents removes the Harbor robot like Delete", policy: harborv1alpha1.DeletionPolicyDeleteWithContents},
 		{name: "Orphan leaves the Harbor robot", policy: harborv1alpha1.DeletionPolicyOrphan, harborStays: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {

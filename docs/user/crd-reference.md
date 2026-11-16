@@ -11,6 +11,7 @@ Every field of the `harbor.soliddowant.dev/v1alpha1` resources. A field marked `
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `spec.allowAdoption` | boolean |  | AllowAdoption lets resources that use this connection adopt existing Harbor objects. |
+| `spec.allowContentDeletion` | boolean |  | AllowContentDeletion lets projects that use this connection with deletionPolicy DeleteWithContents delete every repository in the project, and so every image, before the project is deleted. |
 | `spec.allowedNamespaces` | object |  | AllowedNamespaces admits HarborProject resources. |
 | `spec.allowedNamespaces.names` | list of string |  | Names is an explicit list of namespace names. |
 | `spec.allowedNamespaces.selector` | object |  | Selector admits every namespace whose labels match. |
@@ -21,7 +22,7 @@ Every field of the `harbor.soliddowant.dev/v1alpha1` resources. A field marked `
 | `spec.credentialsSecretRef.username` | string |  | Username is the literal user name. Use it when the Secret has no user name key. Excludes usernameKey. |
 | `spec.credentialsSecretRef.usernameKey` | string |  | UsernameKey is the key in the Secret that holds the user name. Defaults to username. |
 | `spec.defaults` | object |  | Defaults for resources that use this connection. |
-| `spec.defaults.deletionPolicy` | string |  | DeletionPolicy applies to resources with an empty deletionPolicy. One of `Delete`, `Orphan`. |
+| `spec.defaults.deletionPolicy` | string |  | DeletionPolicy applies to resources with an empty deletionPolicy. One of `Delete`, `DeleteWithContents`, `Orphan`. |
 | `spec.defaults.resyncInterval` | string |  | ResyncInterval is how often resources are compared with Harbor again. |
 | `spec.insecureSkipVerify` | boolean |  | InsecureSkipVerify turns off certificate checks. |
 | `spec.registryHost` | string |  | RegistryHost is host[:port] written into docker configs. Defaults to the host of Harbor's external_url. |
@@ -45,7 +46,7 @@ Every field of the `harbor.soliddowant.dev/v1alpha1` resources. A field marked `
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `spec.deletionPolicy` | string |  | DeletionPolicy empty means the connection's default. One of `Delete`, `Orphan`. |
+| `spec.deletionPolicy` | string |  | DeletionPolicy empty means the connection's default. One of `Delete`, `DeleteWithContents`, `Orphan`. |
 | `spec.projectRef` | object | yes | ProjectRef names the HarborProject. Its allowedNamespaces must admit this namespace. Immutable. |
 | `spec.projectRef.name` | string | yes | Name of the object. |
 | `spec.projectRef.namespace` | string |  | Namespace of the object. Empty means the namespace of the referring resource. |
@@ -74,7 +75,7 @@ Every field of the `harbor.soliddowant.dev/v1alpha1` resources. A field marked `
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `spec.adopt` | boolean |  |  |
-| `spec.deletionPolicy` | string |  | DeletionPolicy empty means the connection's default. One of `Delete`, `Orphan`. |
+| `spec.deletionPolicy` | string |  | DeletionPolicy empty means the connection's default. One of `Delete`, `DeleteWithContents`, `Orphan`. |
 | `spec.description` | string |  |  |
 | `spec.disabled` | boolean |  |  |
 | `spec.duration` | integer |  | Duration in days. -1 means the robot never expires. |
@@ -121,7 +122,7 @@ Every field of the `harbor.soliddowant.dev/v1alpha1` resources. A field marked `
 | `spec.connectionRef` | object | yes | ObjectReference points at an object of another kind. |
 | `spec.connectionRef.name` | string | yes | Name of the object. |
 | `spec.connectionRef.namespace` | string |  | Namespace of the object. Empty means the namespace of the referring resource. |
-| `spec.deletionPolicy` | string |  | DeletionPolicy empty means the connection's default. One of `Delete`, `Orphan`. |
+| `spec.deletionPolicy` | string |  | DeletionPolicy empty means the connection's default. One of `Delete`, `DeleteWithContents`, `Orphan`. |
 | `spec.name` | string |  | Name of the Harbor project. Defaults to metadata.name. Immutable. |
 | `spec.proxyCache` | object |  | ProxyCache makes the project a proxy cache. Set it at creation or never. |
 | `spec.proxyCache.registryRef` | object | yes | RegistryRef names the HarborRegistry. Its allowedNamespaces must admit this project's namespace. |
@@ -166,7 +167,7 @@ Every field of the `harbor.soliddowant.dev/v1alpha1` resources. A field marked `
 | `spec.connectionRef.namespace` | string |  | Namespace of the object. Empty means the namespace of the referring resource. |
 | `spec.credentialsSecretRef` | object |  | CredentialsSecretRef names a Secret in this namespace with the keys accessKey and accessSecret. |
 | `spec.credentialsSecretRef.name` | string | yes | Name of the Secret. |
-| `spec.deletionPolicy` | string |  | DeletionPolicy empty means the connection's default. One of `Delete`, `Orphan`. |
+| `spec.deletionPolicy` | string |  | DeletionPolicy empty means the connection's default. One of `Delete`, `DeleteWithContents`, `Orphan`. |
 | `spec.description` | string |  |  |
 | `spec.insecure` | boolean |  | Insecure skips certificate checks on the upstream. |
 | `spec.name` | string |  | Name of the registry in Harbor. Defaults to metadata.name. Immutable. |
@@ -190,7 +191,7 @@ Every field of the `harbor.soliddowant.dev/v1alpha1` resources. A field marked `
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `spec.deletionPolicy` | string |  | DeletionPolicy empty means the connection's default. One of `Delete`, `Orphan`. |
+| `spec.deletionPolicy` | string |  | DeletionPolicy empty means the connection's default. One of `Delete`, `DeleteWithContents`, `Orphan`. |
 | `spec.projectRef` | object | yes | ProjectRef names the HarborProject. Its allowedNamespaces must admit this namespace. Immutable. |
 | `spec.projectRef.name` | string | yes | Name of the object. |
 | `spec.projectRef.namespace` | string |  | Namespace of the object. Empty means the namespace of the referring resource. |
@@ -227,7 +228,7 @@ Every field of the `harbor.soliddowant.dev/v1alpha1` resources. A field marked `
 | `spec.connectionRef` | object | yes | ConnectionRef names the HarborConnection. Its systemAllowedNamespaces must admit this namespace. Immutable. |
 | `spec.connectionRef.name` | string | yes | Name of the object. |
 | `spec.connectionRef.namespace` | string |  | Namespace of the object. Empty means the namespace of the referring resource. |
-| `spec.deletionPolicy` | string |  | DeletionPolicy empty means the connection's default. One of `Delete`, `Orphan`. |
+| `spec.deletionPolicy` | string |  | DeletionPolicy empty means the connection's default. One of `Delete`, `DeleteWithContents`, `Orphan`. |
 | `spec.description` | string |  |  |
 | `spec.disabled` | boolean |  |  |
 | `spec.duration` | integer |  | Duration in days. -1 means the robot never expires. |

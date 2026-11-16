@@ -61,6 +61,11 @@ spec:
                 description: AllowAdoption lets resources that use this connection
                   adopt existing Harbor objects.
                 type: boolean
+              allowContentDeletion:
+                description: |-
+                  AllowContentDeletion lets projects that use this connection with deletionPolicy DeleteWithContents delete every
+                  repository in the project, and so every image, before the project is deleted.
+                type: boolean
               allowedNamespaces:
                 description: AllowedNamespaces admits HarborProject resources.
                 properties:
@@ -160,6 +165,7 @@ spec:
                       deletionPolicy.
                     enum:
                     - Delete
+                    - DeleteWithContents
                     - Orphan
                     type: string
                   resyncInterval:

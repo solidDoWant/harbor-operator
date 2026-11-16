@@ -42,6 +42,10 @@ type HarborConnectionSpec struct {
 	// AllowAdoption lets resources that use this connection adopt existing Harbor objects.
 	// +optional
 	AllowAdoption bool `json:"allowAdoption,omitempty"`
+	// AllowContentDeletion lets projects that use this connection with deletionPolicy DeleteWithContents delete every
+	// repository in the project, and so every image, before the project is deleted.
+	// +optional
+	AllowContentDeletion bool `json:"allowContentDeletion,omitempty"`
 	// Defaults for resources that use this connection.
 	// +kubebuilder:default={}
 	// +optional

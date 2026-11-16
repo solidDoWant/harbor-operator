@@ -14,6 +14,7 @@ The operator writes a Kubernetes event on a resource each time something changes
 | `HealthChanged` | Normal or Warning | The upstream health of a registry changed. |
 | `InsufficientPermissions` | Warning | On a `HarborConnection`: the list of permissions that its credentials lack changed. The message lists them. |
 | `PermissionsSufficient` | Normal | On a `HarborConnection`: its credentials hold every needed permission again. |
+| `ContentDeletionNotAllowed` | Warning | A project with `deletionPolicy: DeleteWithContents` was deleted, but its connection does not allow content deletion. The images stay. |
 | A condition reason, such as `NotAllowed` or `HarborUnavailable` | Warning | The `Ready` condition changed to a failure. The message is the condition message. |
 
 Events never contain secrets. Kubernetes keeps events for a short time only, so read the `Ready` condition for the current state.

@@ -13,7 +13,7 @@ Same rules as phase 1. Approved by the owner on 2026-11-16 (design: `docs/design
 - **AC-4-05 Drift in place.** Permissions or description of the root robot changed in Harbor are put back with the same robot ID.
   Tests:
 - **AC-4-06 Narrow guard.** A system robot whose own managing connection signs in as it reports `Conflict` with reason `OperatorCredential` and changes nothing. The same robot managed through the admin connection reconciles normally.
-  Tests:
+  Tests: `internal/controller: TestSystemRobotNamedAsTheOperatorsCredentialIsNeverManaged`, `internal/controller: TestSystemRobotSigningInAConnectionInAnotherNamespaceIsNeverManaged`, `internal/controller: TestSystemRobotManagedThroughAnAdminConnectionUpdatesInPlace`
 - **AC-4-07 Deletion waits.** Deleting the root robot while a connection uses its Secret reports `DependentsExist`, and the Harbor robot stays. After that connection is deleted, the robot deletion finishes.
   Tests: `internal/controller: TestSystemRobotDeletionWaitsForConnectionsUsingItsSecret`
 - **AC-4-08 Permission check.** A connection whose credential lacks a permission that an existing resource kind needs reports `PermissionsSufficient=False` with reason `InsufficientPermissions`, listing it. After the permission is granted, the condition turns `True` within one resync. An admin-user connection reports `True`.
@@ -23,10 +23,10 @@ Same rules as phase 1. Approved by the owner on 2026-11-16 (design: `docs/design
 - **AC-4-10 Docs.** The admin docs lead with the root-robot pattern, generate the permission list from the operator's code, and cover migrating from a hand-made robot. `make docs-check` passes.
   Tests: `internal/harbor/permtable: TestCredentialsDocLeadsWithTheRootRobotPattern`
 - **AC-4-11 Delete with contents.** A `HarborProject` with `deletionPolicy: DeleteWithContents`, on a connection with `allowContentDeletion: true`, that holds images in two repositories (one with a `/` in its name), is deleted together with its images, and the resource goes away.
-  Tests:
+  Tests: `internal/controller: TestProjectDeletionWithContents/an allowed project is deleted together with every repository`, `internal/harbor: TestDeleteRepositoryEncodesTheNameTwiceWithoutTheProjectPrefix`
 - **AC-4-12 Not allowed by the connection.** The same project on a connection without `allowContentDeletion` reports `DeleteBlocked` saying the connection doesn't allow content deletion (with a `ContentDeletionNotAllowed` Warning event) when deleted, deletes no image, and finishes once the images are removed by hand.
-  Tests:
+  Tests: `internal/controller: TestProjectDeletionWithContents/a connection that does not allow content deletion leaves the images and blocks the deletion`
 - **AC-4-13 Resumes after a failure.** When Harbor fails partway through deleting the repositories, the resource reports what is left, and the deletion finishes by itself once Harbor answers again.
-  Tests:
+  Tests: `internal/controller: TestProjectDeletionWithContents/a failure partway is reported with what is left and the deletion resumes`
 - **AC-4-14 Other kinds.** `DeleteWithContents` on a robot, policy or registry resource behaves exactly like `Delete`.
-  Tests:
+  Tests: `internal/controller: TestRobotDeletion/DeleteWithContents removes the Harbor robot like Delete`, `internal/controller: TestSystemRobotDeletion/DeleteWithContents removes the Harbor robot like Delete`, `internal/controller: TestImmutabilityPolicyDeletion/DeleteWithContents removes the project's rules like Delete`, `internal/controller: TestDeletingRetentionPolicyFollowsItsDeletionPolicy/DeleteWithContents removes the rules like Delete`, `internal/controller: TestRegistryDeletion/policy DeleteWithContents deletes the Harbor registry like Delete`
