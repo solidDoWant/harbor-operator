@@ -21,7 +21,7 @@ Same rules as phase 1. Approved by the owner on 2026-11-16 (design: `docs/design
 - **AC-4-09 Adopting a hand-made robot.** An existing hand-made system robot adopted by a `HarborSystemRobot` through the admin connection gets a fresh secret in its Secret, and a connection using that Secret becomes `Ready`.
   Tests:
 - **AC-4-10 Docs.** The admin docs lead with the root-robot pattern, generate the permission list from the operator's code, and cover migrating from a hand-made robot. `make docs-check` passes.
-  Tests:
+  Tests: `internal/harbor/permtable: TestCredentialsDocLeadsWithTheRootRobotPattern`
 - **AC-4-11 Delete with contents.** A `HarborProject` with `deletionPolicy: DeleteWithContents`, on a connection with `allowContentDeletion: true`, that holds images in two repositories (one with a `/` in its name), is deleted together with its images, and the resource goes away.
   Tests:
 - **AC-4-12 Not allowed by the connection.** The same project on a connection without `allowContentDeletion` reports `DeleteBlocked` saying the connection doesn't allow content deletion (with a `ContentDeletionNotAllowed` Warning event) when deleted, deletes no image, and finishes once the images are removed by hand.
