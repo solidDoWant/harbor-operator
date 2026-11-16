@@ -41,6 +41,7 @@ type ConnectionConfig struct {
 // Client talks to one Harbor. Every error it returns is an *Error.
 type Client struct {
 	api      *v2client.HarborAPI
+	username string
 	password string
 }
 
@@ -79,7 +80,7 @@ func NewClient(config ConnectionConfig) (*Client, error) {
 		AuthInfo:  httptransport.BasicAuth(config.Username, config.Password),
 	}
 
-	return &Client{api: v2client.New(harborConfig.ToV2Config()), password: config.Password}, nil
+	return &Client{api: v2client.New(harborConfig.ToV2Config()), username: config.Username, password: config.Password}, nil
 }
 
 func (c *Client) fail(err error) error { return wrapError(err, c.password) }
@@ -438,42 +439,3 @@ func (c *Client) DeleteRobot(ctx context.Context, id int64) error {
 
 	return c.fail(err)
 }
-
-// CurrentPermissions returns what the caller may do in scope, for example "/project/1", with each resource relative
-// to the scope. Harbor evaluates every permission it knows for the scope against the caller.
-//
-//harbor:permission none
-func (c *Client) CurrentPermissions(ctx context.Context, scope string) ([]RobotAccess, error) {
-	relative := true
-
-	response, err := c.api.User.GetCurrentUserPermissions(ctx, &user.GetCurrentUserPermissionsParams{Scope: &scope, Relative: &relative})
-	if err != nil {
-		return nil, c.fail(err)
-	}
-
-	result := make([]RobotAccess, 0, len(response.Payload))
-
-	for _, permission := range response.Payload {
-		if permission != nil {
-			result = append(result, RobotAccess{Resource: permission.Resource, Action: permission.Action})
-		}
-	}
-
-	return result, nil
-}
-
-// MissingPermissions returns the permissions in want that the caller does not hold in scope, in want's order. A
-// robot created with any of them would be refused, so a replace must not start.
-//
-//harbor:permission none
-func (c *Client) MissingPermissions(ctx context.Context, scope string, want []RobotAccess) ([]RobotAccess, error) {
-	held, err := c.CurrentPermissions(ctx, scope)
-	if err != nil {
-		return nil, err
-	}
-
-	return MissingAccess(want, held), nil
-}
-
-// ProjectScope is the permission scope of the project with the ID.
-func ProjectScope(projectID int64) string { return "/project/" + strconv.FormatInt(projectID, 10) }
