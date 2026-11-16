@@ -13,7 +13,7 @@ Same rules as phase 1. Approved by the owner on 2026-11-16 (design: `docs/design
 - **AC-4-05 Drift in place.** Permissions or description of the root robot changed in Harbor are put back with the same robot ID.
   Tests:
 - **AC-4-06 Narrow guard.** A system robot whose own managing connection signs in as it reports `Conflict` with reason `OperatorCredential` and changes nothing. The same robot managed through the admin connection reconciles normally.
-  Tests:
+  Tests: `internal/controller: TestSystemRobotNamedAsTheOperatorsCredentialIsNeverManaged`, `internal/controller: TestSystemRobotSigningInAConnectionInAnotherNamespaceIsNeverManaged`, `internal/controller: TestSystemRobotManagedThroughAnAdminConnectionUpdatesInPlace`
 - **AC-4-07 Deletion waits.** Deleting the root robot while a connection uses its Secret reports `DependentsExist`, and the Harbor robot stays. After that connection is deleted, the robot deletion finishes.
   Tests: `internal/controller: TestSystemRobotDeletionWaitsForConnectionsUsingItsSecret`
 - **AC-4-08 Permission check.** A connection whose credential lacks a permission that an existing resource kind needs reports `PermissionsSufficient=False` with reason `InsufficientPermissions`, listing it. After the permission is granted, the condition turns `True` within one resync. An admin-user connection reports `True`.

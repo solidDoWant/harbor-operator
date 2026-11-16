@@ -42,9 +42,9 @@ Fix: repair the network or Harbor. The operator tries again with a growing delay
 
 ### `OperatorCredential`
 
-Cause: a `HarborSystemRobot` names the Harbor robot that the connection uses to sign in. The operator never manages that robot.
+Cause: a `HarborSystemRobot` names a Harbor robot that a connection signs in as. That connection is the robot's own `connectionRef`, or it is in another namespace. The operator never manages that robot.
 
-Fix: choose another name for the system robot, or use a different credential for the connection. See [system robots](system-robots.md).
+Fix: choose another name for the system robot. To manage the operator's own robot, use an admin connection in the robot's namespace as its `connectionRef`. See [system robots](system-robots.md).
 
 ## Access and ownership
 
