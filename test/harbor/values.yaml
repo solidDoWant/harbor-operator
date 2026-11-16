@@ -33,7 +33,7 @@ core:
 jobservice:
   image:
     repository: ghcr.io/goharbor/harbor-jobservice
-    tag: v2.15.4@sha256:f143578ef30e2be5c48873298257ed0fca31545025958c534e536a06765d2b82
+    tag: v2.15.5@sha256:dd5cb3fac57a0cce8e37f208803d6075f00f45322038599098602b582afdfd96
 registry:
   registry:
     image:
