@@ -6,6 +6,9 @@ metadata:
   labels:
     {{- include "harbor-operator.labels" . | nindent 4 }}
 spec:
+  {{- if .Values.grafanaDashboard.grafanaOperator.allowCrossNamespaceImport }}
+  allowCrossNamespaceImport: true
+  {{- end }}
   instanceSelector:
     {{- toYaml .Values.grafanaDashboard.grafanaOperator.instanceSelector | nindent 4 }}
   json: |

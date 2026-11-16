@@ -32,12 +32,14 @@ For: admins who install harbor-operator with its Helm chart.
 | `grafanaDashboard.configMap.enabled` | `false` | Render a ConfigMap with the dashboard for Grafana's dashboard sidecar. |
 | `grafanaDashboard.configMap.labels` | `""` | Labels on the dashboard ConfigMap. The sidecar selects ConfigMaps by this label. |
 | `grafanaDashboard.grafanaOperator.enabled` | `false` | Render a grafana-operator GrafanaDashboard with the dashboard inline. |
+| `grafanaDashboard.grafanaOperator.allowCrossNamespaceImport` | `false` | Let grafana-operator import the dashboard into a Grafana instance in another namespace. Set it to true when the operator does not run in the namespace of the Grafana instance. |
 | `grafanaDashboard.grafanaOperator.instanceSelector` | `""` | Selects the Grafana instances that get the dashboard. |
 | `resources.requests.cpu` | `10m` | CPU request. There is no CPU limit. |
 | `resources.requests.memory` | `128Mi` | Memory request. |
 | `resources.limits.memory` | `128Mi` | Memory limit. Keep it equal to the memory request. |
 | `extraArgs` | `[]` | Extra arguments for the operator binary. |
 | `podAnnotations` | `{}` | Pod annotations. |
+| `podLabels` | `{}` | Extra labels on the operator pod, for example to match a network policy. They are added to the selector labels, which stay the same. |
 | `nodeSelector` | `{}` | Node selector. |
 | `tolerations` | `[]` | Tolerations. |
 | `affinity` | `{}` | Affinity rules. |
