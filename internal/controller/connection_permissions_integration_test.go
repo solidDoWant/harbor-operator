@@ -127,6 +127,36 @@ func TestConnectionReportsWhetherItsCredentialsHoldTheNeededPermissions(t *testi
 		awaitEvent(t, setup.cl, setup.connection, harborv1alpha1.ReasonPermissionsSufficient)
 	})
 
+	allowContentDeletion := func(connection *harborv1alpha1.HarborConnection) {
+		shortConnectionResync(connection)
+		connection.Spec.AllowContentDeletion = true
+	}
+
+	t.Run("deleting a project's contents needs repository permissions", func(t *testing.T) {
+		t.Parallel()
+
+		withContents := func(project *harborv1alpha1.HarborProject) {
+			project.Spec.DeletionPolicy = harborv1alpha1.DeletionPolicyDeleteWithContents
+		}
+
+		setup := readyRobotProjectWithSystemRobot(t, true, allowContentDeletion, withContents)
+		missing := awaitPermissions(t, setup.cl, client.ObjectKeyFromObject(setup.connection), metav1.ConditionFalse, harborv1alpha1.ReasonInsufficientPermissions)
+		assert.Equal(t, "the credentials lack project "+setup.project.Spec.Name+" repository:delete, project "+setup.project.Spec.Name+" repository:list", missing.Message)
+	})
+
+	t.Run("a project that keeps its contents needs no repository permissions", func(t *testing.T) {
+		t.Parallel()
+
+		plain := readyRobotProjectWithSystemRobot(t, true, allowContentDeletion, nil)
+		plainKey := client.ObjectKeyFromObject(plain.connection)
+		awaitPermissions(t, plain.cl, plainKey, metav1.ConditionTrue, harborv1alpha1.ReasonPermissionsSufficient)
+		require.Never(t, func() bool {
+			condition := permissionsCondition(t, plain.cl, plainKey)
+
+			return condition == nil || condition.Status != metav1.ConditionTrue
+		}, 6*time.Second, 200*time.Millisecond, "a project that keeps its contents needs no repository permissions")
+	})
+
 	t.Run("an administrator holds every permission", func(t *testing.T) {
 		t.Parallel()
 

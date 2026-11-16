@@ -42,9 +42,10 @@ type requiredPermissions struct {
 }
 
 // addKind adds every table row of kind: system rows at system scope, project rows in the project when its ID is known.
-func (s *requiredPermissions) addKind(kind string, projectID int64, projectName string) {
+// Rows that only deleting a project's contents needs are added only when contentDeletion is set.
+func (s *requiredPermissions) addKind(kind string, projectID int64, projectName string, contentDeletion bool) {
 	for _, row := range harbor.RequiredPermissions {
-		if row.Kind != kind {
+		if row.Kind != kind || row.ContentDeletionOnly && !contentDeletion {
 			continue
 		}
 
@@ -168,7 +169,7 @@ func (r *HarborConnectionReconciler) requiredPermissions(ctx context.Context, co
 			continue
 		}
 
-		if err := r.addProjectDependents(ctx, required, project); err != nil {
+		if err := r.addProjectDependents(ctx, required, connection, project); err != nil {
 			return nil, err
 		}
 	}
@@ -185,7 +186,7 @@ func (r *HarborConnectionReconciler) requiredPermissions(ctx context.Context, co
 		}
 
 		if admitted {
-			required.addKind("HarborRegistry", 0, "")
+			required.addKind("HarborRegistry", 0, "", false)
 
 			break
 		}
@@ -218,9 +219,11 @@ func (r *HarborConnectionReconciler) requiredPermissions(ctx context.Context, co
 
 // addProjectDependents adds what an admitted project needs, and what its robots and policies in namespaces it admits
 // need in it. A project without a Harbor ID yet is checked at system scope only.
-func (r *HarborConnectionReconciler) addProjectDependents(ctx context.Context, required *requiredPermissions, project *harborv1alpha1.HarborProject) error {
+func (r *HarborConnectionReconciler) addProjectDependents(ctx context.Context, required *requiredPermissions, connection *harborv1alpha1.HarborConnection, project *harborv1alpha1.HarborProject) error {
 	id, name := int64(project.Status.ProjectID), projectName(project)
-	required.addKind("HarborProject", id, name)
+	// Deleting a project's contents happens only when the connection allows it and the project asks for it.
+	contentDeletion := connection.Spec.AllowContentDeletion && deletionPolicy(project, connection) == harborv1alpha1.DeletionPolicyDeleteWithContents
+	required.addKind("HarborProject", id, name, contentDeletion)
 
 	projectKey := client.ObjectKeyFromObject(project).String()
 	admits := func(namespace string) (bool, error) {
@@ -244,7 +247,7 @@ func (r *HarborConnectionReconciler) addProjectDependents(ctx context.Context, r
 			continue
 		}
 
-		required.addKind("HarborProjectRobot", id, name)
+		required.addKind("HarborProjectRobot", id, name, false)
 
 		if id != 0 {
 			for _, permission := range desiredRobot(robot).Permissions {
@@ -265,7 +268,7 @@ func (r *HarborConnectionReconciler) addProjectDependents(ctx context.Context, r
 		}
 
 		if admitted {
-			required.addKind("HarborRetentionPolicy", id, name)
+			required.addKind("HarborRetentionPolicy", id, name, false)
 
 			break
 		}
@@ -283,7 +286,7 @@ func (r *HarborConnectionReconciler) addProjectDependents(ctx context.Context, r
 		}
 
 		if admitted {
-			required.addKind("HarborImmutabilityPolicy", id, name)
+			required.addKind("HarborImmutabilityPolicy", id, name, false)
 
 			break
 		}
@@ -296,7 +299,7 @@ func (r *HarborConnectionReconciler) addProjectDependents(ctx context.Context, r
 // system scope, project grants in each named project Harbor has. A grant on every project is checked in one project
 // already known to the check. Projects that do not exist yet are not checked.
 func addSystemRobot(ctx context.Context, required *requiredPermissions, harborClient *harbor.Client, robot *harborv1alpha1.HarborSystemRobot) error {
-	required.addKind("HarborSystemRobot", 0, "")
+	required.addKind("HarborSystemRobot", 0, "", false)
 
 	ids := map[string]int64{}
 
@@ -311,7 +314,7 @@ func addSystemRobot(ctx context.Context, required *requiredPermissions, harborCl
 		}
 
 		ids[name] = project.ID
-		required.addKind("HarborSystemRobot", project.ID, name)
+		required.addKind("HarborSystemRobot", project.ID, name, false)
 	}
 
 	for _, grant := range desiredSystemRobot(robot).Grants {
