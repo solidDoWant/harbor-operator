@@ -8,6 +8,8 @@ Every field of the `harbor.soliddowant.dev/v1alpha1` resources. A field marked `
 
 ## HarborConnection
 
+Short name: `hconn`. Category: `harbor`.
+
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `spec.allowAdoption` | boolean |  | AllowAdoption lets resources that use this connection adopt existing Harbor objects. |
@@ -44,6 +46,8 @@ Every field of the `harbor.soliddowant.dev/v1alpha1` resources. A field marked `
 
 ## HarborImmutabilityPolicy
 
+Short name: `himm`. Category: `harbor`.
+
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `spec.deletionPolicy` | string |  | DeletionPolicy empty means the connection's default. One of `Delete`, `DeleteWithContents`, `Orphan`. |
@@ -71,6 +75,8 @@ Every field of the `harbor.soliddowant.dev/v1alpha1` resources. A field marked `
 | `status.projectID` | integer |  | ProjectID in Harbor. Set only while this resource owns the project's immutability rules. |
 
 ## HarborProjectRobot
+
+Short name: `hprobot`. Category: `harbor`.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
@@ -112,6 +118,8 @@ Every field of the `harbor.soliddowant.dev/v1alpha1` resources. A field marked `
 | `status.robotID` | integer |  | RobotID in Harbor. |
 
 ## HarborProject
+
+Short name: `hproj`. Category: `harbor`.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
@@ -156,6 +164,8 @@ Every field of the `harbor.soliddowant.dev/v1alpha1` resources. A field marked `
 
 ## HarborRegistry
 
+Short name: `hreg`. Category: `harbor`.
+
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `spec.adopt` | boolean |  | Adopt lets this resource take over an existing registry of the same name. |
@@ -189,6 +199,8 @@ Every field of the `harbor.soliddowant.dev/v1alpha1` resources. A field marked `
 
 ## HarborRetentionPolicy
 
+Short name: `hret`. Category: `harbor`.
+
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `spec.deletionPolicy` | string |  | DeletionPolicy empty means the connection's default. One of `Delete`, `DeleteWithContents`, `Orphan`. |
@@ -221,6 +233,8 @@ Every field of the `harbor.soliddowant.dev/v1alpha1` resources. A field marked `
 | `status.retentionID` | integer |  | RetentionID in Harbor. |
 
 ## HarborSystemRobot
+
+Short name: `hsrobot`. Category: `harbor`.
 
 | Field | Type | Required | Description |
 |---|---|---|---|

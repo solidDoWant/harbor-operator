@@ -111,6 +111,7 @@ type HarborProjectRobotStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:resource:categories=harbor,shortName=hprobot
 // +kubebuilder:printcolumn:name="Harbor Name",type=string,JSONPath=`.status.harborName`
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
 // +kubebuilder:printcolumn:name="Reason",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].reason`
