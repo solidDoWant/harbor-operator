@@ -15,11 +15,36 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 
 	harborv1alpha1 "github.com/solidDoWant/harbor-operator/api/v1alpha1"
 	"github.com/solidDoWant/harbor-operator/internal/harbor"
 	"github.com/solidDoWant/harbor-operator/test/harborfixture"
 )
+
+// driftCorrections reads the drift counter of a kind from the operator's metrics registry.
+func driftCorrections(t *testing.T, kind string) float64 {
+	t.Helper()
+
+	families, err := ctrlmetrics.Registry.Gather()
+	require.NoError(t, err)
+
+	for _, family := range families {
+		if family.GetName() != "harbor_operator_drift_corrections_total" {
+			continue
+		}
+
+		for _, metric := range family.GetMetric() {
+			for _, label := range metric.GetLabel() {
+				if label.GetName() == "kind" && label.GetValue() == kind {
+					return metric.GetCounter().GetValue()
+				}
+			}
+		}
+	}
+
+	return 0
+}
 
 const projectWait = 90 * time.Second
 
@@ -253,6 +278,8 @@ func TestProjectDriftInHarborIsReverted(t *testing.T) {
 	}))
 	require.NoError(t, admin.SetProjectStorageQuota(t.Context(), int64(ready.Status.ProjectID), 1<<30))
 
+	driftBefore := driftCorrections(t, "HarborProject")
+
 	want := harbor.ProjectSettings{
 		Public:                  ptr(true),
 		PreventVulnerableImages: ptr(true),
@@ -266,6 +293,9 @@ func TestProjectDriftInHarborIsReverted(t *testing.T) {
 		found, quota := harborSettings(t, admin, name)
 		return assert.ObjectsAreEqual(want, found.Settings) && quota == 5<<30
 	}, projectWait, 500*time.Millisecond, "drift should be reverted on resync")
+
+	// Other tests in the process share the counter, so it can only be checked for growth.
+	assert.Greater(t, driftCorrections(t, "HarborProject"), driftBefore, "a correction made with an unchanged spec is counted")
 
 	// A few more resyncs leave the unset field alone.
 	time.Sleep(5 * time.Second)

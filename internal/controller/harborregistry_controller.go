@@ -548,6 +548,7 @@ func (r *HarborRegistryReconciler) update(ctx context.Context, state *registryRe
 		}
 
 		if differs {
+			driftOf(state.registry).count()
 			recordUpdated(r.Recorder, state.registry, "registry", current.Name,
 				fieldIf(current.Name != desired.Name, "name"), fieldIf(current.URL != desired.URL, "url"),
 				fieldIf(current.Description != desired.Description, "description"), fieldIf(current.Insecure != desired.Insecure, "insecure"))
