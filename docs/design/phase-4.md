@@ -133,7 +133,7 @@ The same reading fixes the shipped replace-safety check (`systemRobotTarget.miss
 
 ### 6.2 The guard (H1)
 
-Refuse (`Conflict`, `OperatorCredential`) when **either** the managing connection signs in as the robot, **or** any connection to the same Harbor identity that signs in as the robot is in a namespace other than the robot's. "Signs in as" uses the mapped username: the literal `username`, or the value at `usernameKey`, defaulting to `username`. Extra row: system robot whose Harbor name is the credential of a connection in another namespace → `OperatorCredential`. `docs/design/phase-2.md` section 2.8's guard row is replaced by this rule.
+Refuse (`Conflict`, `OperatorCredential`) when **either** the managing connection signs in as the robot, **or** any connection to the same Harbor identity that signs in as the robot is in a namespace other than the robot's. "Signs in as" uses the mapped username: the literal `username`, or the value at `usernameKey`, defaulting to `username`. A connection other than the managing one signs in as the robot only while Harbor accepts its current credentials: its `Ready` condition is `True` for its current generation. A connection that Harbor rejects keeps its `status.harborIdentity`, but it signs in as nothing, so a namespace cannot freeze another namespace's robot by naming its username without its secret. The managing connection counts in any state, because the operator's own Harbor calls go through it. Extra row: system robot whose Harbor name is the credential of a connection in another namespace → `OperatorCredential`. `docs/design/phase-2.md` section 2.8's guard row is replaced by this rule.
 
 ### 6.3 CRD defaults (H2)
 

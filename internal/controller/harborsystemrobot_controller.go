@@ -8,6 +8,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
@@ -484,7 +485,14 @@ func (r *HarborSystemRobotReconciler) operatorCredential(ctx context.Context, ro
 			continue
 		}
 
-		if connection.Namespace == robot.Namespace && client.ObjectKeyFromObject(connection) != managing {
+		isManaging := client.ObjectKeyFromObject(connection) == managing
+		if connection.Namespace == robot.Namespace && !isManaging {
+			continue
+		}
+
+		// Any other connection signs in as the robot only while Harbor accepts its current credentials. Otherwise the
+		// author of a connection could name any robot's username, without its secret, and freeze that robot.
+		if !isManaging && !acceptedByHarbor(connection) {
 			continue
 		}
 
@@ -506,6 +514,14 @@ func (r *HarborSystemRobotReconciler) operatorCredential(ctx context.Context, ro
 	}
 
 	return "", nil
+}
+
+// acceptedByHarbor reports whether Harbor accepted the connection's credentials for its current spec. A connection
+// keeps its Harbor identity after Harbor starts rejecting it, so the identity alone does not show a sign-in.
+func acceptedByHarbor(connection *harborv1alpha1.HarborConnection) bool {
+	ready := meta.FindStatusCondition(connection.Status.Conditions, harborv1alpha1.ConditionReady)
+
+	return ready != nil && ready.Status == metav1.ConditionTrue && ready.ObservedGeneration == connection.Generation
 }
 
 // finalize runs the deletion preamble: it deletes the Harbor robot when the resource owns it, the connection still
