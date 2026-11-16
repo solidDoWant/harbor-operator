@@ -37,9 +37,23 @@
           if goModToolchain != null then builtins.head goModToolchain
           else if goModGo != null then builtins.head goModGo
           else throw "harbor-operator: go.mod has neither a `toolchain goX.Y.Z` nor a `go X.Y.Z` line";
+        # nixpkgs' Go 1.27.3 has a reachable net/http advisory fixed in 1.27.4.
+        # Build the upstream 1.27.4 source until nixpkgs ships 1.27.4 or newer,
+        # then drop this override.
+        goOverrideVersion = "1.27.4";
+        baseGo = pkgs.go;
+        patchedGo = baseGo.overrideAttrs (_: {
+          version = goOverrideVersion;
+          src = pkgs.fetchurl {
+            url = "https://go.dev/dl/go${goOverrideVersion}.src.tar.gz";
+            hash = "sha256-c8+4VxrsDAEXdofbhxY9Rqog6XeWcncokaoXZU2aYJk=";
+          };
+        });
+        nixpkgsGo =
+          if pkgs.lib.versionAtLeast baseGo.version goOverrideVersion then baseGo else patchedGo;
         go =
-          if pkgs.lib.versionAtLeast pkgs.go.version minimumGoVersion then pkgs.go
-          else throw "harbor-operator: go.mod asks for Go ${minimumGoVersion}, but nixpkgs has Go ${pkgs.go.version}; update flake.lock (nix flake update nixpkgs) or lower go.mod.";
+          if pkgs.lib.versionAtLeast nixpkgsGo.version minimumGoVersion then nixpkgsGo
+          else throw "harbor-operator: go.mod asks for Go ${minimumGoVersion}, but the flake has Go ${nixpkgsGo.version}; update flake.lock (nix flake update nixpkgs) or lower go.mod.";
 
         # The control plane binaries for envtest
         # (sigs.k8s.io/controller-runtime/pkg/envtest): the dev shell points
