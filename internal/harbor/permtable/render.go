@@ -16,8 +16,8 @@ func GoSource(table []Entry) ([]byte, error) {
 	out.WriteString("// on the client methods it calls.\nvar RequiredPermissions = []RequiredPermission{\n")
 
 	for _, entry := range table {
-		fmt.Fprintf(&out, "\t{Kind: %s, Scope: %s, Resource: %s, Action: %s, UserCredentialsOnly: %t},\n",
-			strconv.Quote(entry.Kind), strconv.Quote(entry.Scope), strconv.Quote(entry.Resource), strconv.Quote(entry.Action), entry.UserCredentialsOnly)
+		fmt.Fprintf(&out, "\t{Kind: %s, Scope: %s, Resource: %s, Action: %s, UserCredentialsOnly: %t, ContentDeletionOnly: %t},\n",
+			strconv.Quote(entry.Kind), strconv.Quote(entry.Scope), strconv.Quote(entry.Resource), strconv.Quote(entry.Action), entry.UserCredentialsOnly, entry.ContentDeletionOnly)
 	}
 
 	out.WriteString("}\n")
@@ -33,13 +33,17 @@ func Markdown(table []Entry) []byte {
 	out.WriteString("This page is generated from the Harbor client code by `make generate`. Do not edit it by hand.\n\n")
 	out.WriteString("The connection's Harbor credential must hold every permission listed for the kinds you use. ")
 	out.WriteString("A system scope permission applies to all of Harbor. A project scope permission applies in the projects the operator manages. ")
-	out.WriteString("A permission marked \"user credentials only\" is not needed when the credential is a robot, because the operator replaces a robot instead of updating it.\n\n")
+	out.WriteString("A permission marked \"user credentials only\" is not needed when the credential is a robot, because the operator replaces a robot instead of updating it. A permission marked \"deleting contents only\" is needed only when the connection allows content deletion and a project on it has `deletionPolicy: DeleteWithContents`.\n\n")
 	out.WriteString("| Kind | Scope | Permission | Needed when |\n| --- | --- | --- | --- |\n")
 
 	for _, entry := range table {
 		when := "always"
 		if entry.UserCredentialsOnly {
 			when = "user credentials only"
+		}
+
+		if entry.ContentDeletionOnly {
+			when = "deleting contents only"
 		}
 
 		fmt.Fprintf(&out, "| `%s` | %s | `%s:%s` | %s |\n", entry.Kind, entry.Scope, entry.Resource, entry.Action, when)

@@ -12,6 +12,7 @@ The operator writes a Kubernetes event on a resource each time something changes
 | `Deleted` | Normal | The resource was deleted, and the operator deleted the Harbor object. |
 | `Orphaned` | Normal | The resource was deleted, and the Harbor object stays because the deletion policy is `Orphan`. |
 | `HealthChanged` | Normal or Warning | The upstream health of a registry changed. |
+| `ContentDeletionNotAllowed` | Warning | A project with `deletionPolicy: DeleteWithContents` was deleted, but its connection does not allow content deletion. The images stay. |
 | A condition reason, such as `NotAllowed` or `HarborUnavailable` | Warning | The `Ready` condition changed to a failure. The message is the condition message. |
 
 Events never contain secrets. Kubernetes keeps events for a short time only, so read the `Ready` condition for the current state.

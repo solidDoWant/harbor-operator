@@ -2,6 +2,7 @@ package harborfixture
 
 import (
 	"context"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -15,10 +16,10 @@ func repositoryParams(projectName string) *repository.ListRepositoriesParams {
 }
 
 func deleteRepository(ctx context.Context, client *v2client.HarborAPI, projectName, repositoryName string) error {
-	// Harbor wants a repository name with slashes double-encoded.
+	// Harbor wants a repository name with slashes encoded twice: once here, and once more by go-client.
 	_, err := client.Repository.DeleteRepository(ctx, &repository.DeleteRepositoryParams{
 		ProjectName:    projectName,
-		RepositoryName: repositoryName,
+		RepositoryName: url.PathEscape(repositoryName),
 	})
 
 	return err

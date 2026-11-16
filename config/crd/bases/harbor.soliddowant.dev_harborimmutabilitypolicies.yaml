@@ -58,6 +58,7 @@ spec:
                 description: DeletionPolicy empty means the connection's default.
                 enum:
                 - Delete
+                - DeleteWithContents
                 - Orphan
                 type: string
               projectRef:

@@ -150,6 +150,14 @@ Cause: Harbor refuses to delete the object, for example a project that still has
 
 Fix: remove the repositories (or other content) in Harbor. The operator tries again.
 
+With `deletionPolicy: DeleteWithContents`, the operator deletes the repositories itself. The message then shows how many repositories are left. A tag that an immutability rule protects also causes `DeleteBlocked`. Remove that rule in Harbor by hand.
+
+### `ContentDeletionNotAllowed`
+
+Cause: a project with `deletionPolicy: DeleteWithContents` was deleted, but its connection does not set `allowContentDeletion: true`. This is an event reason. The `Ready` condition shows `DeleteBlocked`, and its message names the connection. The operator deletes no image.
+
+Fix: an admin sets `allowContentDeletion: true` on the connection, or you delete the images in Harbor. See [namespace access](namespace-access.md#deleting-the-images-of-a-project).
+
 ### `Expired`
 
 Cause: the robot passed its end date.

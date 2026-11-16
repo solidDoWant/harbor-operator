@@ -176,6 +176,7 @@ func TestImmutabilityPolicyDeletion(t *testing.T) {
 		harborStays bool
 	}{
 		{name: "Delete removes the project's rules", policy: harborv1alpha1.DeletionPolicyDelete},
+		{name: "DeleteWithContents removes the project's rules like Delete", policy: harborv1alpha1.DeletionPolicyDeleteWithContents},
 		{name: "Orphan leaves the project's rules", policy: harborv1alpha1.DeletionPolicyOrphan, harborStays: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {

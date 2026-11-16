@@ -1,12 +1,13 @@
 // Package permtable derives the Harbor permissions each custom resource kind needs from the annotations on the
 // internal/harbor client methods. A method's doc comment carries one directive line per permission:
 //
-//	//harbor:permission <scope> <resource> <action> [user-credentials]
+//	//harbor:permission <scope> <resource> <action> [user-credentials|content-deletion]
 //
 // The scope is "system", "project" or "own" (the scope of the kind's own robots: project for a project robot, system
 // for a system robot). A method that needs no permission carries "//harbor:permission none". The optional last word
 // "user-credentials" marks a permission only needed when the connection's credentials are a user's: robot credentials
-// replace robots instead.
+// replace robots instead. The optional last word "content-deletion" marks a permission only needed when a project on the
+// connection is deleted with its contents.
 package permtable
 
 import (
@@ -30,6 +31,8 @@ type Entry struct {
 	Action   string
 	// UserCredentialsOnly is true when robot credentials do not need the permission.
 	UserCredentialsOnly bool
+	// ContentDeletionOnly is true when only deleting a project with its contents needs the permission.
+	ContentDeletionOnly bool
 }
 
 // Annotation is one permission a client method needs. Scope is "own" until a kind resolves it.
@@ -38,6 +41,7 @@ type Annotation struct {
 	Resource            string
 	Action              string
 	UserCredentialsOnly bool
+	ContentDeletionOnly bool
 }
 
 // Methods maps each exported *Client method to its annotations. A method with "none" maps to an empty slice.
@@ -49,7 +53,7 @@ var KindFiles = []struct {
 	OwnScope string
 	Files    []string
 }{
-	{Kind: "HarborProject", OwnScope: "project", Files: []string{"harborproject_controller.go", "harborproject_deletion.go"}},
+	{Kind: "HarborProject", OwnScope: "project", Files: []string{"harborproject_controller.go", "harborproject_deletion.go", "harborproject_contents.go"}},
 	{Kind: "HarborProjectRobot", OwnScope: "project", Files: []string{"harborprojectrobot_controller.go", "robot_lifecycle.go"}},
 	{Kind: "HarborRetentionPolicy", OwnScope: "project", Files: []string{"harborretentionpolicy_controller.go"}},
 	{Kind: "HarborImmutabilityPolicy", OwnScope: "project", Files: []string{"harborimmutabilitypolicy_controller.go"}},
@@ -185,11 +189,14 @@ func parseDirectives(fn *ast.FuncDecl) ([]Annotation, bool, error) {
 		annotation := Annotation{Scope: fields[0], Resource: fields[1], Action: fields[2]}
 
 		if len(fields) == 4 {
-			if fields[3] != "user-credentials" {
+			switch fields[3] {
+			case "user-credentials":
+				annotation.UserCredentialsOnly = true
+			case "content-deletion":
+				annotation.ContentDeletionOnly = true
+			default:
 				return nil, false, fmt.Errorf("unknown qualifier in %q", comment.Text)
 			}
-
-			annotation.UserCredentialsOnly = true
 		}
 
 		annotations = append(annotations, annotation)
@@ -266,7 +273,7 @@ func Build(harborDir, controllerDir string) ([]Entry, error) {
 						scope = kind.OwnScope
 					}
 
-					entry := Entry{Kind: kind.Kind, Scope: scope, Resource: annotation.Resource, Action: annotation.Action, UserCredentialsOnly: annotation.UserCredentialsOnly}
+					entry := Entry{Kind: kind.Kind, Scope: scope, Resource: annotation.Resource, Action: annotation.Action, UserCredentialsOnly: annotation.UserCredentialsOnly, ContentDeletionOnly: annotation.ContentDeletionOnly}
 					if !seen[entry] {
 						seen[entry] = true
 
