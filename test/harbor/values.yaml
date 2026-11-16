@@ -21,7 +21,7 @@ metrics:
 nginx:
   image:
     repository: mirror.gcr.io/goharbor/nginx-photon
-    tag: v2.15.4@sha256:7eff0287d5ad0f35754e162c8481ced04bbde107153ce586cefb15ee74fa1311
+    tag: v2.15.5@sha256:b713892116929b074ee6bef656ac9246218f01b5ac88fd08f5468e7d4e83fe79
 portal:
   image:
     repository: ghcr.io/goharbor/harbor-portal
