@@ -33,11 +33,18 @@ mkdir -p build/harbor
 
 log() { echo "harbor-up: $*" >&2; }
 
-if ! kind get clusters 2>/dev/null | grep -qx "$cluster"; then
-	port="${HARBOR_HOST_PORT:-$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')}"
-	upstream_port="$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"
+free_port() {
+	python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])'
+}
+
+# kind picks host ports before Docker binds them, so another process can take
+# one in between. Only that error is retried, with new ports.
+create_cluster() {
+	local port upstream_port out
+	port="${HARBOR_HOST_PORT:-$(free_port)}"
+	upstream_port="$(free_port)"
 	log "creating kind cluster $cluster (host port $port)"
-	kind create cluster --name "$cluster" --image "$node_image" --wait 120s --config <(
+	if out="$(kind create cluster --name "$cluster" --image "$node_image" --wait 120s --config <(
 		cat <<YAML
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
@@ -53,7 +60,29 @@ nodes:
         listenAddress: 127.0.0.1
         protocol: TCP
 YAML
-	) >&2
+	) 2>&1)"; then
+		echo "$out" >&2
+		return 0
+	fi
+	echo "$out" >&2
+	kind delete cluster --name "$cluster" >&2 || true
+	if grep -q 'port is already allocated' <<<"$out"; then
+		return 75
+	fi
+	return 1
+}
+
+if ! kind get clusters 2>/dev/null | grep -qx "$cluster"; then
+	for attempt in 1 2 3; do
+		rc=0
+		create_cluster || rc=$?
+		if [[ $rc -eq 0 ]]; then break; fi
+		if [[ $rc -ne 75 || $attempt -eq 3 ]]; then
+			log "creating kind cluster failed"
+			exit 1
+		fi
+		log "host port already allocated; retrying (attempt $((attempt + 1)) of 3)"
+	done
 fi
 
 kubectl_ctx="kind-${cluster}"
