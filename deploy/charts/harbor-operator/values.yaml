@@ -64,10 +64,8 @@ grafanaDashboard:
     enabled: false
     # -- Let grafana-operator import the dashboard into a Grafana instance in another namespace. Set it to true when the operator does not run in the namespace of the Grafana instance.
     allowCrossNamespaceImport: false
-    # -- Selects the Grafana instances that get the dashboard.
-    instanceSelector:
-      matchLabels:
-        dashboards: grafana
+    # -- Selects the Grafana instances that get the dashboard. Required when `enabled` is true. There is no default, so your selector is rendered as you wrote it.
+    instanceSelector: {}
 resources:
   requests:
     # -- CPU request. There is no CPU limit.

@@ -192,3 +192,28 @@ func TestGrafanaOperatorDashboardCarriesTheJSONAndInstanceSelector(t *testing.T)
 	assert.JSONEq(t, string(raw), dashboard.Spec.JSON)
 	assert.NotContains(t, docs, "ConfigMap")
 }
+
+func TestGrafanaOperatorDashboardUsesOnlyTheUsersSelector(t *testing.T) {
+	t.Parallel()
+
+	docs, err := render(t, "grafanaDashboard.grafanaOperator.enabled=true", "grafanaDashboard.grafanaOperator.instanceSelector.matchLabels.team=mine")
+	require.NoError(t, err)
+
+	var dashboard struct {
+		Spec struct {
+			InstanceSelector struct {
+				MatchLabels map[string]string `json:"matchLabels"`
+			} `json:"instanceSelector"`
+		} `json:"spec"`
+	}
+	require.NoError(t, yaml.Unmarshal(docs["GrafanaDashboard"], &dashboard))
+	assert.Equal(t, map[string]string{"team": "mine"}, dashboard.Spec.InstanceSelector.MatchLabels)
+}
+
+func TestGrafanaOperatorDashboardFailsWithoutSelector(t *testing.T) {
+	t.Parallel()
+
+	_, err := render(t, "grafanaDashboard.grafanaOperator.enabled=true")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "grafanaDashboard.grafanaOperator.instanceSelector is required")
+}

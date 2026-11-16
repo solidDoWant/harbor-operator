@@ -9,7 +9,7 @@ chart=deploy/charts/harbor-operator
 helm lint --strict "$chart"
 helm template harbor-operator "$chart" --namespace harbor-operator >/dev/null
 helm template harbor-operator "$chart" --namespace harbor-operator \
-  --set grafanaDashboard.configMap.enabled=true --set grafanaDashboard.grafanaOperator.enabled=true >/dev/null
+  --set grafanaDashboard.configMap.enabled=true --set grafanaDashboard.grafanaOperator.enabled=true --set grafanaDashboard.grafanaOperator.instanceSelector.matchLabels.a=b >/dev/null
 helm template harbor-operator "$chart" --namespace harbor-operator --set 'watchNamespaces={team-a,team-b}' >/dev/null
 helm template harbor-operator "$chart" --namespace harbor-operator \
 	--set metrics.reader.enabled=true --set metrics.reader.subjects[0].namespace=monitoring --set metrics.reader.subjects[0].name=scraper \
@@ -18,9 +18,9 @@ helm template harbor-operator "$chart" --namespace harbor-operator \
 # Assert the pod labels and the cross-namespace import render, and stay off by default.
 out=$(helm template harbor-operator "$chart" --namespace harbor-operator --set podLabels.a=b)
 grep -q '^        a: b$' <<<"$out" || { echo "chart-lint: podLabels not rendered on the pod template" >&2; exit 1; }
-out=$(helm template harbor-operator "$chart" --namespace harbor-operator --set grafanaDashboard.grafanaOperator.enabled=true)
+out=$(helm template harbor-operator "$chart" --namespace harbor-operator --set grafanaDashboard.grafanaOperator.enabled=true --set grafanaDashboard.grafanaOperator.instanceSelector.matchLabels.a=b)
 ! grep -q allowCrossNamespaceImport <<<"$out" || { echo "chart-lint: allowCrossNamespaceImport rendered by default" >&2; exit 1; }
 out=$(helm template harbor-operator "$chart" --namespace harbor-operator \
-  --set grafanaDashboard.grafanaOperator.enabled=true --set grafanaDashboard.grafanaOperator.allowCrossNamespaceImport=true)
+  --set grafanaDashboard.grafanaOperator.enabled=true --set grafanaDashboard.grafanaOperator.instanceSelector.matchLabels.a=b --set grafanaDashboard.grafanaOperator.allowCrossNamespaceImport=true)
 grep -q '^  allowCrossNamespaceImport: true$' <<<"$out" || { echo "chart-lint: allowCrossNamespaceImport not rendered" >&2; exit 1; }
 echo "chart-lint: passed"
