@@ -262,6 +262,13 @@ func resyncInterval(connection *harborv1alpha1.HarborConnection) time.Duration {
 	return defaultResyncInterval
 }
 
+// credentialKeys returns the key mapping of the connection's credentials Secret.
+func credentialKeys(connection *harborv1alpha1.HarborConnection) harbor.CredentialKeys {
+	reference := connection.Spec.CredentialsSecretRef
+
+	return harbor.CredentialKeys{Username: reference.Username, UsernameKey: reference.UsernameKey, PasswordKey: reference.PasswordKey}
+}
+
 // clientFor returns a Harbor client for the connection, or a reason and message when the credentials cannot give one.
 func clientFor(ctx context.Context, reader client.Reader, clients *harbor.ClientCache, connection *harborv1alpha1.HarborConnection) (*harbor.Client, string, string) {
 	secretName := connection.Spec.CredentialsSecretRef.Name
@@ -275,15 +282,14 @@ func clientFor(ctx context.Context, reader client.Reader, clients *harbor.Client
 		return nil, harborv1alpha1.ReasonCredentialsInvalid, fmt.Sprintf("reading credentials Secret %q failed", secretName)
 	}
 
-	for _, key := range []string{"username", "password"} {
-		if len(secret.Data[key]) == 0 {
-			return nil, harborv1alpha1.ReasonCredentialsInvalid, fmt.Sprintf("credentials Secret %q has no key %q", secretName, key)
-		}
+	keys := credentialKeys(connection)
+	if _, _, err := harbor.MappedCredentials(keys, &secret); err != nil {
+		return nil, harborv1alpha1.ReasonCredentialsInvalid, err.Error()
 	}
 
 	built, err := clients.Get(ctx, harbor.Connection{
 		UID: connection.UID, Generation: connection.Generation, Namespace: connection.Namespace,
-		URL: connection.Spec.URL, CredentialsSecret: secretName,
+		URL: connection.Spec.URL, CredentialsSecret: secretName, CredentialKeys: keys,
 		CABundle: connection.Spec.CABundle, InsecureSkipVerify: connection.Spec.InsecureSkipVerify,
 	})
 	if err != nil {

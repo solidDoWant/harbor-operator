@@ -21,8 +21,9 @@ type HarborConnectionSpec struct {
 	// URL of Harbor, for example https://harbor.example.com. No path.
 	// +kubebuilder:validation:Pattern=`^https?://[^/?#]+/?$`
 	URL string `json:"url"`
-	// CredentialsSecretRef names a Secret in this namespace with the keys username and password.
-	CredentialsSecretRef LocalSecretReference `json:"credentialsSecretRef"`
+	// CredentialsSecretRef names a Secret in this namespace and the keys in it that hold the username and the password.
+	// Without key settings the keys are username and password.
+	CredentialsSecretRef CredentialsSecretReference `json:"credentialsSecretRef"`
 	// CABundle is a PEM bundle that signs Harbor's certificate.
 	// +optional
 	CABundle string `json:"caBundle,omitempty"`

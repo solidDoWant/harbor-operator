@@ -120,16 +120,35 @@ spec:
                 description: CABundle is a PEM bundle that signs Harbor's certificate.
                 type: string
               credentialsSecretRef:
-                description: CredentialsSecretRef names a Secret in this namespace
-                  with the keys username and password.
+                description: |-
+                  CredentialsSecretRef names a Secret in this namespace and the keys in it that hold the username and the password.
+                  Without key settings the keys are username and password.
                 properties:
                   name:
                     description: Name of the Secret.
                     minLength: 1
                     type: string
+                  passwordKey:
+                    description: PasswordKey is the key in the Secret that holds the
+                      password. Defaults to password.
+                    minLength: 1
+                    type: string
+                  username:
+                    description: Username is the literal user name. Use it when the
+                      Secret has no user name key. Excludes usernameKey.
+                    minLength: 1
+                    type: string
+                  usernameKey:
+                    description: UsernameKey is the key in the Secret that holds the
+                      user name. Defaults to username.
+                    minLength: 1
+                    type: string
                 required:
                 - name
                 type: object
+                x-kubernetes-validations:
+                - message: username and usernameKey are mutually exclusive
+                  rule: '!(has(self.username) && has(self.usernameKey))'
               defaults:
                 default: {}
                 description: Defaults for resources that use this connection.

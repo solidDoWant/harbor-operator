@@ -140,7 +140,7 @@ func credentials(namespace, name, username, password string) *corev1.Secret {
 func newConnection(namespace, name, url, secret string) *harborv1alpha1.HarborConnection {
 	return &harborv1alpha1.HarborConnection{
 		ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name},
-		Spec:       harborv1alpha1.HarborConnectionSpec{URL: url, CredentialsSecretRef: harborv1alpha1.LocalSecretReference{Name: secret}},
+		Spec:       harborv1alpha1.HarborConnectionSpec{URL: url, CredentialsSecretRef: harborv1alpha1.CredentialsSecretReference{Name: secret}},
 	}
 }
 
@@ -192,6 +192,41 @@ func TestConnectionBecomesReadyWithValidCredentials(t *testing.T) {
 	assert.Equal(t, harbor.NormalizeURL(instance.URL), ready.Status.HarborIdentity)
 	assert.Equal(t, harbor.HostOf(ready.Status.HarborIdentity), ready.Status.RegistryHost)
 	assert.Equal(t, ready.Generation, ready.Status.ObservedGeneration)
+}
+
+func TestConnectionMapsCredentialKeys(t *testing.T) {
+	t.Parallel()
+	instance := harborfixture.FromEnv(t)
+	cl := startOperator(t)
+	namespace := newNamespace(t, cl, "conn")
+
+	require.NoError(t, cl.Create(t.Context(), &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "admin-secret"},
+		StringData: map[string]string{"HARBOR_ADMIN_PASSWORD": instance.Password},
+	}))
+
+	connection := newConnection(namespace, "mapped", instance.URL, "admin-secret")
+	connection.Spec.CredentialsSecretRef.Username = instance.Username
+	connection.Spec.CredentialsSecretRef.PasswordKey = "HARBOR_ADMIN_PASSWORD"
+	require.NoError(t, cl.Create(t.Context(), connection))
+	awaitReady(t, cl, client.ObjectKeyFromObject(connection), metav1.ConditionTrue, harborv1alpha1.ReasonReady)
+
+	missing := newConnection(namespace, "missing-key", instance.URL, "admin-secret")
+	missing.Spec.CredentialsSecretRef.Username = instance.Username
+	missing.Spec.CredentialsSecretRef.PasswordKey = "NO_SUCH_KEY"
+	require.NoError(t, cl.Create(t.Context(), missing))
+	awaitReady(t, cl, client.ObjectKeyFromObject(missing), metav1.ConditionFalse, harborv1alpha1.ReasonCredentialsInvalid)
+
+	var current harborv1alpha1.HarborConnection
+	require.NoError(t, cl.Get(t.Context(), client.ObjectKeyFromObject(missing), &current))
+	condition := meta.FindStatusCondition(current.Status.Conditions, harborv1alpha1.ConditionReady)
+	require.NotNil(t, condition)
+	assert.Contains(t, condition.Message, "NO_SUCH_KEY")
+
+	both := newConnection(namespace, "both", instance.URL, "admin-secret")
+	both.Spec.CredentialsSecretRef.Username = instance.Username
+	both.Spec.CredentialsSecretRef.UsernameKey = "USER"
+	require.Error(t, cl.Create(t.Context(), both), "username with usernameKey is refused")
 }
 
 func TestConnectionReportsBadCredentials(t *testing.T) {

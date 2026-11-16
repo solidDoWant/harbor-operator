@@ -62,7 +62,7 @@ func TestCIChartExampleRendersAndAppliesToReadyResources(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Namespace: connectionNamespace, Name: "harbor"},
 		Spec: harborv1alpha1.HarborConnectionSpec{
 			URL:                  internalURL,
-			CredentialsSecretRef: harborv1alpha1.LocalSecretReference{Name: "harbor-creds"},
+			CredentialsSecretRef: harborv1alpha1.CredentialsSecretReference{Name: "harbor-creds"},
 			AllowedNamespaces:    harborv1alpha1.AllowedNamespaces{Selector: &metav1.LabelSelector{MatchLabels: map[string]string{label: "true"}}},
 		},
 	}))
