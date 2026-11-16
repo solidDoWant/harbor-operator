@@ -47,7 +47,7 @@ database:
   internal:
     image:
       repository: mirror.gcr.io/goharbor/harbor-db
-      tag: v2.15.4@sha256:a32d51e636d76303e086a7c5251a2c8415c6f165b2f87bafa914efd866c5403f
+      tag: v2.15.5@sha256:3a9131176f620601302eca77d2ca64ef1e0d56a6e7f9c71221e0f9ffb141db67
 redis:
   internal:
     image:
