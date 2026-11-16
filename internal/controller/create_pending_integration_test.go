@@ -268,7 +268,7 @@ func TestProjectWhoseCreateHarborRefusedDoesNotTakeOverAProjectMadeLater(t *test
 
 	connectionInstance := *instance
 	connectionInstance.Username, connectionInstance.Password = instance.CreateSystemRobot(t, []*models.RobotPermission{
-		{Kind: "system", Namespace: "/", Access: append(access("project", "list"), access("quota", "read", "update")...)},
+		{Kind: "system", Namespace: "/", Access: append(access("project", "list"), access("quota", "list", "update")...)},
 		{Kind: "project", Namespace: "*", Access: access("project", "read", "update", "delete")},
 	})
 	connection := readyConnection(t, cl, &connectionInstance, ns, nil)

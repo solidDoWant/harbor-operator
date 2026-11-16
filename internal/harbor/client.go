@@ -257,7 +257,7 @@ func (c *Client) projectQuota(ctx context.Context, projectID int64) (*models.Quo
 
 // GetProjectStorageQuota returns the storage limit in bytes (-1 is unlimited).
 //
-//harbor:permission system quota read
+//harbor:permission system quota list
 func (c *Client) GetProjectStorageQuota(ctx context.Context, projectID int64) (int64, error) {
 	found, err := c.projectQuota(ctx, projectID)
 	if err != nil {
@@ -269,7 +269,7 @@ func (c *Client) GetProjectStorageQuota(ctx context.Context, projectID int64) (i
 
 // SetProjectStorageQuota sets the storage limit in bytes (-1 is unlimited).
 //
-//harbor:permission system quota read
+//harbor:permission system quota list
 //harbor:permission system quota update
 func (c *Client) SetProjectStorageQuota(ctx context.Context, projectID, bytes int64) error {
 	found, err := c.projectQuota(ctx, projectID)

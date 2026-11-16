@@ -7,7 +7,7 @@ The connection's Harbor credential must hold every permission listed for the kin
 | Kind | Scope | Permission | Needed when |
 | --- | --- | --- | --- |
 | `HarborProject` | system | `project:create` | always |
-| `HarborProject` | system | `quota:read` | always |
+| `HarborProject` | system | `quota:list` | always |
 | `HarborProject` | system | `quota:update` | always |
 | `HarborProject` | project | `project:delete` | always |
 | `HarborProject` | project | `project:read` | always |
