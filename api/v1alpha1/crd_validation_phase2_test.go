@@ -76,6 +76,12 @@ func systemRobot(name string, mutate func(*v1alpha1.HarborSystemRobot)) *v1alpha
 	return obj
 }
 
+func systemProjectAccess(action string) func(*v1alpha1.HarborSystemRobot) {
+	return func(r *v1alpha1.HarborSystemRobot) {
+		r.Spec.ProjectPermissions = []v1alpha1.ProjectPermission{{Projects: []string{"a"}, Access: []v1alpha1.SystemRobotProjectAccess{{Resource: "project", Action: action}}}}
+	}
+}
+
 func TestPhase2CRDValidation(t *testing.T) {
 	kubeClient := newClient(t)
 
@@ -126,11 +132,15 @@ func TestPhase2CRDValidation(t *testing.T) {
 		"system robot system permission": {object: systemRobot("sys-ok", nil)},
 		"system robot project permission only": {object: systemRobot("sys-proj", func(r *v1alpha1.HarborSystemRobot) {
 			r.Spec.SystemPermissions = nil
-			r.Spec.ProjectPermissions = []v1alpha1.ProjectPermission{{Projects: []string{"*"}, Access: []v1alpha1.RobotAccess{{Resource: "repository", Action: "pull"}}}}
+			r.Spec.ProjectPermissions = []v1alpha1.ProjectPermission{{Projects: []string{"*"}, Access: []v1alpha1.SystemRobotProjectAccess{{Resource: "repository", Action: "pull"}}}}
 		})},
+		"system robot project read":   {object: systemRobot("sys-pread", systemProjectAccess("read"))},
+		"system robot project update": {object: systemRobot("sys-pupdate", systemProjectAccess("update"))},
+		"system robot project delete": {object: systemRobot("sys-pdelete", systemProjectAccess("delete"))},
+		"system robot project create": {rejected: true, object: systemRobot("sys-pcreate", systemProjectAccess("create"))},
 		"system robot no permissions": {rejected: true, object: systemRobot("sys-none", func(r *v1alpha1.HarborSystemRobot) { r.Spec.SystemPermissions = nil })},
 		"system robot unlisted project action": {rejected: true, object: systemRobot("sys-badaction", func(r *v1alpha1.HarborSystemRobot) {
-			r.Spec.ProjectPermissions = []v1alpha1.ProjectPermission{{Projects: []string{"a"}, Access: []v1alpha1.RobotAccess{{Resource: "repository", Action: "explode"}}}}
+			r.Spec.ProjectPermissions = []v1alpha1.ProjectPermission{{Projects: []string{"a"}, Access: []v1alpha1.SystemRobotProjectAccess{{Resource: "repository", Action: "explode"}}}}
 		})},
 		"system robot unlisted system action": {rejected: true, object: systemRobot("sys-badsysaction", func(r *v1alpha1.HarborSystemRobot) {
 			r.Spec.SystemPermissions = []v1alpha1.SystemRobotAccess{{Resource: "project", Action: "explode"}}
