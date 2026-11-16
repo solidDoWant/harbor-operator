@@ -29,7 +29,7 @@ portal:
 core:
   image:
     repository: ghcr.io/goharbor/harbor-core
-    tag: v2.15.4@sha256:7d2ba5304a729887cdec7cb222a82b500278423de230ae5150c386a6c332b112
+    tag: v2.15.5@sha256:5644d353661de160aca165b61a04228bdbcacc9c622dac64900ad3ce9166cdef
 jobservice:
   image:
     repository: ghcr.io/goharbor/harbor-jobservice
