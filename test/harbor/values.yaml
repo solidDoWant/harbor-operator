@@ -25,24 +25,24 @@ nginx:
 portal:
   image:
     repository: ghcr.io/goharbor/harbor-portal
-    tag: v2.15.4@sha256:01edf478505b21dba23a83c095f6ecac0c1e705690093edbab41e9a4d6754a75
+    tag: v2.15.5@sha256:30cae17b1d46d371ed6447ceda12a7ad3ce411fe60f19864d8bf9a9e59ea55b6
 core:
   image:
     repository: ghcr.io/goharbor/harbor-core
-    tag: v2.15.4@sha256:7d2ba5304a729887cdec7cb222a82b500278423de230ae5150c386a6c332b112
+    tag: v2.15.5@sha256:5644d353661de160aca165b61a04228bdbcacc9c622dac64900ad3ce9166cdef
 jobservice:
   image:
     repository: ghcr.io/goharbor/harbor-jobservice
-    tag: v2.15.4@sha256:f143578ef30e2be5c48873298257ed0fca31545025958c534e536a06765d2b82
+    tag: v2.15.5@sha256:dd5cb3fac57a0cce8e37f208803d6075f00f45322038599098602b582afdfd96
 registry:
   registry:
     image:
       repository: ghcr.io/goharbor/registry-photon
-      tag: v2.15.4@sha256:dc0cb388a6445c69c8a0c406679290d2991c9698833d9e6e86a23bdfaf2f83c3
+      tag: v2.15.5@sha256:ea74a645fa2281e75640d203d320d76233c2541f49efe7ee20e369c0a07d9ece
   controller:
     image:
       repository: ghcr.io/goharbor/harbor-registryctl
-      tag: v2.15.4@sha256:30bd1ace4e3bb390d75b84673f98ddb4a69fcc6d116932ea764391df01943fb7
+      tag: v2.15.5@sha256:42b911eb7742bb2d08d9ca4732cf0e5b62a83f815d9b57d894e5ed53a49fa3d4
 database:
   internal:
     image:
@@ -52,4 +52,4 @@ redis:
   internal:
     image:
       repository: ghcr.io/goharbor/valkey-photon
-      tag: v2.15.4@sha256:bb022e8f236f56f53cee7bb1f609595e497da67d829048e0af2284f97e6eb54f
+      tag: v2.15.5@sha256:2083c33ee8c590a5c03ead3a70c28a80cd2d0bae27b355d6f73ad378a46192c2
