@@ -20,6 +20,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	harborv1alpha1 "github.com/solidDoWant/harbor-operator/api/v1alpha1"
@@ -561,9 +562,16 @@ func TestConnectionDeletionWaitsForAdmittedRegistries(t *testing.T) {
 	assert.NotContains(t, message, namespaces["outsider"]+"/upstream", "registries in namespaces the connection does not admit for Harbor-wide kinds are ignored")
 
 	for _, registry := range []*harborv1alpha1.HarborRegistry{admitted, outsider} {
-		require.NoError(t, setup.cl.Get(t.Context(), client.ObjectKeyFromObject(registry), registry))
-		registry.Finalizers = nil
-		require.NoError(t, setup.cl.Update(t.Context(), registry))
+		// The registry controller also writes to this object, so the update is retried on a conflict.
+		require.NoError(t, retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			if err := setup.cl.Get(t.Context(), client.ObjectKeyFromObject(registry), registry); err != nil {
+				return err
+			}
+
+			registry.Finalizers = nil
+
+			return setup.cl.Update(t.Context(), registry)
+		}))
 		require.NoError(t, setup.cl.Delete(t.Context(), registry))
 	}
 
