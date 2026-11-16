@@ -19,11 +19,13 @@ type Connection struct {
 	Namespace          string
 	URL                string
 	CredentialsSecret  string
+	CredentialKeys     CredentialKeys
 	CABundle           string
 	InsecureSkipVerify bool
 }
 
 type cacheKey struct {
+	keys                  CredentialKeys
 	uid                   types.UID
 	generation            int64
 	secretResourceVersion string
@@ -55,7 +57,7 @@ func (c *ClientCache) Get(ctx context.Context, connection Connection) (*Client, 
 		return nil, fmt.Errorf("reading credentials Secret %s/%s: %w", connection.Namespace, connection.CredentialsSecret, err)
 	}
 
-	key := cacheKey{uid: connection.UID, generation: connection.Generation, secretResourceVersion: secret.ResourceVersion}
+	key := cacheKey{keys: connection.CredentialKeys, uid: connection.UID, generation: connection.Generation, secretResourceVersion: secret.ResourceVersion}
 
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
@@ -64,9 +66,9 @@ func (c *ClientCache) Get(ctx context.Context, connection Connection) (*Client, 
 		return entry.client, nil
 	}
 
-	username, password := string(secret.Data["username"]), string(secret.Data["password"])
-	if username == "" || password == "" {
-		return nil, fmt.Errorf("credentials Secret %s/%s needs the keys username and password", connection.Namespace, connection.CredentialsSecret)
+	username, password, err := MappedCredentials(connection.CredentialKeys, &secret)
+	if err != nil {
+		return nil, err
 	}
 
 	built, err := NewClient(ConnectionConfig{

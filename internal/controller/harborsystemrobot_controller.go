@@ -472,7 +472,7 @@ func (r *HarborSystemRobotReconciler) operatorCredential(ctx context.Context, ro
 			return "", err
 		}
 
-		username := string(secret.Data["username"])
+		username := harbor.MappedUsername(credentialKeys(connection), secret)
 		if username != "" && (harbor.IsSystemRobotName(username, name) || username == robot.Status.HarborName) {
 			return client.ObjectKeyFromObject(connection).String(), nil
 		}

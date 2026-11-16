@@ -86,7 +86,7 @@ func TestProjectIsCreatedByTheOperatorInstalledFromTheChart(t *testing.T) {
 
 	connection := &harborv1alpha1.HarborConnection{
 		ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "harbor"},
-		Spec:       harborv1alpha1.HarborConnectionSpec{URL: internalURL, CredentialsSecretRef: harborv1alpha1.LocalSecretReference{Name: "harbor-creds"}},
+		Spec:       harborv1alpha1.HarborConnectionSpec{URL: internalURL, CredentialsSecretRef: harborv1alpha1.CredentialsSecretReference{Name: "harbor-creds"}},
 	}
 	require.NoError(t, cl.Create(ctx, connection))
 

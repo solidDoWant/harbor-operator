@@ -95,7 +95,7 @@ func TestMetricsEndpointServesListedServiceAccountsOnly(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "harbor"},
 		Spec: harborv1alpha1.HarborConnectionSpec{
 			URL:                  "http://harbor.invalid",
-			CredentialsSecretRef: harborv1alpha1.LocalSecretReference{Name: "missing"},
+			CredentialsSecretRef: harborv1alpha1.CredentialsSecretReference{Name: "missing"},
 		},
 	}))
 

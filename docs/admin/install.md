@@ -71,6 +71,17 @@ A resource in a listed namespace can point to a connection, project or registry 
 
 3. Run `kubectl -n harbor-system get harborconnection`. The `Ready` column must be `True`. The Reason table in [credentials](credentials.md) explains the other values.
 
+Your Secret may use other key names. Set `usernameKey` and `passwordKey` to the key names. If the Secret has no user name at all, set `username` to the user name instead. You cannot set `username` and `usernameKey` together. For example, Harbor's own admin Secret has only the key `HARBOR_ADMIN_PASSWORD`:
+
+```yaml
+credentialsSecretRef:
+  name: harbor-core
+  username: admin
+  passwordKey: HARBOR_ADMIN_PASSWORD
+```
+
+If a mapped key is missing, the connection reports `CredentialsInvalid` and names the key.
+
 If Harbor uses a certificate from a private authority, put the PEM bundle in `spec.caBundle`. The field `spec.insecureSkipVerify` turns off the check. Use it only for tests.
 
 The operator reads the credentials Secret only from the namespace of the connection. It writes the registry host into the robot Secrets. The host comes from Harbor's `external_url`. Set `spec.registryHost` to use another host.

@@ -132,7 +132,7 @@ func TestOperatorWithWatchNamespacesIgnoresAndCannotReadOtherNamespaces(t *testi
 		ObjectMeta: metav1.ObjectMeta{Namespace: watched, Name: "harbor"},
 		Spec: harborv1alpha1.HarborConnectionSpec{
 			URL:                  internalURL,
-			CredentialsSecretRef: harborv1alpha1.LocalSecretReference{Name: "harbor-creds"},
+			CredentialsSecretRef: harborv1alpha1.CredentialsSecretReference{Name: "harbor-creds"},
 			AllowedNamespaces:    harborv1alpha1.AllowedNamespaces{Names: []string{unwatched}},
 		},
 	}))

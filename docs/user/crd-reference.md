@@ -15,8 +15,11 @@ Every field of the `harbor.soliddowant.dev/v1alpha1` resources. A field marked `
 | `spec.allowedNamespaces.names` | list of string |  | Names is an explicit list of namespace names. |
 | `spec.allowedNamespaces.selector` | object |  | Selector admits every namespace whose labels match. |
 | `spec.caBundle` | string |  | CABundle is a PEM bundle that signs Harbor's certificate. |
-| `spec.credentialsSecretRef` | object | yes | CredentialsSecretRef names a Secret in this namespace with the keys username and password. |
+| `spec.credentialsSecretRef` | object | yes | CredentialsSecretRef names a Secret in this namespace and the keys in it that hold the username and the password. Without key settings the keys are username and password. |
 | `spec.credentialsSecretRef.name` | string | yes | Name of the Secret. |
+| `spec.credentialsSecretRef.passwordKey` | string |  | PasswordKey is the key in the Secret that holds the password. Defaults to password. |
+| `spec.credentialsSecretRef.username` | string |  | Username is the literal user name. Use it when the Secret has no user name key. Excludes usernameKey. |
+| `spec.credentialsSecretRef.usernameKey` | string |  | UsernameKey is the key in the Secret that holds the user name. Defaults to username. |
 | `spec.defaults` | object |  | Defaults for resources that use this connection. |
 | `spec.defaults.deletionPolicy` | string |  | DeletionPolicy applies to resources with an empty deletionPolicy. One of `Delete`, `Orphan`. |
 | `spec.defaults.resyncInterval` | string |  | ResyncInterval is how often resources are compared with Harbor again. |

@@ -32,6 +32,27 @@ type LocalSecretReference struct {
 	Name string `json:"name"`
 }
 
+// CredentialsSecretReference points at a Secret in the namespace of the referring resource and says which keys hold
+// the username and the password.
+// +kubebuilder:validation:XValidation:rule="!(has(self.username) && has(self.usernameKey))",message="username and usernameKey are mutually exclusive"
+type CredentialsSecretReference struct {
+	// Name of the Secret.
+	// +kubebuilder:validation:MinLength=1
+	Name string `json:"name"`
+	// Username is the literal user name. Use it when the Secret has no user name key. Excludes usernameKey.
+	// +kubebuilder:validation:MinLength=1
+	// +optional
+	Username string `json:"username,omitempty"`
+	// UsernameKey is the key in the Secret that holds the user name. Defaults to username.
+	// +kubebuilder:validation:MinLength=1
+	// +optional
+	UsernameKey string `json:"usernameKey,omitempty"`
+	// PasswordKey is the key in the Secret that holds the password. Defaults to password.
+	// +kubebuilder:validation:MinLength=1
+	// +optional
+	PasswordKey string `json:"passwordKey,omitempty"`
+}
+
 // DeletionPolicy says what happens to the Harbor object when its custom resource is deleted.
 // +kubebuilder:validation:Enum=Delete;Orphan
 type DeletionPolicy string
