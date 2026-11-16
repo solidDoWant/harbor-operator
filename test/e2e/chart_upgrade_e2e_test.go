@@ -30,7 +30,11 @@ func installLocalChart(t *testing.T) {
 	t.Helper()
 
 	helm(t, "upgrade", "--install", "harbor-operator", "../../deploy/charts/harbor-operator", "--create-namespace",
-		"--set", "image.tag=e2e", "--set", "image.pullPolicy=Never")
+		"--set", "image.tag=e2e", "--set", "image.pullPolicy=Never",
+		// The same values as test/e2e/up.sh; the metrics scrape test relies on them.
+		"--set", "metrics.reader.enabled=true",
+		"--set", "metrics.reader.subjects[0].namespace=harbor-operator-system",
+		"--set", "metrics.reader.subjects[0].name=metrics-reader-e2e")
 }
 
 func applyManifest(t *testing.T, cl client.Client, manifest string) []*unstructured.Unstructured {
