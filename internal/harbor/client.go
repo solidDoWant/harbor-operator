@@ -87,6 +87,8 @@ func (c *Client) fail(err error) error { return wrapError(err, c.password) }
 // CheckCredentials checks that Harbor answers and the credentials are accepted. Harbor
 // treats wrong credentials as anonymous, so it reads the caller's permissions,
 // which refuses anonymous callers.
+//
+//harbor:permission none
 func (c *Client) CheckCredentials(ctx context.Context) error {
 	_, err := c.api.User.GetCurrentUserPermissions(ctx, user.NewGetCurrentUserPermissionsParams())
 
@@ -94,6 +96,8 @@ func (c *Client) CheckCredentials(ctx context.Context) error {
 }
 
 // GetProjectByName returns the project, or a 404 error when there is none.
+//
+//harbor:permission project project read
 func (c *Client) GetProjectByName(ctx context.Context, name string) (*Project, error) {
 	resource := true
 
@@ -136,6 +140,8 @@ func (c *Client) findProjectByName(ctx context.Context, name string) (*Project, 
 }
 
 // GetProject returns the project with the ID, or a 404 error when there is none.
+//
+//harbor:permission project project read
 func (c *Client) GetProject(ctx context.Context, id int64) (*Project, error) {
 	resource := false
 
@@ -148,12 +154,16 @@ func (c *Client) GetProject(ctx context.Context, id int64) (*Project, error) {
 }
 
 // CreateProject creates a project. A nil storageLimit leaves Harbor's default.
+//
+//harbor:permission system project create
 func (c *Client) CreateProject(ctx context.Context, name string, settings ProjectSettings, storageLimit *int64) (*Project, error) {
 	return c.CreateProxyCacheProject(ctx, name, settings, storageLimit, 0)
 }
 
 // CreateProxyCacheProject creates a project that is a proxy cache of the registry with registryID; 0 creates a normal
 // project. A nil storageLimit leaves Harbor's default.
+//
+//harbor:permission system project create
 func (c *Client) CreateProxyCacheProject(ctx context.Context, name string, settings ProjectSettings, storageLimit *int64, registryID int64) (*Project, error) {
 	request := &models.ProjectReq{
 		ProjectName:  name,
@@ -184,6 +194,8 @@ func (c *Client) CreateProxyCacheProject(ctx context.Context, name string, setti
 
 // UpdateProjectMetadata makes Harbor match the managed fields. Fields that are
 // nil are left as they are.
+//
+//harbor:permission project project update
 func (c *Client) UpdateProjectMetadata(ctx context.Context, name string, settings ProjectSettings) error {
 	resource := true
 	request := &models.ProjectReq{Metadata: settings.metadata(), CVEAllowlist: settings.CVEAllowlist.toModel()}
@@ -194,6 +206,8 @@ func (c *Client) UpdateProjectMetadata(ctx context.Context, name string, setting
 }
 
 // SetProjectRegistry points a proxy-cache project at another upstream registry.
+//
+//harbor:permission project project update
 func (c *Client) SetProjectRegistry(ctx context.Context, name string, registryID int64) error {
 	resource := true
 	request := &models.ProjectReq{RegistryID: &registryID}
@@ -204,6 +218,8 @@ func (c *Client) SetProjectRegistry(ctx context.Context, name string, registryID
 }
 
 // DeleteProject deletes the project; Harbor answers 412 while it holds content.
+//
+//harbor:permission project project delete
 func (c *Client) DeleteProject(ctx context.Context, name string) error {
 	resource := true
 
@@ -213,6 +229,8 @@ func (c *Client) DeleteProject(ctx context.Context, name string) error {
 }
 
 // DeleteProjectByID deletes the project with the ID; Harbor answers 412 while it holds content.
+//
+//harbor:permission project project delete
 func (c *Client) DeleteProjectByID(ctx context.Context, id int64) error {
 	resource := false
 
@@ -237,6 +255,8 @@ func (c *Client) projectQuota(ctx context.Context, projectID int64) (*models.Quo
 }
 
 // GetProjectStorageQuota returns the storage limit in bytes (-1 is unlimited).
+//
+//harbor:permission system quota read
 func (c *Client) GetProjectStorageQuota(ctx context.Context, projectID int64) (int64, error) {
 	found, err := c.projectQuota(ctx, projectID)
 	if err != nil {
@@ -247,6 +267,9 @@ func (c *Client) GetProjectStorageQuota(ctx context.Context, projectID int64) (i
 }
 
 // SetProjectStorageQuota sets the storage limit in bytes (-1 is unlimited).
+//
+//harbor:permission system quota read
+//harbor:permission system quota update
 func (c *Client) SetProjectStorageQuota(ctx context.Context, projectID, bytes int64) error {
 	found, err := c.projectQuota(ctx, projectID)
 	if err != nil {
@@ -263,12 +286,18 @@ func (c *Client) SetProjectStorageQuota(ctx context.Context, projectID, bytes in
 
 // CreateRobot creates a project robot. The returned Robot carries the secret,
 // which Harbor shows only now.
+//
+//harbor:permission own robot create
+//harbor:permission own robot read
 func (c *Client) CreateRobot(ctx context.Context, projectName string, spec RobotSpec) (*Robot, error) {
 	return c.createRobot(ctx, LevelProject, spec.permissions(projectName), spec)
 }
 
 // CreateSystemRobot creates a system robot with the spec's grants. The returned Robot carries the secret, which Harbor
 // shows only now.
+//
+//harbor:permission own robot create
+//harbor:permission own robot read
 func (c *Client) CreateSystemRobot(ctx context.Context, spec RobotSpec) (*Robot, error) {
 	return c.createRobot(ctx, LevelSystem, spec.permissions(""), spec)
 }
@@ -297,6 +326,8 @@ func (c *Client) createRobot(ctx context.Context, level string, permissions []*m
 }
 
 // GetRobot returns the robot with the ID, or a 404 error.
+//
+//harbor:permission own robot read
 func (c *Client) GetRobot(ctx context.Context, id int64) (*Robot, error) {
 	response, err := c.api.Robot.GetRobotByID(ctx, &robot.GetRobotByIDParams{RobotID: id})
 	if err != nil {
@@ -308,6 +339,8 @@ func (c *Client) GetRobot(ctx context.Context, id int64) (*Robot, error) {
 
 // FindProjectRobot returns the robot of a project by its short name, or a 404
 // error when there is none.
+//
+//harbor:permission own robot list
 func (c *Client) FindProjectRobot(ctx context.Context, projectID int64, name string) (*Robot, error) {
 	return c.findRobot(ctx, fmt.Sprintf("Level=project,ProjectID=%d", projectID), func(full string) bool {
 		return full == name || hasRobotSuffix(full, name)
@@ -316,6 +349,8 @@ func (c *Client) FindProjectRobot(ctx context.Context, projectID int64, name str
 
 // FindSystemRobot returns the system robot with the short name, or a 404 error when there is none. Harbor reports a
 // system robot's name with its configured prefix, for example "robot$name".
+//
+//harbor:permission own robot list
 func (c *Client) FindSystemRobot(ctx context.Context, name string) (*Robot, error) {
 	return c.findRobot(ctx, "Level=system", func(full string) bool { return IsSystemRobotName(full, name) })
 }
@@ -356,6 +391,9 @@ func hasRobotSuffix(full, short string) bool {
 
 // UpdateRobot makes the robot's description, lifetime, disabled flag and
 // permissions match spec. The robot's name does not change.
+//
+//harbor:permission own robot read
+//harbor:permission own robot update user-credentials
 func (c *Client) UpdateRobot(ctx context.Context, id int64, projectName string, spec RobotSpec) error {
 	current, err := c.api.Robot.GetRobotByID(ctx, &robot.GetRobotByIDParams{RobotID: id})
 	if err != nil {
@@ -377,6 +415,8 @@ func (c *Client) UpdateRobot(ctx context.Context, id int64, projectName string, 
 
 // RefreshRobotSecret has Harbor generate a new secret, which stops the old one
 // from working, and returns the new one.
+//
+//harbor:permission own robot update user-credentials
 func (c *Client) RefreshRobotSecret(ctx context.Context, id int64) (string, error) {
 	response, err := c.api.Robot.RefreshSec(ctx, &robot.RefreshSecParams{RobotID: id, RobotSec: &models.RobotSec{}})
 	if err != nil {
@@ -391,6 +431,8 @@ func (c *Client) RefreshRobotSecret(ctx context.Context, id int64) (string, erro
 }
 
 // DeleteRobot deletes the robot.
+//
+//harbor:permission own robot delete
 func (c *Client) DeleteRobot(ctx context.Context, id int64) error {
 	_, err := c.api.Robot.DeleteRobot(ctx, &robot.DeleteRobotParams{RobotID: id})
 
@@ -399,6 +441,8 @@ func (c *Client) DeleteRobot(ctx context.Context, id int64) error {
 
 // CurrentPermissions returns what the caller may do in scope, for example "/project/1", with each resource relative
 // to the scope. Harbor evaluates every permission it knows for the scope against the caller.
+//
+//harbor:permission none
 func (c *Client) CurrentPermissions(ctx context.Context, scope string) ([]RobotAccess, error) {
 	relative := true
 
@@ -420,6 +464,8 @@ func (c *Client) CurrentPermissions(ctx context.Context, scope string) ([]RobotA
 
 // MissingPermissions returns the permissions in want that the caller does not hold in scope, in want's order. A
 // robot created with any of them would be refused, so a replace must not start.
+//
+//harbor:permission none
 func (c *Client) MissingPermissions(ctx context.Context, scope string, want []RobotAccess) ([]RobotAccess, error) {
 	held, err := c.CurrentPermissions(ctx, scope)
 	if err != nil {

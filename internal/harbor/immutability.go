@@ -66,6 +66,8 @@ func projectIDParam(projectID int64) (string, *bool) {
 }
 
 // ListImmutabilityRules returns every immutability rule of the project.
+//
+//harbor:permission project immutable-tag list
 func (c *Client) ListImmutabilityRules(ctx context.Context, projectID int64) ([]ImmutabilityRule, error) {
 	project, resourceName := projectIDParam(projectID)
 	pageSize := int64(100)
@@ -93,6 +95,8 @@ func (c *Client) ListImmutabilityRules(ctx context.Context, projectID int64) ([]
 }
 
 // CreateImmutabilityRule adds the rule to the project.
+//
+//harbor:permission project immutable-tag create
 func (c *Client) CreateImmutabilityRule(ctx context.Context, projectID int64, rule ImmutabilityRule) error {
 	project, resourceName := projectIDParam(projectID)
 	rule.ID = 0
@@ -105,6 +109,8 @@ func (c *Client) CreateImmutabilityRule(ctx context.Context, projectID int64, ru
 }
 
 // UpdateImmutabilityRule replaces the project's rule with rule.ID by rule.
+//
+//harbor:permission project immutable-tag update
 func (c *Client) UpdateImmutabilityRule(ctx context.Context, projectID int64, rule ImmutabilityRule) error {
 	project, resourceName := projectIDParam(projectID)
 
@@ -116,6 +122,8 @@ func (c *Client) UpdateImmutabilityRule(ctx context.Context, projectID int64, ru
 }
 
 // DeleteImmutabilityRule deletes the project's rule with the ID.
+//
+//harbor:permission project immutable-tag delete
 func (c *Client) DeleteImmutabilityRule(ctx context.Context, projectID, ruleID int64) error {
 	project, resourceName := projectIDParam(projectID)
 

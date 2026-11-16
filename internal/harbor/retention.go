@@ -171,6 +171,8 @@ func retentionFromModel(model *models.RetentionPolicy) *RetentionPolicy {
 }
 
 // GetRetention returns the retention policy with the ID, or a 404 error when there is none.
+//
+//harbor:permission project tag-retention read
 func (c *Client) GetRetention(ctx context.Context, id int64) (*RetentionPolicy, error) {
 	response, err := c.api.Retention.GetRetention(ctx, &retention.GetRetentionParams{ID: id})
 	if err != nil {
@@ -185,6 +187,8 @@ func (c *Client) GetRetention(ctx context.Context, id int64) (*RetentionPolicy, 
 }
 
 // CreateRetention creates the project's retention policy and returns its ID.
+//
+//harbor:permission project tag-retention create
 func (c *Client) CreateRetention(ctx context.Context, projectID int64, policy RetentionPolicy) (int64, error) {
 	model, err := policy.toModel(projectID)
 	if err != nil {
@@ -207,6 +211,8 @@ func (c *Client) CreateRetention(ctx context.Context, projectID int64, policy Re
 }
 
 // UpdateRetention replaces the rules and schedule of the retention policy with the ID.
+//
+//harbor:permission project tag-retention update
 func (c *Client) UpdateRetention(ctx context.Context, id, projectID int64, policy RetentionPolicy) error {
 	policy.ID = id
 
@@ -221,6 +227,8 @@ func (c *Client) UpdateRetention(ctx context.Context, id, projectID int64, polic
 }
 
 // TriggerRetention starts a run of the retention policy with the ID.
+//
+//harbor:permission project tag-retention operate
 func (c *Client) TriggerRetention(ctx context.Context, id int64) error {
 	_, _, err := c.api.Retention.TriggerRetentionExecution(ctx, &retention.TriggerRetentionExecutionParams{ID: id})
 
@@ -228,6 +236,8 @@ func (c *Client) TriggerRetention(ctx context.Context, id int64) error {
 }
 
 // RetentionExecutionStatuses returns the status of each run of the retention policy with the ID, newest first.
+//
+//harbor:permission project tag-retention read
 func (c *Client) RetentionExecutionStatuses(ctx context.Context, id int64) ([]string, error) {
 	response, err := c.api.Retention.ListRetentionExecutions(ctx, &retention.ListRetentionExecutionsParams{ID: id})
 	if err != nil {
