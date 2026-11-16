@@ -88,6 +88,17 @@
       matchFileNames: ["test/harbor/values-2.14.yaml"],
       allowedVersions: "/^v2\\.14\\./",
     },
+    {
+      description: "kind node images: every tag has a v prefix. Without explicit versioning, Renovate proposes the tag without it and can't find a digest",
+      matchPackageNames: ["docker.io/kindest/node", "mirror.gcr.io/kindest/node"],
+      versioning: "regex:^v(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)$",
+    },
+    {
+      description: "A kind node minor needs a kind CLI that supports it (the CLI comes from flake.lock), so minor bumps wait for a Dependency Dashboard checkbox",
+      matchPackageNames: ["docker.io/kindest/node", "mirror.gcr.io/kindest/node"],
+      matchUpdateTypes: ["minor"],
+      dependencyDashboardApproval: true,
+    },
     // Last so it overrides any preset rule. Renovate never merges by itself:
     // the agent scheduler routes its PRs (renovate_prs) and arms green ones.
     {
