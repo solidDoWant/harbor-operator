@@ -42,7 +42,7 @@ The scheduler (`scripts/agents/scheduler.py`) launches you as a top-level headle
      - `SPEC.md` and docs are updated for any behaviour change;
      - names and comments cite no issue or PR numbers, scenario IDs, phase numbers, design rows or sections.
 
-     Fix anything you find. Then arm auto-merge on your pushed head: `gh pr merge <PR> --auto --squash --delete-branch --match-head-commit <sha>`. GitHub merges once `checks` passes. List the self-check in the PR body.
+     Fix anything you find. Then arm auto-merge on your pushed head: `gh pr merge <PR> --auto --squash --delete-branch --match-head-commit <sha>`. GitHub merges once the required Tekton CI check passes. List the self-check in the PR body.
 9. **Hand back** with your handoff report: PR number, status of each acceptance criterion, verification run/skipped, open questions, and anything the planner should log as a decision; last line `HANDOFF: pr-ready` (or `question`/`blocked`/`incomplete`).
 
 ## Rules
@@ -55,7 +55,7 @@ The scheduler (`scripts/agents/scheduler.py`) launches you as a top-level headle
 
 - Never run `scripts/agents/scheduler.py run` (or `scheduler-loop.sh`) yourself, not even from your worktree: a second live scheduler launches real agents. Test scheduler changes with `scheduler_test.py` and `--dry-run` only.
 - **Code reads without the issue tracker.** File, package, function and type names describe what the code is, not the issue or PR that added it (no `Fix1094`, `Step3`). Comments say what the code does and why. They never cite issue, PR or run numbers: that history belongs in commit messages and PR descriptions. Split a file that passes about 2,000 lines by topic. Do this before marking a PR ready.
-- Never push to `master`, never merge a PR by hand (auto-merge merges it once `checks` passes), never modify acceptance tests to make them pass.
+- Never push to `master`, never merge a PR by hand (auto-merge merges it once the required Tekton CI check passes), never modify acceptance tests to make them pass.
 - Before pushing to an existing PR, check `gh pr view <PR> --json autoMergeRequest`; if auto-merge is armed, disarm it first (`gh pr merge <PR> --disable-auto`) so unchecked commits cannot merge, and re-arm it on your new head after the self-check.
 - Never weaken lint/CI configuration to get green.
 - Update docs and `SPEC.md` in the same PR when behavior changes. Put each change in the page for the audience it affects, and load the `simple-english` skill before you write human-facing text (CLAUDE.md, Documentation).

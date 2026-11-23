@@ -27,7 +27,7 @@ A release is public, and admins deploy it straight from the registries, so every
 - the Helm chart `oci://ghcr.io/soliddowant/charts/harbor-operator`, version `<version>`;
 - the GitHub release `v<version>`, whose notes are exactly the `## <version>` section of `CHANGELOG.md`. Never use GitHub's generated notes (`--generate-notes`).
 
-The tag's release workflow (`.github/workflows/release.yml`) builds and pushes the image and chart and creates the GitHub release with its own `GITHUB_TOKEN`. You only push the tag.
+The tag starts the Tekton release PipelineRun (`.tekton/release.yaml`, the shared release Pipeline). It runs as `ci-release`, builds and pushes what `ci.yaml`'s `release` lists (the image and the chart), then the same task creates the GitHub release from the `## <version>` section of `CHANGELOG.md`, through githubgate. You only push the tag.
 
 ## Hard limits
 
@@ -52,12 +52,12 @@ The tag's release workflow (`.github/workflows/release.yml`) builds and pushes t
 
    Open the PR (`chore(release): <version>`), arm auto-merge on its head after a self-check like any other PR, and hand back with `HANDOFF: wait-pr #<PR>`: the scheduler resumes you once it has merged (or closed: then find out why before going on). Then continue on the merge commit.
 4. **Gates on the exact merge commit** (detached checkout of it in your worktree; background each long run and poll with `scripts/agents/wait-for.sh`):
-   - CI's `checks` is green for that commit on `master` (`gh run list --branch master --commit <sha>`).
+   - CI is green for that commit on `master`: the push PipelineRun's check run (named `Tekton CI / harbor-operator-push-`) has the conclusion `success` (`gh api repos/solidDoWant/harbor-operator/commits/<sha>/check-runs --jq '.check_runs[] | select(.name | startswith("Tekton CI")) | .conclusion'`). If it failed, the `stage: <name>` check runs of the commit name the failed stages.
    - `make acceptance` shows every automated scenario of the phase passing (the scoreboard reads the checklist's `Tests:` lines; it fails if a line names a missing test). Manual scenarios do not gate the release; don't list them as open items or known issues.
    - `govulncheck ./...` is clean, or every finding is listed under Known issues with a reason it is not reachable.
    - `make release VERSION=<version>` (dry run) succeeds; keep its log.
-5. **Publish** from the clean detached checkout of the merge commit: `git tag -a v<version> -m v<version> <sha>` and `git push origin v<version>`. The tag's release workflow builds and pushes the image and chart and creates the GitHub release with the CHANGELOG section as notes. Never push the image or chart, or create the release, yourself.
-6. **Verify.** Find the tag's workflow run and wait for it with `scripts/agents/wait-for.sh` on a background `gh run watch <run-id> --exit-status` log (never block a tool call on it). If it fails, read the log (`gh run view <run-id> --log-failed`) and re-run it only for a transient cause; otherwise stop and report (`HANDOFF: blocked`). Then check:
+5. **Publish** from the clean detached checkout of the merge commit: `git tag -a v<version> -m v<version> <sha>` and `git push origin v<version>`. The tag's release PipelineRun builds and pushes the image and chart and creates the GitHub release with the CHANGELOG section as notes. Never push the image or chart, or create the release, yourself.
+6. **Verify.** Wait for the release PipelineRun's check run on the tagged commit (named `Tekton CI / harbor-operator-release-`): poll `gh api repos/solidDoWant/harbor-operator/commits/<sha>/check-runs` from a background loop that logs its conclusion, and wait on that log with `scripts/agents/wait-for.sh` (never block a tool call on it). If it fails, the check run's details link to the PipelineRun log (or use the toolgate `tekton` tools). `/retest` is refused for releases, and every step is safe to repeat: for a transient cause, report it and hand back `HANDOFF: blocked` so the owner re-runs it; otherwise stop and report (`HANDOFF: blocked`). **If the run failed, create no GitHub release yourself.** Then check:
    - `gh release view v<version>` shows the notes equal to the `CHANGELOG.md` section (latest for a final version, a pre-release for `-rc.K`);
    - `crane manifest ghcr.io/soliddowant/harbor-operator:<version>` resolves and lists linux/amd64 and linux/arm64;
    - `helm show chart oci://ghcr.io/soliddowant/charts/harbor-operator --version <version>` resolves.

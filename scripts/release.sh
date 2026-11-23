@@ -2,10 +2,11 @@
 # Dry run of a release (`make release VERSION=x.y.z`): checks the version, that
 # CHANGELOG.md has its section (the release notes), that the binary, image and
 # chart build, and that the packaged chart's version and default image tag are
-# the release version. It prints what the release workflow would push. It never
-# tags or pushes. Publishing is pushing the tag v$VERSION: the release workflow
-# (.github/workflows/release.yml) then builds and pushes the image and chart and
-# creates the GitHub release.
+# the release version. It prints what the release run would push. It never
+# tags or pushes. Publishing is pushing the tag v$VERSION: the Tekton release
+# run (.tekton/release.yaml, the shared release Pipeline with ci.yaml's
+# `release`) then builds and pushes the image and chart and creates the GitHub
+# release.
 #
 # SKIP_BUILD=true skips the binary and image builds (tests only).
 set -euo pipefail
@@ -29,7 +30,7 @@ if [[ "${SKIP_BUILD:-false}" != "true" ]]; then
 fi
 make --no-print-directory chart-lint
 
-# The workflow packages the chart with --version and --app-version set to the
+# The release run packages the chart with --version and --app-version set to the
 # release version; check that the result is what a user would install.
 chart=deploy/charts/harbor-operator
 outdir=$(mktemp -d)
