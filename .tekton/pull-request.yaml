@@ -30,8 +30,11 @@ spec:
       value: "{{ pull_request_number }}"
     # The stages' CPU budget, the dind sidecar's CPU request below: three
     # Harbor kind clusters (integration and two e2e) and -race tests at once.
+    # 6, not 12: the stages average under half a core each (the stage table's
+    # CPU column), and a 12-CPU request fit on no node beside the cluster's
+    # other reservations (2026-11-23).
     - name: cpus
-      value: "12"
+      value: "6"
   timeouts:
     pipeline: 1h
   workspaces:
@@ -51,7 +54,7 @@ spec:
         - name: dind
           computeResources:
             requests:
-              cpu: "12"
+              cpu: "6"
               memory: 10Gi
             limits:
               memory: 10Gi
