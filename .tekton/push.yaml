@@ -40,16 +40,17 @@ spec:
       serviceAccountName: ci-report
     # Every stage runs inside the dind sidecar's cgroup, so its memory is the
     # memory of all stages together: 1.5 times the measured peak (the stage
-    # table prints it). No CPU limit; the request is the stages' CPU budget.
+    # table prints it; 6.3 GiB on 2026-11-23). No CPU limit; the request is the
+    # stages' CPU budget.
     - pipelineTaskName: ci
       sidecarSpecs:
         - name: dind
           computeResources:
             requests:
               cpu: "12"
-              memory: 20Gi
+              memory: 10Gi
             limits:
-              memory: 20Gi
+              memory: 10Gi
       stepSpecs:
         - name: run
           computeResources:
