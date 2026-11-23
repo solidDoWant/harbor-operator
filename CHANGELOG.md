@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.4.1-rc.1
+
+harbor-operator is a Kubernetes operator that configures an existing Harbor registry through custom resources. It does not install Harbor. This release is a candidate (a test version before the final release) for 0.4.1. It fixes how the operator replaces robots and which permissions it asks for, adds a command that prints the robot permissions it needs, and changes how the chart selects Grafana instances. To install or upgrade, run `helm upgrade --install harbor-operator oci://ghcr.io/soliddowant/charts/harbor-operator --version 0.4.1-rc.1 --namespace harbor-operator --create-namespace`.
+
+### Upgrade notes
+
+- If you enabled `grafanaDashboard.grafanaOperator.enabled` and relied on the default instance selector, set `grafanaDashboard.grafanaOperator.instanceSelector` yourself, for example to `matchLabels: {dashboards: grafana}`. The chart no longer has a default and fails to render without one. Your selector is also no longer merged with a default. ([#185](https://github.com/solidDoWant/harbor-operator/pull/185))
+- The `GrafanaDashboard` object's name now includes a hash of `instanceSelector`. On upgrade, Helm deletes the old dashboard object and creates the new one. ([#192](https://github.com/solidDoWant/harbor-operator/pull/192))
+
+### Robots and permissions
+
+- The new `harbor-operator permissions` command prints the robot permissions the operator needs, as a `HarborSystemRobot` spec. ([#194](https://github.com/solidDoWant/harbor-operator/pull/194))
+- The operator now lists `quota:list` as a required system permission for projects, because it reads and sets storage quotas. Before, a connection's `PermissionsSufficient` condition was `True` for a robot without it. ([#188](https://github.com/solidDoWant/harbor-operator/pull/188))
+
+### Using kubectl
+
+- Every kind is in the `harbor` category, so `kubectl get harbor -A` lists all of them, and every kind has a short name. ([#187](https://github.com/solidDoWant/harbor-operator/pull/187))
+
+### Fixes
+
+- A robot replaced through a system-robot connection is no longer replaced a second time from a stale cached read. Before, that could leave the robot's Secret with a secret Harbor no longer accepted. ([#197](https://github.com/solidDoWant/harbor-operator/pull/197))
+
+Internal work: CI and releases run on the shared Tekton Pipelines instead of GitHub Actions, the test harness retries kind cluster creation on host port conflicts and a test retries finalizer removal, and the project's agents act as the GitHub App through githubgate interception ([#193](https://github.com/solidDoWant/harbor-operator/pull/193), [#196](https://github.com/solidDoWant/harbor-operator/pull/196), [#203](https://github.com/solidDoWant/harbor-operator/pull/203), [#204](https://github.com/solidDoWant/harbor-operator/pull/204)).
+
+### Known issues
+
+None.
+
 ## 0.4.0
 
 harbor-operator is a Kubernetes operator that configures an existing Harbor registry through custom resources. It does not install Harbor. With this release, the operator can manage its own Harbor robot account through its own custom resources, so you no longer make that robot by hand. The release also adds a check of the permissions of each connection, and an option that deletes the images of a project together with the project. To install or upgrade, run `helm upgrade --install harbor-operator oci://ghcr.io/soliddowant/charts/harbor-operator --version 0.4.0 --namespace harbor-operator --create-namespace`. The chart also updates the custom resource definitions. The [credentials guide](https://github.com/solidDoWant/harbor-operator/blob/v0.4.0/docs/admin/credentials.md) tells you how to set up the operator's robot.

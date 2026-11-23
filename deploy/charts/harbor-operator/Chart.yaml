@@ -2,5 +2,5 @@ apiVersion: v2
 name: harbor-operator
 description: Configures an existing Harbor registry through custom resources.
 type: application
-version: 0.4.0
-appVersion: 0.4.0
+version: 0.4.1-rc.1
+appVersion: 0.4.1-rc.1
