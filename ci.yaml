@@ -1,0 +1,64 @@
+# CI for the shared Tekton Pipelines (infra-mk3's container images/ci-tools,
+# whose ci-config documents this format). Every stage runs at once, in the CI
+# image built from flake.nix.
+version: 1
+image:
+  inputs:
+    - path: go.mod
+      lines: '^(module|go|toolchain) '
+# Files that cannot change what the build or the tests produce.
+not-code:
+  - "*.md"
+  - "docs/**"
+  - ".claude/**"
+  - "LICENSE"
+  - ".github/renovate.json5"
+  - ".github/renovate/**"
+stages:
+  lint:
+    run: make lint
+  unit:
+    run: make test && make build
+  generate:
+    run: make check-generate
+    own-tree: true
+  integration:
+    # Harbor on its own kind cluster (test/harbor/up.sh, harbor-op-int).
+    run: make test-integration
+    kind: true
+  # The e2e suite against the two Harbor minor releases in
+  # test/harbor/versions.yaml, each on its own kind cluster with a fixed name
+  # (its node keeps its image cache between builds). The stages pick the
+  # entries by position, so moving the pair to a new minor needs no change here.
+  e2e-harbor-newest:
+    run: >-
+      HARBOR_VERSION="$(./scripts/ci/harbor-versions.py matrix | python3 -c 'import json, sys; print(json.load(sys.stdin)[0])')"
+      E2E_CLUSTER=harbor-op-ci-newest make test-e2e
+    kind: true
+  e2e-harbor-previous:
+    run: >-
+      HARBOR_VERSION="$(./scripts/ci/harbor-versions.py matrix | python3 -c 'import json, sys; print(json.load(sys.stdin)[1])')"
+      E2E_CLUSTER=harbor-op-ci-previous make test-e2e
+    kind: true
+  docs:
+    run: make docs-check && ./scripts/check-tracking-ids.py
+    # The style report is advisory.
+    run-pull-request: make docs-check && ./scripts/check-tracking-ids.py && { ./scripts/docs/style_report.sh origin/master || true; }
+    paths:
+      - "**/*.md"
+      - "scripts/docs/**"
+  scoreboard:
+    # The scoreboard's tests read the real checklist; the unit stage runs
+    # them too when code changed.
+    run: ./scripts/acceptance-scoreboard_test.py
+    paths:
+      - "docs/acceptance/**"
+    push: false
+test-guard: true
+release:
+  build: make build-images VERSION="$RELEASE_VERSION" PUSH_ALL=true
+  images:
+    - ghcr.io/soliddowant/harbor-operator
+  charts:
+    - deploy/charts/harbor-operator
+  chart-registry: oci://ghcr.io/soliddowant/charts

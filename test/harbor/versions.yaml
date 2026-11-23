@@ -1,6 +1,7 @@
 # The Harbor minor releases the e2e suite runs against: the two most recent.
-# CI makes one job per entry (scripts/ci/harbor-versions.py prints them as a
-# JSON matrix); test/harbor/up.sh installs the entry named by HARBOR_VERSION
+# CI runs one e2e stage per entry, by position (ci.yaml: e2e-harbor-newest is
+# the first, e2e-harbor-previous the second; scripts/ci/harbor-versions.py
+# matrix prints them); test/harbor/up.sh installs the entry named by HARBOR_VERSION
 # (default: the first). One entry per line group, keys in this order. The
 # first entry is also what the integration tests use.
 #

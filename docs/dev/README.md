@@ -15,7 +15,7 @@ harbor-operator is in early development. The pages on the architecture are not w
 
 ## Harbor versions
 
-The e2e tests run against the two most recent Harbor minor releases. `test/harbor/versions.yaml` lists them. CI starts one `e2e` job for each entry, and the required `checks` job needs all of them. To run one release on your machine, set `HARBOR_VERSION` to the minor, for example `HARBOR_VERSION=2.14 make test-e2e`. Without it, `test/harbor/up.sh` installs the first entry.
+The e2e tests run against the two most recent Harbor minor releases. `test/harbor/versions.yaml` lists them. CI runs the e2e suite once for each entry: the `e2e-harbor-newest` stage for the first and `e2e-harbor-previous` for the second, each on its own kind cluster (`ci.yaml`). To run one release on your machine, set `HARBOR_VERSION` to the minor, for example `HARBOR_VERSION=2.14 make test-e2e`. Without it, `test/harbor/up.sh` installs the first entry.
 
 An entry names a Harbor chart and its version. It can also name a file of extra Helm values (for example `test/harbor/values-2.14.yaml`) that pins the images of that release. The first entry also serves the integration tests.
 

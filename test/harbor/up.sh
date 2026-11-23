@@ -44,8 +44,9 @@ create_cluster() {
 	port="${HARBOR_HOST_PORT:-$(free_port)}"
 	upstream_port="$(free_port)"
 	log "creating kind cluster $cluster (host port $port)"
-	if out="$(kind create cluster --name "$cluster" --image "$node_image" --wait 120s --config <(
-		cat <<YAML
+	local config
+	config="$(mktemp)"
+	cat >"$config" <<YAML
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
@@ -60,7 +61,16 @@ nodes:
         listenAddress: 127.0.0.1
         protocol: TCP
 YAML
-	) 2>&1)"; then
+	local status=0
+	if command -v ci-kind-config >/dev/null; then
+		# Tekton CI: the node pulls through the CI cluster's registrygate and
+		# keeps its image cache between builds, keyed by the cluster's name.
+		out="$(ci-kind-config --name "$cluster" --image "$node_image" "$config" | kind create cluster --wait 120s --config=- 2>&1)" || status=$?
+	else
+		out="$(kind create cluster --name "$cluster" --image "$node_image" --wait 120s --config "$config" 2>&1)" || status=$?
+	fi
+	rm -f "$config"
+	if ((status == 0)); then
 		echo "$out" >&2
 		return 0
 	fi
